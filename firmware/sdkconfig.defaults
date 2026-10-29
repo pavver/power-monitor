@@ -1,0 +1,6 @@
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+# 1 ms ticks: the sensor samples the optocoupler once per millisecond.
+CONFIG_FREERTOS_HZ=1000
+# Phones send long headers to captive portals.
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=512

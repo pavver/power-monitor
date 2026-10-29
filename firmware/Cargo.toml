@@ -1,0 +1,26 @@
+[package]
+name = "power-monitor"
+version = "0.1.0"
+edition = "2021"
+description = "ESP32 firmware: watches mains voltage and reports changes to Telegram"
+
+[[bin]]
+name = "power-monitor"
+harness = false # no host tests here; the logic lives in power-core
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+anyhow = "1"
+log = "0.4"
+embedded-svc = "0.29"
+esp-idf-svc = "0.53"
+power-core = { path = "../power-core" }
+
+[build-dependencies]
+embuild = "0.33"
