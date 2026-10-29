@@ -4,8 +4,10 @@ use crate::power::{PowerEvent, PowerState};
 use crate::settings::{Messages, Text};
 use crate::template;
 
-/// Events delivered later than this get a note saying when they happened,
-/// since Wi-Fi is often down together with the power.
+/// Power changes delivered later than this get a note saying when they
+/// happened, since Wi-Fi is often down together with the power. Start-up
+/// messages never do: they wait for Wi-Fi and the bot, so the delay is not
+/// the time of any event.
 const LATE_AFTER_MS: u64 = 60_000;
 
 /// Human-readable duration in Ukrainian, at most two units: "2 год 15 хв".
@@ -35,7 +37,7 @@ pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64) -> Strin
     let duration = format_duration(event.previous_lasted_ms.unwrap_or(0));
     let mut out = template::render(messages.template(text), messages.device_name(), &duration);
     let delay = now_ms.saturating_sub(event.at_ms);
-    if delay >= LATE_AFTER_MS {
+    if event.previous_lasted_ms.is_some() && delay >= LATE_AFTER_MS {
         out += &format!("\n(сталося {} тому)", format_duration(delay));
     }
     out
@@ -165,6 +167,16 @@ mod tests {
             event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN),
             "🔴 Дім: світло зникло.\nБуло 5 хв.\n(сталося 12 хв тому)"
         );
+    }
+
+    #[test]
+    fn late_start_up_message_has_no_time_note() {
+        // The start is reported once Wi-Fi and the bot work, often long after
+        // boot; the delay says nothing about when anything happened.
+        for state in [Present, Absent] {
+            let text = event_text(&Messages::default(), &event(state, None), 10 * SEC + 30 * MIN);
+            assert!(!text.contains("тому"), "{text}");
+        }
     }
 
     #[test]
