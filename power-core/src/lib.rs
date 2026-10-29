@@ -15,3 +15,6 @@ pub mod auth;
 pub mod reset;
 pub mod portal;
 pub mod radio;
+pub mod jk;
+#[cfg(test)]
+mod jk_frames;
