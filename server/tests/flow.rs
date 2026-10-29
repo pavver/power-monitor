@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{header, HeaderMap, Request, StatusCode};
-use axum::Router;
 use remote_server::{App, Config};
 use serde_json::Value;
 use tower::ServiceExt;
@@ -13,12 +12,12 @@ use tower::ServiceExt;
 const ID: &str = "0123456789abcdef";
 const SECRET: &str = "00112233445566778899aabbccddeeff";
 
-fn app() -> Router {
-    App::new(Config { admin_password: "correct horse battery".into(), data: None }).router()
+fn app() -> App {
+    App::new(Config { admin_password: "correct horse battery".into(), data: None })
 }
 
-async fn call(app: &Router, request: Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
-    let response = app.clone().oneshot(request).await.unwrap();
+async fn call(app: &App, request: Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
+    let response = app.clone().router().oneshot(request).await.unwrap();
     let (parts, body) = response.into_parts();
     (parts.status, parts.headers, to_bytes(body, usize::MAX).await.unwrap().to_vec())
 }
@@ -34,19 +33,32 @@ fn device(method: &str, uri: &str, secret: &str, body: impl Into<Body>) -> Reque
         .unwrap()
 }
 
-async fn checkin(app: &Router) -> Value {
+async fn checkin(app: &App) -> Value {
     let (status, _, body) = call(app, device("POST", "/device/checkin", SECRET, "name=%D0%94%D1%96%D0%BC&version=0.1.0")).await;
     assert_eq!(status, StatusCode::OK);
     serde_json::from_slice(&body).unwrap()
 }
 
-/// Logs in and returns the cookie header for a browser that picked the device.
-async fn admin(app: &Router) -> String {
-    let login = Request::post("/admin/login")
+fn login(form: &str) -> Request<Body> {
+    Request::post("/admin/login")
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(Body::from("password=correct+horse+battery"))
-        .unwrap();
-    let (_, headers, _) = call(app, login).await;
+        .body(Body::from(form.to_string()))
+        .unwrap()
+}
+
+/// The captcha on the login page: its id and, peeked from the server, the answer.
+async fn captcha(app: &App) -> (String, String) {
+    let (_, _, page) = call(app, Request::get("/admin").body(Body::empty()).unwrap()).await;
+    let page = String::from_utf8(page).unwrap();
+    let id = page.split("name=captcha_id value=").nth(1).unwrap()[..32].to_string();
+    let answer = app.captcha_answer(&id).unwrap();
+    (id, answer)
+}
+
+/// Logs in and returns the cookie header for a browser that picked the device.
+async fn admin(app: &App) -> String {
+    let (id, answer) = captcha(app).await;
+    let (_, headers, _) = call(app, login(&format!("password=correct+horse+battery&captcha_id={id}&captcha={answer}"))).await;
     let set = headers.get(header::SET_COOKIE).unwrap().to_str().unwrap();
     let token = set.split(';').next().unwrap().to_string();
     format!("{token}; svitlo_device={ID}; session=panel-token")
@@ -138,12 +150,52 @@ async fn the_relay_needs_the_admin() {
     let (status, headers, _) = call(&app, browser("GET", "/api/state", &format!("svitlo_device={ID}"), "")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION], "/admin");
-    let wrong = Request::post("/admin/login")
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(Body::from("password=guess"))
-        .unwrap();
-    let (_, headers, _) = call(&app, wrong).await;
+    let (id, answer) = captcha(&app).await;
+    let (_, headers, _) = call(&app, login(&format!("password=guess&captcha_id={id}&captcha={answer}"))).await;
     assert!(headers.get(header::SET_COOKIE).is_none());
+    assert_eq!(headers[header::LOCATION], "/admin?wrong");
+}
+
+// Paused time: failed logins wait a second.
+#[tokio::test(start_paused = true)]
+async fn the_password_alone_does_not_log_in() {
+    let app = app();
+    let (id, answer) = captcha(&app).await;
+    let (_, headers, _) = call(&app, login("password=correct+horse+battery")).await;
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    assert_eq!(headers[header::LOCATION], "/admin?captcha");
+
+    let wrong = if answer == "00000" { "11111" } else { "00000" };
+    let (_, headers, _) = call(&app, login(&format!("password=correct+horse+battery&captcha_id={id}&captcha={wrong}"))).await;
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    // A wrong guess uses the captcha up.
+    let (_, headers, _) = call(&app, login(&format!("password=correct+horse+battery&captcha_id={id}&captcha={answer}"))).await;
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_solved_captcha_logs_in_once() {
+    let app = app();
+    let (id, answer) = captcha(&app).await;
+    let form = format!("password=correct+horse+battery&captcha_id={id}&captcha={answer}");
+    let (_, headers, _) = call(&app, login(&form)).await;
+    assert!(headers.get(header::SET_COOKIE).is_some());
+    let (_, headers, _) = call(&app, login(&form)).await;
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+#[tokio::test]
+async fn the_captcha_is_a_picture_without_text() {
+    let app = app();
+    let (id, _) = captcha(&app).await;
+    let (status, headers, body) = call(&app, Request::get(format!("/admin/captcha/{id}")).body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/svg+xml");
+    let svg = String::from_utf8(body).unwrap();
+    assert!(svg.starts_with("<svg") && svg.contains("<path"));
+    assert!(!svg.contains("<text"));
+    let (status, _, _) = call(&app, Request::get(format!("/admin/captcha/{}", "0".repeat(32))).body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

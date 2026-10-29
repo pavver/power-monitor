@@ -8,6 +8,8 @@
 //! admin cookie. Any path outside `/admin` and `/device` goes to the device
 //! picked with "Відкрити панель".
 
+pub mod captcha;
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -100,6 +102,7 @@ struct Inner {
     devices: Mutex<HashMap<String, Device>>,
     links: Mutex<HashMap<String, Arc<Link>>>,
     admins: Mutex<HashSet<String>>,
+    captchas: Mutex<captcha::Challenges>,
 }
 
 #[derive(Clone)]
@@ -118,6 +121,7 @@ impl App {
             devices: Mutex::new(devices),
             links: Mutex::default(),
             admins: Mutex::default(),
+            captchas: Mutex::default(),
         }))
     }
 
@@ -129,6 +133,7 @@ impl App {
             .route("/device/reply/{rid}", post(reply))
             .route("/admin", get(admin_page))
             .route("/admin/login", post(login))
+            .route("/admin/captcha/{id}", get(captcha_image))
             .route("/admin/devices/{id}/waiting", post(set_waiting))
             .route("/admin/devices/{id}/open", get(open_panel))
             .route("/admin/devices/{id}/end", post(end_session))
@@ -163,6 +168,11 @@ impl App {
         }
         device.last_seen = unix_now();
         Ok(identity.id)
+    }
+
+    /// The answer to an open login captcha, for tests and tooling.
+    pub fn captcha_answer(&self, id: &str) -> Option<String> {
+        self.0.captchas.lock().unwrap().answer(id)
     }
 
     fn is_admin(&self, headers: &HeaderMap) -> bool {
@@ -356,12 +366,24 @@ async fn relay(State(app): State<App>, request: Request) -> Response {
 #[derive(Deserialize)]
 struct LoginForm {
     password: String,
+    #[serde(default)]
+    captcha_id: String,
+    #[serde(default)]
+    captcha: String,
 }
 
 async fn login(State(app): State<App>, Form(form): Form<LoginForm>) -> Response {
-    if !same(&sha256(&form.password), &sha256(&app.0.config.admin_password)) {
+    let solved = app.0.captchas.lock().unwrap().check(&form.captcha_id, &form.captcha, Instant::now());
+    let failure = if !solved {
+        Some("/admin?captcha")
+    } else if !same(&sha256(&form.password), &sha256(&app.0.config.admin_password)) {
+        Some("/admin?wrong")
+    } else {
+        None
+    };
+    if let Some(page) = failure {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        return Redirect::to("/admin?wrong").into_response();
+        return Redirect::to(page).into_response();
     }
     let token = random_hex(16);
     app.0.admins.lock().unwrap().insert(token.clone());
@@ -443,14 +465,28 @@ const STYLE: &str = "<style>body{font:15px/1.4 system-ui,sans-serif;max-width:90
 table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:8px;text-align:left;vertical-align:top}\
 form{display:inline}button{margin:2px 4px 2px 0}small{color:#666}.on{color:#1a7f37;font-weight:600}</style>";
 
+async fn captcha_image(State(app): State<App>, Path(id): Path<String>) -> Response {
+    match app.0.captchas.lock().unwrap().image(&id) {
+        Some(svg) => ([(header::CONTENT_TYPE, "image/svg+xml"), (header::CACHE_CONTROL, "no-store")], svg).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 async fn admin_page(State(app): State<App>, headers: HeaderMap, request: Request) -> Response {
     if !app.is_admin(&headers) {
-        let wrong = request.uri().query() == Some("wrong");
+        let problem = match request.uri().query() {
+            Some("wrong") => "<p style=color:#cf222e>Невірний пароль.</p>",
+            Some("captcha") => "<p style=color:#cf222e>Невірні цифри з картинки.</p>",
+            _ => "",
+        };
+        let id = app.0.captchas.lock().unwrap().issue(&mut rand::rng(), Instant::now());
         return Html(format!(
             "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>Вхід</title>{STYLE}\
-             <h1>Віддалена підтримка</h1>{}<form method=post action=/admin/login>\
-             <input type=password name=password autofocus placeholder=Пароль> <button>Увійти</button></form>",
-            if wrong { "<p style=color:#cf222e>Невірний пароль.</p>" } else { "" }
+             <h1>Віддалена підтримка</h1>{problem}<form method=post action=/admin/login>\
+             <input type=password name=password autofocus placeholder=Пароль> \
+             <img src=/admin/captcha/{id} alt=Капча width=200 height=64> \
+             <input type=hidden name=captcha_id value={id}><input name=captcha inputmode=numeric autocomplete=off placeholder=Цифри> \
+             <button>Увійти</button></form>"
         ))
         .into_response();
     }
