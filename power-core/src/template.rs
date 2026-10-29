@@ -75,11 +75,12 @@ pub fn uses_bms(template: &str) -> bool {
     placeholders(template).any(|name| jk::VARIABLES.contains(&name))
 }
 
-/// Names written as `{name}`, where a name is ASCII letters and underscores.
+/// Names written as `{name}`: an ASCII letter, then letters, digits and underscores.
 fn placeholders(template: &str) -> impl Iterator<Item = &str> {
     template.split('{').skip(1).filter_map(|rest| {
         let (name, _) = rest.split_once('}')?;
-        let is_name = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphabetic() || b == b'_');
+        let is_name = name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+            && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
         is_name.then_some(name)
     })
 }
@@ -110,6 +111,7 @@ mod tests {
     fn accepts_battery_values_in_every_message() {
         assert_eq!(validate("{bms_soc}% {bms_voltage} В {bms_cell_delta}", false), Ok(()));
         assert_eq!(validate("{bms_nonsense}", false), Err(TemplateError::Unknown));
+        assert_eq!(validate("{bms_temp3}", false), Err(TemplateError::Unknown));
     }
 
     #[test]
@@ -117,6 +119,7 @@ mod tests {
         assert!(uses_bms("Заряд {bms_soc}%"));
         assert!(!uses_bms("{device}: {duration}"));
         assert!(!uses_bms("bms_soc без дужок"));
+        assert!(uses_bms("Датчик {bms_temp1}°"));
     }
 
     #[test]
