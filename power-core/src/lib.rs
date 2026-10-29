@@ -9,3 +9,4 @@ pub mod outbox;
 pub mod telegram;
 pub mod template;
 pub mod settings;
+pub mod api;
