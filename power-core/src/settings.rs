@@ -14,6 +14,7 @@ pub enum SettingsError {
     WifiPassword,
     BotToken,
     ChatId,
+    ThreadId,
     DeviceName,
     Text(Text, TemplateError),
 }
@@ -29,6 +30,7 @@ impl fmt::Display for SettingsError {
                 f.write_str("Токен бота має вигляд 123456789:AAH… — скопіюйте його з @BotFather.")
             }
             SettingsError::ChatId => f.write_str("Chat ID має бути цілим числом."),
+            SettingsError::ThreadId => f.write_str("Номер гілки форуму має бути додатним цілим числом."),
             SettingsError::DeviceName => f.write_str("Назва пристрою має бути від 1 до 32 символів."),
             SettingsError::Text(text, error) => write!(f, "{}: {error}.", text.label()),
         }
@@ -95,33 +97,49 @@ impl BotToken {
     }
 }
 
+/// Where reports go: a chat, and in a forum group optionally one topic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Destination {
+    pub chat_id: i64,
+    pub thread_id: Option<i64>,
+}
+
 /// The bot and the chat it reports to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bot {
     token: BotToken,
-    chat_id: i64,
+    to: Destination,
 }
 
 impl Bot {
-    /// Reads the `token` and `chat_id` fields.
+    /// Reads the `token`, `chat_id` and optional `thread_id` fields.
     pub fn from_form(body: &str) -> Result<Self, SettingsError> {
         let fields = form::parse(body);
+        let thread_id = match form::field(&fields, "thread_id").trim() {
+            "" => None,
+            text => Some(text.parse().ok().filter(|id: &i64| *id > 0).ok_or(SettingsError::ThreadId)?),
+        };
         Ok(Self {
             token: BotToken::parse(form::field(&fields, "token"))?,
-            chat_id: form::field(&fields, "chat_id").trim().parse().map_err(|_| SettingsError::ChatId)?,
+            to: Destination {
+                chat_id: form::field(&fields, "chat_id").trim().parse().map_err(|_| SettingsError::ChatId)?,
+                thread_id,
+            },
         })
     }
 
     pub fn to_form(&self) -> String {
-        form::encode(&[("token", self.token.as_str()), ("chat_id", &self.chat_id.to_string())])
+        let chat_id = self.to.chat_id.to_string();
+        let thread_id = self.to.thread_id.map(|id| id.to_string()).unwrap_or_default();
+        form::encode(&[("token", self.token.as_str()), ("chat_id", &chat_id), ("thread_id", &thread_id)])
     }
 
     pub fn token(&self) -> &BotToken {
         &self.token
     }
 
-    pub fn chat_id(&self) -> i64 {
-        self.chat_id
+    pub fn destination(&self) -> Destination {
+        self.to
     }
 }
 
@@ -289,8 +307,28 @@ mod tests {
     #[test]
     fn bot_reads_token_and_chat_id() {
         let bot = Bot::from_form(&form::encode(&[("token", TOKEN), ("chat_id", " -1001234 ")])).unwrap();
-        assert_eq!((bot.token().as_str(), bot.chat_id()), (TOKEN, -1001234));
+        assert_eq!((bot.token().as_str(), bot.destination().chat_id), (TOKEN, -1001234));
         assert_eq!(Bot::from_form(&bot.to_form()), Ok(bot));
+    }
+
+    #[test]
+    fn bot_reads_an_optional_forum_topic() {
+        let body = form::encode(&[("token", TOKEN), ("chat_id", "-1001234"), ("thread_id", " 77 ")]);
+        let bot = Bot::from_form(&body).unwrap();
+        assert_eq!(bot.destination(), Destination { chat_id: -1001234, thread_id: Some(77) });
+        assert_eq!(Bot::from_form(&bot.to_form()), Ok(bot));
+        // Saved before topics existed, or a chat without them.
+        let plain = Bot::from_form(&form::encode(&[("token", TOKEN), ("chat_id", "42")])).unwrap();
+        assert_eq!(plain.destination(), Destination { chat_id: 42, thread_id: None });
+        assert_eq!(Bot::from_form(&plain.to_form()), Ok(plain));
+    }
+
+    #[test]
+    fn bot_rejects_bad_thread_id() {
+        for thread_id in ["abc", "0", "-5", "1.5"] {
+            let body = form::encode(&[("token", TOKEN), ("chat_id", "-100"), ("thread_id", thread_id)]);
+            assert_eq!(Bot::from_form(&body), Err(SettingsError::ThreadId), "{thread_id}");
+        }
     }
 
     #[test]
