@@ -21,7 +21,8 @@ use std::time::Duration;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use power_core::reset::{self, BootAction, QUICK_BOOT_MS};
+use esp_idf_svc::hal::reset::ResetReason;
+use power_core::reset::{self, BootAction, Start, QUICK_BOOT_MS};
 
 use crate::settings::Settings;
 use crate::status::Status;
@@ -54,8 +55,11 @@ fn main() -> anyhow::Result<()> {
 
 /// Five power cycles in a row, each within 10 s of start-up, wipe the
 /// settings: the way back in for someone who forgot the page password.
+/// Only real power-ons count; brownouts and crashes leave the count alone.
 fn count_quick_boot(settings: &Arc<Settings>) -> anyhow::Result<()> {
-    match reset::on_boot(settings.quick_boots()) {
+    let reason = ResetReason::get();
+    let start = if reason == ResetReason::PowerOn { Start::PowerOn } else { Start::Other };
+    match reset::on_boot(settings.quick_boots(), start) {
         BootAction::FactoryReset => {
             log::warn!("factory reset: {} quick start-ups in a row", reset::QUICK_BOOTS_FOR_RESET);
             settings.factory_reset()?;
@@ -64,14 +68,15 @@ fn count_quick_boot(settings: &Arc<Settings>) -> anyhow::Result<()> {
         BootAction::Count(count) => {
             log::info!("quick start-up {count} of {}", reset::QUICK_BOOTS_FOR_RESET);
             settings.set_quick_boots(count)?;
-            let settings = settings.clone();
-            thread::spawn(move || {
-                thread::sleep(Duration::from_millis(QUICK_BOOT_MS));
-                if let Err(error) = settings.set_quick_boots(0) {
-                    log::error!("clearing quick start-ups: {error}");
-                }
-            });
         }
+        BootAction::Keep => log::warn!("started after {reason:?}, not a power-on: not counted"),
     }
+    let settings = settings.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(QUICK_BOOT_MS));
+        if let Err(error) = settings.set_quick_boots(0) {
+            log::error!("clearing quick start-ups: {error}");
+        }
+    });
     Ok(())
 }

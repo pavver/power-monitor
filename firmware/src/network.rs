@@ -90,7 +90,10 @@ pub fn start(
 impl Radio {
     fn boot(&mut self) -> anyhow::Result<()> {
         let saved = self.settings.wifi();
-        let station = saved.as_ref().map(client).transpose()?.unwrap_or_default();
+        // Without saved credentials the station only scans; an open threshold
+        // keeps the driver from warning about the empty password.
+        let idle = || ClientConfiguration { auth_method: AuthMethod::None, ..Default::default() };
+        let station = saved.as_ref().map(client).transpose()?.unwrap_or_else(idle);
         self.wifi.set_configuration(&Configuration::Client(station.clone()))?;
         self.wifi.start()?;
         if let Some(saved) = &saved {
