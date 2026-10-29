@@ -69,6 +69,15 @@ impl Power {
     }
 }
 
+/// The running firmware.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Firmware {
+    pub version: String,
+    pub built: String,
+    /// OTA slot it runs from, `ota_0` or `ota_1`.
+    pub slot: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct State<'a> {
     pub stage: Stage,
@@ -81,6 +90,7 @@ pub struct State<'a> {
     pub pending: usize,
     pub chat_id: Option<i64>,
     pub messages: &'a Messages,
+    pub firmware: &'a Firmware,
 }
 
 #[cfg(test)]
@@ -110,6 +120,7 @@ mod tests {
     fn state_serializes_for_the_page() {
         let link = Link::Connected { ssid: "Home".to_string(), ip: "192.168.1.5".to_string() };
         let messages = Messages::default();
+        let firmware = Firmware { version: "v1".into(), built: "Oct 29 2026".into(), slot: "ota_1".into() };
         let state = State {
             stage: Stage::Dashboard,
             power: Some(Power::new(PowerState::Present, 2 * 3_600_000 + 60_000)),
@@ -119,6 +130,7 @@ mod tests {
             pending: 0,
             chat_id: Some(42),
             messages: &messages,
+            firmware: &firmware,
         };
         let value = serde_json::to_value(&state).unwrap();
         assert_eq!(value["stage"], json!("dashboard"));
@@ -126,5 +138,6 @@ mod tests {
         assert_eq!(value["link"], json!({"state": "connected", "ssid": "Home", "ip": "192.168.1.5"}));
         assert_eq!(value["setup_ap"], json!(null));
         assert_eq!(value["messages"]["device_name"], json!("Дім"));
+        assert_eq!(value["firmware"], json!({"version": "v1", "built": "Oct 29 2026", "slot": "ota_1"}));
     }
 }

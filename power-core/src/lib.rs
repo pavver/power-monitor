@@ -10,3 +10,4 @@ pub mod telegram;
 pub mod template;
 pub mod settings;
 pub mod api;
+pub mod ota;
