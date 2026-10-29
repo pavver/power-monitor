@@ -96,6 +96,11 @@ async function runBms() {
   dev.bms = { battery: null, link: "off", error: null, device: null, reading: null, scanning: false, found: [] };
   dev.bmsPolls = 0;
   await route(page, dev);
+  // Plain http: the page copies through a hidden textarea; record what it copied.
+  await page.addInitScript(() => {
+    const copy = document.execCommand.bind(document);
+    document.execCommand = cmd => { if (cmd === "copy") window.copied = document.activeElement.value; return copy(cmd) || true; };
+  });
   await page.goto("http://192.168.1.50/");
   await page.waitForFunction(() => document.querySelector("section.on").id === "s-dashboard");
   await page.waitForTimeout(3500);
@@ -109,6 +114,9 @@ async function runBms() {
   await page.waitForFunction(() => document.getElementById("bms-head").textContent.includes("85%"), null, { timeout: 6000 });
   const cells = await page.$$eval("#bms-cells span", n => n.length);
   const shown = await page.$eval("#bms-values", n => n.textContent);
+  await page.click("#bms-values .item >> nth=0");
+  const copied = await page.evaluate(() => window.copied);
+  const copiedNote = await page.$eval("#bms-values .item", n => n.textContent);
   await page.screenshot({ path: OUT + "/bms-1-live.png", fullPage: true });
   await page.click("#back");
   await page.waitForSelector("#s-dashboard.on");
@@ -117,12 +125,14 @@ async function runBms() {
   const pollsAfter = dev.bmsPolls;
   await page.fill("#m-lost", "Батарея {bms_soc}%, {bms_temp1}°");
   const preview = await page.$eval("#m-lost", a => a.closest("div").parentElement.querySelector(".preview").textContent);
+  const chips = await page.$$eval(".chip", n => n.length);
   await browser.close();
   const ok = errors.length === 0 && pollsOnDashboard === 0 && pollsAfter === pollsLeaving && pollsLeaving > 0
     && dev.bmsSaved && dev.bmsSaved.address === "C8:47:8C:F2:7E:03" && dev.bmsSaved.random === ""
-    && cells === 4 && shown.includes("53.22 В") && preview === "Батарея 85%, 20.7°";
+    && cells === 4 && shown.includes("53.22 В") && preview === "Батарея 85%, 20.7°"
+    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0;
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, cells, preview, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, cells, preview, copied, copiedNote, chips, errors }));
 }
 
 /* Bot step: choosing a forum topic saves it as the destination. */

@@ -136,6 +136,7 @@ button.item{cursor:pointer}
 .item .txt{flex:1;min-width:0}
 .item .t{display:block;font-size:15px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item .s{display:block;font-size:11px;line-height:14px;color:var(--text-2)}
+.item .s.ok{color:var(--success)}
 .item .k{color:var(--text-2);flex:none}
 .item .v{flex:1;min-width:0;text-align:right;overflow-wrap:anywhere}
 .item .trail{flex:none;color:var(--text-2)}
@@ -173,9 +174,6 @@ button.item{cursor:pointer}
 .steps>li>div{flex:1;min-width:0}
 
 /* OperatorTemplateEditor */
-.chips{display:flex;flex-wrap:wrap;gap:calc(var(--du)*1);margin-top:calc(var(--du)*1)}
-.chip{min-height:calc(var(--du)*6);padding:calc(var(--du)*.75) calc(var(--du)*1.5);border:calc(var(--du)*.25) solid var(--divider);background:var(--surface-alt);
-  color:var(--accent);font-size:11px;line-height:14px;font-weight:700;cursor:pointer}
 .preview{margin-top:calc(var(--du)*1);padding:calc(var(--du)*1.5) calc(var(--du)*2);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--divider);
   white-space:pre-wrap;overflow-wrap:anywhere}
 .preview.bad{border-color:var(--error);color:var(--error)}
@@ -335,7 +333,8 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <p class="small muted">Змінні: <code>{device}</code> — назва пристрою, <code>{duration}</code> — скільки тривав попередній стан.
       Якщо повідомлення про зникнення чи появу світла доставлено із запізненням, пристрій сам допише, коли це сталося.
       Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
-    <p class="small muted" id="bms-vars"></p>
+    <p class="small muted">Значення батареї, наприклад <code>{bms_soc}</code>, копіюються одним натиском на рядок
+      на екрані «Батарея (BMS)». Перед таким повідомленням пристрій зчитає BMS; якщо вона недоступна, буде 🤷‍♂️.</p>
     <label class="cap" for="m-device_name">Назва пристрою</label>
     <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
     <div id="templates"></div>
@@ -387,6 +386,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
   <div class="card hidden" id="bms-live">
     <div class="power"><span class="badge big pending" id="bms-badge"></span>
       <div><b id="bms-head">—</b><span class="muted small" id="bms-sub"></span></div></div>
+    <p class="small muted">Натисніть рядок, щоб скопіювати змінну для тексту повідомлення.</p>
     <div class="list" id="bms-values"></div>
     <label class="cap">Комірки, В</label>
     <div class="cells" id="bms-cells"></div>
@@ -618,6 +618,20 @@ async function api(path, fields) {
   return data;
 }
 
+/* The page is plain http, where the clipboard API is often unavailable. */
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall back below */ }
+  }
+  const area = el("textarea", {readonly: "", style: "position:fixed;opacity:0"});
+  area.value = text;
+  document.body.append(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  return copied;
+}
+
 /* ---------- screens ---------- */
 $("back").append(icon("back"));
 function show(name) {
@@ -826,16 +840,7 @@ actionButton($("join-btn"), async () => {
 /* ---------- back to the home network ---------- */
 textField($("move-address"));
 actionButton($("copy-btn"), async () => {
-  const url = $("move-link").textContent;
-  // The page is plain http, where the clipboard API is often unavailable.
-  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(url);
-  const area = el("textarea", {readonly: "", style: "position:fixed;opacity:0"});
-  area.value = url;
-  document.body.append(area);
-  area.select();
-  const copied = document.execCommand("copy");
-  area.remove();
-  if (!copied) throw new Error("Не вдалося скопіювати — запишіть адресу.");
+  if (!await copyText($("move-link").textContent)) throw new Error("Не вдалося скопіювати — запишіть адресу.");
 }, {msg: "close-msg", keepIcon: true, ring: false, frame: null});
 
 actionButton($("close-btn"), async () => {
@@ -923,13 +928,8 @@ function fillMessages(messages) {
     const update = () => renderPreview(preview, area.value, vars);
     area.addEventListener("input", update);
     $("m-device_name").addEventListener("input", update);
-    const chips = el("div", {class: "chips"}, ...vars.map(v => {
-      const chip = el("button", {type: "button", class: "chip"}, v);
-      chip.onclick = () => { area.setRangeText(v, area.selectionStart, area.selectionEnd, "end"); area.focus(); update(); };
-      return chip;
-    }));
     update();
-    return el("div", {}, el("label", {class: "cap", for: "m-" + key}, title), wrap, chips, preview);
+    return el("div", {}, el("label", {class: "cap", for: "m-" + key}, title), wrap, preview);
   }));
 }
 
@@ -964,10 +964,6 @@ const BMS_VARS = [
 const BMS_SAMPLE = {bms_soc: "84", bms_voltage: "13.28", bms_current: "-2.0", bms_power: "-27", bms_remaining: "84.0",
   bms_capacity: "100.0", bms_cycles: "12", bms_cell_min: "3.318", bms_cell_max: "3.322", bms_cell_delta: "0.004",
   bms_temp1: "21.0", bms_temp2: "20.5", bms_mosfet: "25.0", bms_charging: "так", bms_discharging: "так"};
-$("bms-vars").append("Батарея (коли вибрано BMS): ",
-  ...BMS_VARS.flatMap(([name, label, unit], i) => [i ? "; " : "", el("code", {}, "{" + name + "}"),
-    " — " + label.toLowerCase() + (unit ? ", " + unit : "")]),
-  ". Перед таким повідомленням пристрій зчитає BMS; якщо вона недоступна, буде 🤷‍♂️.");
 
 /* Only this screen asks for the values: each request keeps the link up a little longer. */
 let bms = null;
@@ -997,8 +993,7 @@ function renderBms() {
     $("bms-badge").className = "badge big " + ({connected: "online", failed: "error"}[bms.link] || "pending");
     $("bms-head").textContent = r ? r.values.bms_soc + "% · " + r.values.bms_voltage + " В" : "—";
     $("bms-sub").textContent = bmsLinkText();
-    $("bms-values").replaceChildren(...(r ? BMS_VARS.map(([name, label, unit]) => el("div", {class: "item"},
-      el("span", {class: "k"}, label), el("span", {class: "v"}, r.values[name] + (unit ? " " + unit : "")))) : []));
+    $("bms-values").replaceChildren(...(r ? BMS_VARS.map(([name, label, unit]) => bmsValueRow(name, label, unit, r.values[name])) : []));
     const cells = r ? r.cells_mv : [];
     const lo = Math.min(...cells), hi = Math.max(...cells);
     $("bms-cells").replaceChildren(...cells.map((mv, i) =>
@@ -1011,6 +1006,24 @@ function renderBms() {
   if (!choosingBms) $("bms-found").replaceChildren(...(bms.scanning
     ? [el("div", {class: "empty"}, el("span", {class: "badge pending"}), "Шукаю пристрої Bluetooth поруч…")]
     : found.map(bmsRow)));
+}
+
+/* A tap copies the row's template variable. */
+let copiedVar = null;
+function bmsValueRow(name, label, unit, value) {
+  const variable = "{" + name + "}";
+  const copied = copiedVar === variable;
+  const row = el("button", {type: "button", class: "item two", title: "Скопіювати " + variable},
+    el("span", {class: "txt"}, el("span", {class: "t"}, label),
+      el("span", {class: copied ? "s ok" : "s"}, copied ? variable + " скопійовано ✓" : variable)),
+    el("span", {class: "trail"}, value + (unit ? " " + unit : "")));
+  row.onclick = async () => {
+    if (!await copyText(variable)) { say("bms-msg", "Не вдалося скопіювати — наберіть " + variable + " вручну.", "err"); return; }
+    copiedVar = variable;
+    renderBms();
+    setTimeout(() => { if (copiedVar === variable) { copiedVar = null; renderBms(); } }, 1500);
+  };
+  return row;
 }
 
 let choosingBms = false;
