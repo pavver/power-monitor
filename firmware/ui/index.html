@@ -293,7 +293,9 @@ dialog .actions{margin-top:calc(var(--du)*4)}
       <div class="msg" id="token-msg"></div></div></li>
     <li id="st-write" class="wait"><div>Напишіть своєму боту будь-яке повідомлення
       <span id="bot-link-wrap" class="hidden">— <a id="bot-link" target="_blank" rel="noopener"></a></span>.
-      Щоб отримувати повідомлення в групі, додайте бота в групу й напишіть там.</div></li>
+      Щоб отримувати повідомлення в групі, додайте бота в групу й надішліть там <code>/start</code>
+      (інші повідомлення в групі бот зазвичай не бачить). У групі з гілками надішліть <code>/start</code>
+      саме в ту гілку, куди мають приходити повідомлення.</div></li>
     <li id="st-chat" class="wait"><div>Оберіть чат, куди надсилати повідомлення:
       <div class="list" id="chats" style="margin-top:calc(var(--du)*2)"><div class="empty">Спершу перевірте токен.</div></div>
       <div class="msg" id="chat-msg"></div></div></li>
@@ -673,7 +675,7 @@ function renderDashboard() {
   $("d-wifi").textContent = linkText(state.link);
   $("d-ap").textContent = state.setup_ap ? "«" + state.setup_ap.ssid + "» увімкнена" : "вимкнена";
   $("d-telegram").textContent = state.telegram;
-  $("d-chat").textContent = state.chat_id === null ? "—" : state.chat_id;
+  $("d-chat").textContent = state.chat_id === null ? "—" : state.chat_id + (state.thread_id ? ", гілка " + state.thread_id : "");
   $("d-pending").textContent = state.pending;
   if (!messagesFilled) fillMessages(state.messages);
   $("fw-version").textContent = state.firmware.version || "—";
@@ -835,13 +837,18 @@ async function refreshChats() {
     : [el("div", {class: "empty"}, el("span", {class: "badge pending"}), "Чекаю на повідомлення боту…")]));
 }
 
+function chatKind(chat) {
+  if (chat.thread_id) return "гілка форуму — повідомлення йтимуть у неї";
+  return chat.id < 0 ? "група" : "особистий чат";
+}
+
 function chatRow(chat) {
   const choose = el("button", {type: "button", class: "btn"}, "Обрати");
   actionButton(choose, async () => {
     choosingChat = true;
     try {
       say("chat-msg", "Надсилаю тестове повідомлення…", "wait");
-      await api("/api/bot", {token: verifiedToken, chat_id: chat.id});
+      await api("/api/bot", {token: verifiedToken, chat_id: chat.id, thread_id: chat.thread_id ?? ""});
       say("chat-msg", "Готово! Перевірте Telegram.", "ok");
       $("st-chat").classList.add("done");
       await refreshState();
@@ -855,7 +862,7 @@ function chatRow(chat) {
     if (ok) show("dashboard");
   }});
   return el("div", {class: "item two"},
-    el("span", {class: "txt"}, el("span", {class: "t"}, chat.title), el("span", {class: "s"}, chat.id < 0 ? "група" : "особистий чат")),
+    el("span", {class: "txt"}, el("span", {class: "t"}, chat.title), el("span", {class: "s"}, chatKind(chat))),
     choose);
 }
 

@@ -25,13 +25,8 @@ function device() {
   return d;
 }
 
-async function run(scenario) {
-  const browser = await chromium.launch({ executablePath: exe });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
-  const errors = [];
-  page.on("pageerror", e => errors.push(e.message));
-  const dev = device();
-  await page.route("**/*", async route => {
+function route(page, dev) {
+  return page.route("**/*", async route => {
     const url = new URL(route.request().url());
     const json = body => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
     if (url.pathname === "/") return route.fulfill({ status: 200, contentType: "text/html", body: PAGE });
@@ -50,8 +45,52 @@ async function run(scenario) {
       return json("connecting");
     }
     if (url.pathname === "/api/setup/close") { dev.closed = true; return json("closing"); }
+    if (url.pathname === "/api/bot/check") return json({ username: "svitlo_bot" });
+    if (url.pathname === "/api/bot/chats") return json([
+      { id: -500, thread_id: 7, title: "Будинок › Світло" },
+      { id: 42, thread_id: null, title: "Олена" },
+    ]);
+    if (url.pathname === "/api/bot") {
+      dev.saved = Object.fromEntries(new URLSearchParams(route.request().postData()));
+      dev.stage = "dashboard";
+      return json("saved");
+    }
     return route.fulfill({ status: 404, body: "{}" });
   });
+}
+
+/* Bot step: choosing a forum topic saves it as the destination. */
+async function runBot() {
+  const browser = await chromium.launch({ executablePath: exe });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  const dev = device();
+  dev.stage = "bot"; dev.setupAp = false;
+  dev.link = { state: "connected", ssid: "Home", ip: "192.168.1.50" };
+  await route(page, dev);
+  await page.goto("http://192.168.1.50/");
+  await page.fill("#token", "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw");
+  await page.click("#token-btn");
+  await page.waitForSelector("#chats .item");
+  const kinds = await page.$$eval("#chats .item .s", nodes => nodes.map(n => n.textContent));
+  await page.screenshot({ path: OUT + "/topic-0-chats.png" });
+  await page.click("#chats .item >> nth=0 >> button");
+  await page.waitForFunction(() => document.querySelector("section.on").id === "s-dashboard", null, { timeout: 5000 });
+  await browser.close();
+  const ok = errors.length === 0 && dev.saved && dev.saved.chat_id === "-500" && dev.saved.thread_id === "7"
+    && kinds[0].startsWith("гілка форуму");
+  if (!ok) process.exitCode = 1;
+  console.log((ok ? "PASS " : "FAIL ") + "topic", JSON.stringify({ saved: dev.saved, kinds, errors }));
+}
+
+async function run(scenario) {
+  const browser = await chromium.launch({ executablePath: exe });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  const dev = device();
+  await route(page, dev);
   // Through the captive portal the page lives on the setup address.
   await page.goto(scenario.portal ? "http://192.168.71.1/" : "http://192.168.1.50/");
   await page.waitForSelector("#networks button");
@@ -98,4 +137,5 @@ const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + resul
   await run({ name: "portal", portal: true, password: "right", expect: { view: "s-move", states: timeline("ok"), closed: true } });
   // From the home network (changing Wi-Fi later) it goes straight on.
   await run({ name: "home", password: "right", expect: { view: "s-bot", states: timeline("ok") } });
+  await runBot();
 })().catch(e => { console.error(e); process.exit(1); });

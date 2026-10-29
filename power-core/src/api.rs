@@ -110,6 +110,8 @@ pub struct State<'a> {
     pub telegram: &'a str,
     pub pending: usize,
     pub chat_id: Option<i64>,
+    /// The forum topic reports go to, if any.
+    pub thread_id: Option<i64>,
     pub messages: &'a Messages,
     pub firmware: &'a Firmware,
     /// Whether the page asks for a password.
@@ -167,6 +169,7 @@ mod tests {
             telegram: "ok",
             pending: 0,
             chat_id: Some(42),
+            thread_id: Some(7),
             messages: &messages,
             firmware: &firmware,
             password_set: true,
@@ -178,6 +181,7 @@ mod tests {
         assert_eq!(value["setup_ap"], json!(null));
         assert_eq!(value["messages"]["device_name"], json!("Дім"));
         assert_eq!(value["password_set"], json!(true));
+        assert_eq!(value["thread_id"], json!(7));
         assert_eq!(value["firmware"], json!({"version": "v1", "built": "Oct 29 2026", "slot": "ota_1"}));
     }
 }

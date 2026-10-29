@@ -5,7 +5,7 @@ use std::time::Duration;
 use embedded_svc::http::client::Client;
 use embedded_svc::io::Write;
 use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
-use power_core::settings::{Bot, BotToken};
+use power_core::settings::{Bot, BotToken, Destination};
 use power_core::telegram::{self, Chat};
 use serde_json::Value;
 
@@ -13,11 +13,11 @@ use serde_json::Value;
 const MAX_RESPONSE: usize = 48 * 1024;
 
 pub fn send(bot: &Bot, text: &str) -> Result<(), String> {
-    send_to(bot.token(), bot.chat_id(), text)
+    send_to(bot.token(), bot.destination(), text)
 }
 
-pub fn send_to(token: &BotToken, chat_id: i64, text: &str) -> Result<(), String> {
-    let request = telegram::send_message(token, chat_id, text);
+pub fn send_to(token: &BotToken, to: Destination, text: &str) -> Result<(), String> {
+    let request = telegram::send_message(token, to, text);
     call(&request.url, Some(&request.body)).map(|_| ())
 }
 
