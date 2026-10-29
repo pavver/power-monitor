@@ -9,3 +9,4 @@ pub mod dns;
 pub mod outbox;
 pub mod telegram;
 pub mod html;
+pub mod template;
