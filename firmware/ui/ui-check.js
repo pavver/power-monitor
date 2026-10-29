@@ -11,10 +11,10 @@ const exe = fs.readdirSync(process.env.HOME + "/.cache/ms-playwright/chromium_he
 
 function device() {
   const d = {
-    link: { state: "idle" }, stage: "wifi", attempt: null,
+    link: { state: "idle" }, stage: "wifi", setupAp: true, closed: false,
     state() {
       return {
-        stage: this.stage, link: this.link, setup_ap: "PowerMonitor-Setup", power: { present: true, lasted: "5 хв" },
+        stage: this.stage, link: this.link, setup_ap: this.setupAp ? { ssid: "PowerMonitor-Setup", portal: "http://192.168.71.1/" } : null, power: { present: true, lasted: "5 хв" },
         telegram: "бот не налаштовано", chat_id: null, pending: 0, password_set: false,
         messages: { device_name: "Дім", start_present: "{device}: запуск, світло є", start_absent: "{device}: запуск",
           lost: "{device}: світло зникло ({duration})", returned: "{device}: світло є ({duration})" },
@@ -49,9 +49,11 @@ async function run(scenario) {
       }, 3000);
       return json("connecting");
     }
+    if (url.pathname === "/api/setup/close") { dev.closed = true; return json("closing"); }
     return route.fulfill({ status: 404, body: "{}" });
   });
-  await page.goto("http://device.test/");
+  // Through the captive portal the page lives on the setup address.
+  await page.goto(scenario.portal ? "http://192.168.71.1/" : "http://192.168.1.50/");
   await page.waitForSelector("#networks button");
   await page.click("#networks button >> nth=0");
   await page.fill("#join-pass", scenario.password);
@@ -72,11 +74,17 @@ async function run(scenario) {
   const font = await page.evaluate(() => document.fonts.check('14px "Operator Mono"') && [...document.fonts].some(f => f.family.includes("Operator Mono") && f.status === "loaded"));
   const msg = await page.$eval("#join-msg", m => m.textContent);
   await page.screenshot({ path: OUT + "/" + scenario.name + "-3-after.png" });
+  if (scenario.portal && view === "s-move") {
+    await page.click("#close-btn");
+    await page.waitForFunction(() => document.getElementById("close-btn").dataset.state === "ok", null, { timeout: 3000 });
+    await page.screenshot({ path: OUT + "/" + scenario.name + "-4-closing.png" });
+  }
   await browser.close();
   const expected = scenario.expect;
-  const ok = errors.length === 0 && font && view === expected.view && states.join() === expected.states.join();
+  const ok = errors.length === 0 && font && view === expected.view && states.join() === expected.states.join()
+    && dev.closed === Boolean(expected.closed);
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + scenario.name, JSON.stringify({ states, view, font, msg, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + scenario.name, JSON.stringify({ states, view, font, closed: dev.closed, msg, errors }));
 }
 
 // The button waits for the device's verdict, not for the request: it stays
@@ -84,6 +92,10 @@ async function run(scenario) {
 const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + result + "+icon", "+0.6s: " + result, "+1.8s: idle"];
 
 (async () => {
-  await run({ name: "wrong", password: "wrong", expect: { view: "s-wifi", states: timeline("err") } });
-  await run({ name: "right", password: "right", expect: { view: "s-bot", states: timeline("ok") } });
+  await run({ name: "wrong", portal: true, password: "wrong", expect: { view: "s-wifi", states: timeline("err") } });
+  // In the portal, success leads to the screen that sends the user home,
+  // whose button closes the setup network.
+  await run({ name: "portal", portal: true, password: "right", expect: { view: "s-move", states: timeline("ok"), closed: true } });
+  // From the home network (changing Wi-Fi later) it goes straight on.
+  await run({ name: "home", password: "right", expect: { view: "s-bot", states: timeline("ok") } });
 })().catch(e => { console.error(e); process.exit(1); });

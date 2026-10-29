@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use power_core::api::{self, Firmware, Link, Network, Power};
+use power_core::api::{self, Firmware, Link, Network, Power, SetupAp};
 use power_core::power::PowerState;
 
 use crate::settings::Settings;
@@ -21,7 +21,7 @@ pub fn now_ms() -> u64 {
 pub struct Status {
     power: Mutex<Option<(PowerState, u64)>>,
     link: Mutex<Link>,
-    setup_ap: Mutex<Option<&'static str>>,
+    setup_ap: Mutex<Option<SetupAp>>,
     networks: Mutex<Vec<Network>>,
     telegram: Mutex<String>,
     pending: AtomicUsize,
@@ -45,8 +45,8 @@ impl Status {
         self.link.lock().unwrap().clone()
     }
 
-    pub fn set_setup_ap(&self, ssid: &'static str) {
-        *self.setup_ap.lock().unwrap() = Some(ssid);
+    pub fn set_setup_ap(&self, setup_ap: Option<SetupAp>) {
+        *self.setup_ap.lock().unwrap() = setup_ap;
     }
 
     pub fn set_networks(&self, networks: Vec<Network>) {
@@ -76,11 +76,12 @@ impl Status {
             .lock()
             .unwrap()
             .map(|(state, since)| Power::new(state, now_ms().saturating_sub(since)));
+        let setup_ap = self.setup_ap.lock().unwrap().clone();
         let state = api::State {
-            stage: api::stage(settings.wifi().is_some(), bot.is_some()),
+            stage: settings.stage(),
             power,
             link: &link,
-            setup_ap: *self.setup_ap.lock().unwrap(),
+            setup_ap: setup_ap.as_ref(),
             telegram: &telegram,
             pending: self.pending.load(Ordering::Relaxed),
             chat_id: bot.map(|b| b.chat_id()),

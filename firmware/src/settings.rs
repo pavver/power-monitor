@@ -5,6 +5,7 @@
 use std::sync::{Mutex, RwLock};
 
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
+use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
 use power_core::settings::{Bot, Messages, WifiCredentials};
 
@@ -50,6 +51,11 @@ impl Settings {
 
     pub fn bot(&self) -> Option<Bot> {
         self.bot.read().unwrap().clone()
+    }
+
+    /// How far the setup has got.
+    pub fn stage(&self) -> Stage {
+        api::stage(self.wifi().is_some(), self.bot().is_some())
     }
 
     pub fn messages(&self) -> Messages {

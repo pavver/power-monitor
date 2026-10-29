@@ -108,13 +108,19 @@ pub fn start(
         json(&st.networks())
     })?;
 
-    let st = status.clone();
+    let net = network.clone();
+    post(&mut server, &auth, "/api/setup/close", move |_| {
+        net.send(Command::CloseSetup).map_err(|e| e.to_string())?;
+        json(&"closing")
+    })?;
+
+    let (st, net) = (status.clone(), network.clone());
     post(&mut server, &auth, "/api/wifi", move |body| {
         let credentials = WifiCredentials::from_form(body).map_err(|e| e.to_string())?;
         // Set before replying, so the page never mistakes the previous
         // attempt's result for this one's.
         st.set_link(Link::Connecting { ssid: credentials.ssid().to_string() });
-        network.send(Command::Connect(credentials)).map_err(|e| e.to_string())?;
+        net.send(Command::Connect(credentials)).map_err(|e| e.to_string())?;
         json(&"connecting")
     })?;
 
@@ -130,6 +136,9 @@ pub fn start(
         let bot = Bot::from_form(body).map_err(|e| e.to_string())?;
         telegram::send(&bot, &test_text(s.messages().device_name()))?;
         s.save_bot(bot).map_err(|e| e.to_string())?;
+        if !s.stage().needs_setup_ap() {
+            let _ = network.send(Command::CloseSetup);
+        }
         json(&"saved")
     })?;
 

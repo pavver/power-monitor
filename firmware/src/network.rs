@@ -1,8 +1,9 @@
 //! Wi-Fi. One thread owns the driver; the web server sends it commands.
 //!
-//! Without saved credentials (or when the saved network is unreachable at
+//! Until the bot is set up (or when the saved network is unreachable at
 //! start-up) the setup access point runs alongside the station, with a DNS
-//! responder for the captive portal, until the next restart.
+//! responder for the captive portal. It closes when the page asks (the user
+//! moves to the home network) or when the bot is saved.
 //!
 //! Once the setup access point runs, only the station's configuration is
 //! touched: re-applying the access point's restarts it and drops every phone,
@@ -25,6 +26,7 @@ use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sys::{
     esp, esp_netif_dhcp_option_id_t_ESP_NETIF_CAPTIVEPORTAL_URI, esp_netif_dhcp_option_mode_t_ESP_NETIF_OP_SET,
     esp_netif_dhcps_option, esp_netif_dhcps_start, esp_netif_dhcps_stop, esp_wifi_get_config, esp_wifi_set_config,
+    esp_wifi_set_mode, wifi_mode_t_WIFI_MODE_STA,
     wifi_auth_mode_t_WIFI_AUTH_OPEN, wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK, wifi_config_t, wifi_interface_t_WIFI_IF_AP,
     wifi_interface_t_WIFI_IF_STA,
     ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED,
@@ -32,7 +34,7 @@ use esp_idf_svc::sys::{
 use esp_idf_svc::wifi::{
     AccessPointConfiguration, AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiDriver,
 };
-use power_core::api::Link;
+use power_core::api::{Link, SetupAp};
 use power_core::dns;
 use power_core::message::Notice;
 use power_core::portal::{portal_url, SETUP_IP};
@@ -50,6 +52,8 @@ const SCAN_AT_MOST_EVERY: Duration = Duration::from_secs(8);
 pub enum Command {
     Scan,
     Connect(WifiCredentials),
+    /// The user is moving to the home network, or setup is complete.
+    CloseSetup,
 }
 
 type Wifi = BlockingWifi<EspWifi<'static>>;
@@ -90,11 +94,15 @@ impl Radio {
         self.wifi.set_configuration(&Configuration::Client(station.clone()))?;
         self.wifi.start()?;
         if let Some(saved) = &saved {
-            if self.connect(saved).is_ok() {
+            if !self.settings.stage().needs_setup_ap() && self.connect(saved).is_ok() {
                 return Ok(());
             }
         }
-        self.start_setup_ap(station)
+        // The access point comes first, on the saved network's channel, so
+        // joining that network afterwards does not move it.
+        self.start_setup_ap(station)?;
+        self.keep_connected();
+        Ok(())
     }
 
     fn run(mut self, inbox: Receiver<Command>) {
@@ -102,6 +110,7 @@ impl Radio {
             match inbox.recv_timeout(RECONNECT_EVERY) {
                 Ok(Command::Scan) => self.scan(),
                 Ok(Command::Connect(credentials)) => self.switch_to(credentials),
+                Ok(Command::CloseSetup) => self.close_setup(),
                 Err(RecvTimeoutError::Timeout) => self.keep_connected(),
                 Err(RecvTimeoutError::Disconnected) => return,
             }
@@ -143,6 +152,28 @@ impl Radio {
                 log::error!("saving wifi: {error}");
             }
         }
+    }
+
+    /// Leaves only the station. Refused while it is not connected: the setup
+    /// network would be the only way back in.
+    fn close_setup(&mut self) {
+        if !self.setup_ap {
+            return;
+        }
+        if !self.wifi.is_connected().unwrap_or(false) {
+            log::warn!("not closing the setup access point: wifi is not connected");
+            return;
+        }
+        // Lets the page's reply reach the phone before its network goes away.
+        thread::sleep(Duration::from_secs(1));
+        // SAFETY: a mode change on the started driver; the station keeps its link.
+        if let Err(error) = esp!(unsafe { esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA) }) {
+            log::warn!("closing the setup access point: {error}");
+            return;
+        }
+        self.setup_ap = false;
+        self.status.set_setup_ap(None);
+        log::info!("setup access point closed");
     }
 
     /// Reconnects to the saved network after a drop. While phones may be on
@@ -239,7 +270,7 @@ impl Radio {
         self.wifi.start()?;
         offer_portal_uri(self.wifi.wifi().ap_netif())?;
         log::info!("setup access point {SETUP_SSID} on channel {channel} at {}", portal_url());
-        self.status.set_setup_ap(SETUP_SSID);
+        self.status.set_setup_ap(Some(SetupAp::new(SETUP_SSID)));
         spawn_dns(SETUP_IP)
     }
 }

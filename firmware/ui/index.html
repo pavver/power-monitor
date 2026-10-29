@@ -187,6 +187,9 @@ button.item{cursor:pointer}
 .result{display:flex;gap:calc(var(--du)*3);align-items:flex-start}
 .result .badge{margin-top:calc(var(--du)*1)}
 .result b{display:block;font-size:15px;line-height:20px}
+.address{display:flex;align-items:center;min-height:calc(var(--du)*13.5);background:var(--surface-alt)}
+.address a{flex:1;min-width:0;padding:0 calc(var(--du)*3);font-size:20px;line-height:26px;font-weight:700;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;text-decoration:none}
 
 /* OperatorConfirmDialog */
 dialog{width:clamp(calc(var(--du)*60),90vw,calc(var(--du)*75));max-width:calc(100vw - var(--du)*8);padding:calc(var(--du)*4);border:0;
@@ -234,7 +237,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
   <div class="card alt hidden" id="link-card">
     <div class="result"><span class="badge" id="link-badge"></span>
       <div style="flex:1;min-width:0"><b id="link-title"></b><span class="small muted" id="link-text"></span></div></div>
-    <div class="actions hidden" id="link-next"><button class="btn wide" type="button" data-go="bot">Далі: Telegram-бот</button></div>
+    <div class="actions hidden" id="link-next"><button class="btn wide" type="button" data-go="bot">Далі</button></div>
   </div>
   <div class="msg wait" id="scan-note" style="margin:0 0 calc(var(--du)*2)"></div>
   <div class="list" id="networks"><div class="empty"><span class="badge pending"></span>Шукаю мережі…</div></div>
@@ -249,13 +252,35 @@ dialog .actions{margin-top:calc(var(--du)*4)}
   </form>
 </section>
 
-<!-- Step 2: Telegram bot -->
+<!-- Step 2: back to the home network -->
+<section id="s-move">
+  <div class="card">
+    <h2>Крок 2 · Поверніться в домашню мережу</h2>
+    <p class="muted">Пристрій уже в мережі <b id="move-ssid"></b>. Бота налаштуємо звідти — для цього телефону потрібен інтернет.</p>
+  </div>
+  <div class="card">
+    <label class="cap" style="margin-top:0">Адреса пристрою — запам'ятайте або скопіюйте її</label>
+    <div class="address" id="move-address"><a id="move-link" href="#"></a></div>
+    <div class="actions"><button class="btn wide" type="button" id="copy-btn">Скопіювати адресу</button></div>
+  </div>
+  <ol class="steps card" style="padding:0">
+    <li><div>Натисніть кнопку нижче. Мережа «PowerMonitor-Setup» зникне, і телефон сам повернеться до домашнього Wi-Fi.</div></li>
+    <li><div>Відкрийте браузер і введіть адресу <b class="move-url"></b>.</div></li>
+  </ol>
+  <div class="actions" style="margin:0 0 calc(var(--du)*4)"><button class="btn wide" type="button" id="close-btn">Перейти в домашню мережу</button></div>
+  <div class="msg" id="close-msg" style="margin:0 0 calc(var(--du)*4)"></div>
+  <div class="card alt">
+    <p class="small muted">Адреса не відкривається? Переконайтеся, що телефон у мережі <b class="move-ssid"></b>, а не на мобільному інтернеті.
+      Якщо не допомогло, вимкніть і ввімкніть пристрій: поки бота не налаштовано, мережа «PowerMonitor-Setup» з'являється знову,
+      і на цій сторінці буде актуальна адреса.</p>
+  </div>
+</section>
+
+<!-- Step 3: Telegram bot -->
 <section id="s-bot">
   <div class="card">
-    <h2>Крок 2 · Telegram-бот</h2>
+    <h2>Крок 3 · Telegram-бот</h2>
     <p class="muted">Пристрій надсилатиме повідомлення через вашого власного бота. Створення займає хвилину.</p>
-    <p class="small muted hidden" id="bot-offline">Якщо в телефона зараз немає інтернету, перейдіть у свою домашню мережу й відкрийте
-      <a id="sta-link" href="#"></a> — це та сама сторінка.</p>
   </div>
   <ol class="steps card" style="padding:0">
     <li><div>Відкрийте <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> у Telegram і надішліть <code>/newbot</code>.
@@ -275,7 +300,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
   </ol>
 </section>
 
-<!-- Step 3: dashboard -->
+<!-- Dashboard -->
 <section id="s-dashboard">
   <div class="card">
     <div class="power"><span class="badge big pending" id="power-badge"></span>
@@ -560,8 +585,8 @@ async function api(path, fields) {
 $("back").append(icon("back"));
 function show(name) {
   view = name;
-  ["login", "wifi", "bot", "dashboard"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
-  const step = {login: 0, wifi: 1, bot: 2, dashboard: 3}[name];
+  ["login", "wifi", "move", "bot", "dashboard"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
+  const step = {login: 0, wifi: 1, move: 2, bot: 2, dashboard: 3}[name];
   [...$("progress").children].forEach((bar, i) => bar.classList.toggle("lit", i < step));
   const configured = state && state.stage === "dashboard";
   $("back").classList.toggle("hidden", !(configured && (name === "wifi" || name === "bot")));
@@ -583,8 +608,20 @@ async function refreshState() {
     $("subtitle").textContent = view === "login" ? "потрібен пароль" : "немає зв'язку з пристроєм";
     return;
   }
-  if (view === "login" || view === null) show(state.stage);
+  if (view === "login" || view === null) show(firstScreen());
   render();
+}
+
+/* Opened through the setup network (the captive portal) rather than the home one. */
+function onSetupNetwork() {
+  return Boolean(state.setup_ap) && location.origin + "/" === state.setup_ap.portal;
+}
+
+/* On the setup network only Wi-Fi is set up; everything else needs the home
+   network, so once Wi-Fi works the page sends the user there. */
+function firstScreen() {
+  if (!onSetupNetwork()) return state.stage === "wifi" ? "wifi" : state.stage;
+  return state.link.state === "connected" ? "move" : "wifi";
 }
 
 function render() {
@@ -614,9 +651,18 @@ function renderLink() {
   $("link-text").textContent = connected
     ? "Мережа «" + link.ssid + "». Адреса панелі вдома: http://" + link.ip + "/"
     : link.state === "failed" ? "«" + link.ssid + "»: " + link.reason : "«" + link.ssid + "»";
-  $("link-next").classList.toggle("hidden", !connected || state.stage === "dashboard");
-  $("bot-offline").classList.toggle("hidden", !(connected && state.setup_ap));
-  if (connected) { $("sta-link").textContent = "http://" + link.ip + "/"; $("sta-link").href = "http://" + link.ip + "/"; }
+  $("link-next").classList.toggle("hidden", !connected || (state.stage === "dashboard" && !onSetupNetwork()));
+  $("link-next").querySelector("button").dataset.go = onSetupNetwork() ? "move" : "bot";
+  if (connected) renderMove(link);
+}
+
+function renderMove(link) {
+  const url = "http://" + link.ip + "/";
+  $("move-ssid").textContent = "«" + link.ssid + "»";
+  document.querySelectorAll(".move-ssid").forEach(n => n.textContent = "«" + link.ssid + "»");
+  document.querySelectorAll(".move-url").forEach(n => n.textContent = url);
+  $("move-link").textContent = url;
+  $("move-link").href = url;
 }
 
 function renderDashboard() {
@@ -625,7 +671,7 @@ function renderDashboard() {
   $("power-text").textContent = p ? (p.present ? "СВІТЛО Є" : "СВІТЛА НЕМАЄ") : "ВИЗНАЧАЄТЬСЯ…";
   $("power-for").textContent = p ? "вже " + p.lasted : "";
   $("d-wifi").textContent = linkText(state.link);
-  $("d-ap").textContent = state.setup_ap ? "«" + state.setup_ap + "» до перезапуску" : "вимкнена";
+  $("d-ap").textContent = state.setup_ap ? "«" + state.setup_ap.ssid + "» увімкнена" : "вимкнена";
   $("d-telegram").textContent = state.telegram;
   $("d-chat").textContent = state.chat_id === null ? "—" : state.chat_id;
   $("d-pending").textContent = state.pending;
@@ -735,8 +781,30 @@ actionButton($("join-btn"), async () => {
   picked = null;
   renderNetworks();
   render();
-  if (state.stage !== "dashboard") show("bot");
+  if (onSetupNetwork()) show("move");
+  else if (state.stage !== "dashboard") show("bot");
 }});
+
+/* ---------- back to the home network ---------- */
+textField($("move-address"));
+actionButton($("copy-btn"), async () => {
+  const url = $("move-link").textContent;
+  // The page is plain http, where the clipboard API is often unavailable.
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(url);
+  const area = el("textarea", {readonly: "", style: "position:fixed;opacity:0"});
+  area.value = url;
+  document.body.append(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  if (!copied) throw new Error("Не вдалося скопіювати — запишіть адресу.");
+}, {msg: "close-msg", keepIcon: true, ring: false, frame: null});
+
+actionButton($("close-btn"), async () => {
+  say("close-msg", "");
+  await api("/api/setup/close", {});
+  say("close-msg", "Мережа налаштування вимикається. Коли телефон повернеться до домашнього Wi-Fi, відкрийте " + $("move-link").textContent, "ok");
+}, {msg: "close-msg", keepIcon: true});
 
 /* ---------- bot ---------- */
 actionButton($("token-btn"), async () => {
