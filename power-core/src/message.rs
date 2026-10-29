@@ -41,6 +41,21 @@ pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64) -> Strin
     out
 }
 
+/// Something to tell the chat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Notice {
+    Power(PowerEvent),
+    /// The device got a new address on the home network.
+    Address(String),
+}
+
+pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64) -> String {
+    match notice {
+        Notice::Power(event) => event_text(messages, event, now_ms),
+        Notice::Address(ip) => format!("🌐 {}: нова адреса панелі http://{ip}/", messages.device_name()),
+    }
+}
+
 /// Sent from the web page to check the bot settings.
 pub fn test_text(device: &str) -> String {
     format!("🔔 {device}: тестове повідомлення, бот працює.")
@@ -71,6 +86,24 @@ mod tests {
         assert_eq!(format_duration(3 * HOUR), "3 год");
         assert_eq!(format_duration(DAY + 3 * HOUR + 20 * MIN), "1 д 3 год");
         assert_eq!(format_duration(2 * DAY), "2 д");
+    }
+
+    #[test]
+    fn new_address_is_sent_as_a_link() {
+        let notice = Notice::Address("192.168.1.50".to_string());
+        assert_eq!(
+            notice_text(&Messages::default(), &notice, 0),
+            "🌐 Дім: нова адреса панелі http://192.168.1.50/"
+        );
+    }
+
+    #[test]
+    fn power_notice_uses_the_event_text() {
+        let e = event(Absent, Some(5 * MIN));
+        assert_eq!(
+            notice_text(&Messages::default(), &Notice::Power(e), 10 * SEC),
+            event_text(&Messages::default(), &e, 10 * SEC)
+        );
     }
 
     #[test]
