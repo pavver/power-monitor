@@ -41,6 +41,11 @@ pub fn event_text(device: &str, event: &PowerEvent, now_ms: u64) -> String {
     text
 }
 
+/// Sent from the web page to check the bot settings.
+pub fn test_text(device: &str) -> String {
+    format!("🔔 {device}: тестове повідомлення, бот працює.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,6 +70,11 @@ mod tests {
         assert_eq!(format_duration(3 * HOUR), "3 год");
         assert_eq!(format_duration(DAY + 3 * HOUR + 20 * MIN), "1 д 3 год");
         assert_eq!(format_duration(2 * DAY), "2 д");
+    }
+
+    #[test]
+    fn test_message_names_the_device() {
+        assert_eq!(test_text("Дача"), "🔔 Дача: тестове повідомлення, бот працює.");
     }
 
     #[test]
