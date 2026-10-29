@@ -26,3 +26,4 @@ power-core = { path = "../power-core" }
 
 [build-dependencies]
 embuild = "0.33"
+zopfli = "0.8.4"

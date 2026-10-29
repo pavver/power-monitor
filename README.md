@@ -9,7 +9,7 @@ ESP32 стежить за наявністю 220 В і надсилає пові
 | Тека | Що там |
 | --- | --- |
 | `power-core/` | Уся логіка без заліза: детектор, шаблони, налаштування, Telegram, DNS, API. `cargo test` на ПК. |
-| `firmware/` | Прошивка: GPIO, Wi-Fi, NVS, HTTP-сервер, HTTPS до Telegram; `ui/index.html` — сторінка. |
+| `firmware/` | Прошивка: GPIO, Wi-Fi, NVS, HTTP-сервер, HTTPS до Telegram; `ui/index.html` — сторінка (при збірці `build.rs` стискає її zopfli в gzip, віддається з `Content-Encoding: gzip`). |
 
 ## Підключення
 

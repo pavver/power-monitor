@@ -24,7 +24,8 @@ use crate::settings::Settings;
 use crate::status::Status;
 use crate::telegram;
 
-const PAGE: &str = include_str!("../ui/index.html");
+/// ui/index.html, gzipped at build time (see build.rs).
+const PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 /// Cascadia Code cut down to the page's characters (see ui/make-font.py).
 const FONT: &[u8] = include_bytes!("../ui/operator-mono.woff");
 const MAX_BODY: usize = 4096;
@@ -76,8 +77,8 @@ pub fn start(
     let auth = Arc::new(Auth { settings: settings.clone(), sessions: Mutex::new(Sessions::new(MAX_SESSIONS)) });
 
     server.fn_handler::<anyhow::Error, _>("/", Method::Get, |req| {
-        req.into_response(200, None, &[("Content-Type", "text/html; charset=utf-8")])?
-            .write_all(PAGE.as_bytes())?;
+        let headers = [("Content-Type", "text/html; charset=utf-8"), ("Content-Encoding", "gzip")];
+        req.into_response(200, None, &headers)?.write_all(PAGE)?;
         Ok(())
     })?;
 
