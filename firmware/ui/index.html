@@ -5,115 +5,199 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Монітор світла</title>
 <style>
-/* Operator UI: 1 DU = 4px, sharp corners, monospace, state borders. */
+/* Operator UI (design_system/): 1 DU = 4px, sharp corners, monospace,
+   ControlState frames drawn as inset vector strokes. */
 :root{
-  --du:4px;
-  --background:#F6F8FA;--surface:#FFFFFF;--surface-alt:#F0F2F5;--border:#B2C0CE;--border-strong:#57606A;
-  --accent:#0969DA;--pending:#9A6700;--success:#1A7F37;--error:#CF222E;
+  --du:4px;--smooth:cubic-bezier(.5,0,.5,1);--fast:cubic-bezier(.4,0,.2,1);
+  --background:#F6F8FA;--surface:#FFFFFF;--surface-alt:#F0F2F5;--border:#B2C0CE;--border-strong:#57606A;--divider:#DDE3EA;
+  --accent:#0969DA;--pending:#9A6700;--success:#1A7F37;--error:#CF222E;--pressed:#E0EEF2;--selection:#D4F1F4;
   --text:#24292F;--text-2:#57606A;--text-off:#8C959F;--off-surface:#F3F4F6;--off-border:#D9E0E7;
-  --badge-on:#15803D;--badge-alarm:#C62828;--badge-border:#9EADBC;
+  --badge-online:#15803D;--badge-offline:#000;--badge-alarm:#C62828;--badge-activity:#15803D;--badge-border:#9EADBC;
 }
 @media (prefers-color-scheme:dark){:root{
-  --background:#0D1117;--surface:#161B22;--surface-alt:#0F141C;--border:#3E4A5C;--border-strong:#8B949E;
-  --accent:#58A6FF;--pending:#E3B341;--success:#39D353;--error:#FF7B72;
+  --background:#0D1117;--surface:#161B22;--surface-alt:#0F141C;--border:#3E4A5C;--border-strong:#8B949E;--divider:#252C36;
+  --accent:#58A6FF;--pending:#E3B341;--success:#39D353;--error:#FF7B72;--pressed:#22313D;--selection:#193B45;
   --text:#F0F6FC;--text-2:#8B949E;--text-off:#484F58;--off-surface:#10141A;--off-border:#1F252E;
-  --badge-on:#3DDC84;--badge-alarm:#FF5C5C;--badge-border:#3A4656;
+  --badge-online:#3DDC84;--badge-offline:#000;--badge-alarm:#FF5C5C;--badge-activity:#3DDC84;--badge-border:#3A4656;
 }}
-*{box-sizing:border-box;border-radius:0}
+*{box-sizing:border-box;border-radius:0;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--background);color:var(--text);
   font:400 14px/18px "Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-header{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:calc(var(--du)*.25) solid var(--border);
-  min-height:calc(var(--du)*13.5);padding:calc(var(--du)*1.5) calc(var(--du)*4);display:flex;align-items:center;gap:calc(var(--du)*2)}
-header h1{font-size:20px;line-height:26px;font-weight:700;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-header .sub{font-size:11px;line-height:14px;color:var(--text-2)}
+button,input,textarea{font-family:inherit}
+.ic{width:calc(var(--du)*4);height:calc(var(--du)*4);fill:currentColor;flex:none;display:block}
+
+/* OperatorHeader */
+header{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:calc(var(--du)*.25) solid var(--border);
+  min-height:calc(var(--du)*13.5);display:flex;align-items:center;padding-right:calc(var(--du)*2)}
+.back{width:calc(var(--du)*12);align-self:stretch;flex:none;display:flex;align-items:center;justify-content:center;border:0;
+  background:none;color:var(--text);cursor:pointer;position:relative;overflow:hidden}
+.back .ic{width:calc(var(--du)*4.5);height:calc(var(--du)*4.5)}
+.head{flex:1;min-width:0;padding-left:calc(var(--du)*4)}
+.back:not(.hidden)+.head{padding-left:0}
+header h1{font-size:20px;line-height:26px;font-weight:700;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+header .sub{font-size:11px;line-height:14px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.progress{display:flex;gap:calc(var(--du)*1);flex:none}
+.progress i{width:calc(var(--du)*5);height:calc(var(--du)*1);background:var(--off-border)}
+.progress i.lit{background:var(--accent)}
+
 main{max-width:calc(var(--du)*120);margin:0 auto;padding:calc(var(--du)*4)}
 section{display:none}
 section.on{display:block}
+/* OperatorCard */
 .card{background:var(--surface);border:calc(var(--du)*.25) solid var(--border);padding:calc(var(--du)*3);margin-bottom:calc(var(--du)*4)}
 .card.alt{background:var(--surface-alt)}
 h2{font-size:15px;line-height:20px;font-weight:700;margin:0 0 calc(var(--du)*2)}
 p{margin:0 0 calc(var(--du)*2)}
+p:last-child{margin-bottom:0}
 .muted{color:var(--text-2)}
 .small{font-size:11px;line-height:14px}
-.steps{counter-reset:s;list-style:none;margin:0;padding:0}
-.steps>li{counter-increment:s;display:flex;gap:calc(var(--du)*2);padding:calc(var(--du)*2) 0;border-bottom:calc(var(--du)*.25) solid var(--border)}
+code{background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--border);padding:0 calc(var(--du)*1)}
+a{color:var(--accent)}
+.hidden{display:none!important}
+
+/* ControlState frame: base border, running pending segment, status pulse and tint. */
+.ctl{position:relative;isolation:isolate;overflow:hidden;
+  transition:color .15s var(--fast),background-color .15s var(--fast)}
+.ctl>.sf{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:visible}
+.ctl>:not(.sf):not(.rip):not(.over){position:relative;z-index:1}
+dialog.ctl{position:fixed}
+.sf rect{fill:none}
+.sf .base{stroke:var(--border);stroke-width:1px;transition:stroke .15s var(--fast)}
+.sf .run{stroke:var(--pending);stroke-width:1.5px;opacity:0}
+.sf .tint,.sf .stat{opacity:0;transition:opacity .5s var(--smooth)}
+.sf .tint{stroke:none}
+.sf .stat{stroke-width:2px}
+.ctl[data-tone=ok] .tint{fill:var(--success);fill-opacity:.15}
+.ctl[data-tone=err] .tint{fill:var(--error);fill-opacity:.15}
+.ctl[data-tone=ok] .stat{stroke:var(--success);animation:pulse .4s var(--fast) infinite alternate}
+.ctl[data-tone=err] .stat{stroke:var(--error);animation:pulse .4s var(--fast) infinite alternate}
+.ctl[data-state=ok] .tint,.ctl[data-state=ok] .stat,.ctl[data-state=err] .tint,.ctl[data-state=err] .stat{opacity:1;transition:none}
+.ctl[data-state=pending]:not(.noring) .run{opacity:1;animation:run 2s linear infinite}
+.ctl[data-state=ok]{color:var(--success);transition:none}
+.ctl[data-state=err]{color:var(--error);transition:none}
+.ctl.exit{transition-duration:.5s;transition-timing-function:var(--smooth)}
+.ctl.exit .sf .base{transition:none}
+.field:focus-within .base,.areawrap:focus-within .base,.ctl:focus-visible .base,.ctl.pressed .base{stroke:var(--border-strong)}
+.ctl:disabled,.ctl.disabled{background:var(--off-surface);color:var(--text-off);cursor:default}
+.ctl:disabled .base,.ctl.disabled .base{stroke:var(--off-border)}
+@keyframes run{from{stroke-dashoffset:var(--perimeter)}to{stroke-dashoffset:0}}
+@keyframes pulse{from{stroke-opacity:.55}to{stroke-opacity:1}}
+/* Flat ripple */
+.rip{position:absolute;border-radius:50%;background:var(--pressed);pointer-events:none;z-index:0;transform:scale(0);
+  animation:rip .35s var(--fast) forwards}
+.rip.out{opacity:0;transition:opacity .25s var(--fast)}
+@keyframes rip{to{transform:scale(1)}}
+
+/* OperatorProgressIndicator */
+.spin{display:block;width:calc(var(--du)*4);height:calc(var(--du)*4);border-radius:50%;border:calc(var(--du)*.375) solid var(--pending);
+  border-top-color:transparent;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* OperatorActionButton */
+.btn{min-height:calc(var(--du)*10);min-width:max-content;padding:0 calc(var(--du)*4);background:var(--surface);color:var(--text);
+  border:0;font-size:14px;line-height:18px;font-weight:500;cursor:pointer;text-align:center;
+  display:inline-flex;align-items:center;justify-content:center}
+.btn.danger{background:color-mix(in srgb,var(--error) 15%,var(--surface));color:var(--error)}
+.btn.danger.pressed{background:color-mix(in srgb,var(--error) 30%,var(--surface))}
+.btn .lbl{display:flex;align-items:center;justify-content:center;gap:calc(var(--du)*2)}
+.btn .over{position:absolute;z-index:1;left:50%;top:50%;transform:translate(-50%,-50%);display:none}
+.btn[data-state=pending]{cursor:default}
+.btn[data-state=pending] .lbl,.btn[data-flash] .lbl{visibility:hidden}
+.btn[data-state=pending] .over.wait{display:block}
+.btn[data-flash][data-state=ok] .over.ok,.btn[data-flash][data-state=err] .over.err{display:block}
+.actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
+.actions .btn{flex:1 1 auto}
+.btn.wide{width:100%}
+
+/* OperatorTextField */
+label.cap{display:block;font-size:11px;line-height:14px;color:var(--text-2);margin:calc(var(--du)*3) 0 calc(var(--du)*1)}
+.field{display:flex;align-items:stretch;min-height:calc(var(--du)*10);background:var(--surface)}
+.field input{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font-size:14px;font-weight:500;
+  padding:0 0 0 calc(var(--du)*3);outline:0}
+.field input::placeholder{color:var(--text-off)}
+.field .btn{min-height:0;max-width:calc(var(--du)*30)}
+.field .eye{width:calc(var(--du)*10);flex:none;border:0;background:none;color:var(--text-2);cursor:pointer;display:flex;align-items:center;justify-content:center}
+textarea.area{display:block;width:100%;min-height:calc(var(--du)*16);padding:calc(var(--du)*2) calc(var(--du)*3);resize:vertical;
+  border:0;background:none;color:var(--text);font-size:14px;line-height:18px;font-weight:500;outline:0}
+.areawrap{background:var(--surface)}
+
+/* OperatorListItem */
+.list{border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
+.item{display:flex;align-items:center;gap:calc(var(--du)*3);width:100%;min-height:calc(var(--du)*10);padding:calc(var(--du)*2) calc(var(--du)*3);
+  border:0;border-bottom:calc(var(--du)*.25) solid var(--divider);background:none;color:var(--text);text-align:left;font:inherit;position:relative;overflow:hidden}
+.item:last-child{border-bottom:0}
+.item.two{min-height:calc(var(--du)*13)}
+button.item{cursor:pointer}
+.item.sel{background:var(--selection)}
+.item>:not(.rip){position:relative;z-index:1}
+.item .txt{flex:1;min-width:0}
+.item .t{display:block;font-size:15px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .s{display:block;font-size:11px;line-height:14px;color:var(--text-2)}
+.item .k{color:var(--text-2);flex:none}
+.item .v{flex:1;min-width:0;text-align:right;overflow-wrap:anywhere}
+.item .trail{flex:none;color:var(--text-2)}
+.empty{display:flex;align-items:center;gap:calc(var(--du)*2);padding:calc(var(--du)*3);color:var(--text-2)}
+.bars{display:inline-flex;align-items:flex-end;gap:1px;height:calc(var(--du)*4);flex:none}
+.bars i{width:calc(var(--du)*.75);background:var(--off-border)}
+.bars i:nth-child(1){height:25%}.bars i:nth-child(2){height:50%}.bars i:nth-child(3){height:75%}.bars i:nth-child(4){height:100%}
+.bars i.lit{background:var(--text)}
+.joinbox{display:flow-root;padding:0 calc(var(--du)*3) calc(var(--du)*3);background:var(--selection);border-bottom:calc(var(--du)*.25) solid var(--divider)}
+.joinbox:last-child{border-bottom:0}
+
+/* OperatorStatusBadge */
+.badge{width:calc(var(--du)*3);height:calc(var(--du)*3);border-radius:50%;flex:none;border:calc(var(--du)*.25) solid var(--badge-border);background:var(--badge-offline)}
+.badge.online{background:var(--badge-online)}
+.badge.error{background:var(--badge-alarm)}
+.badge.alarm{background:var(--badge-alarm);animation:alarm .25s infinite alternate}
+.badge.pending{background:none;border:calc(var(--du)*.3) solid var(--badge-activity);border-top-color:transparent;animation:spin .8s linear infinite}
+@keyframes alarm{to{opacity:.2}}
+.badge.big{width:calc(var(--du)*5);height:calc(var(--du)*5)}
+
+/* Messages under controls */
+.msg{display:flex;align-items:flex-start;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);overflow-wrap:anywhere}
+.msg:empty{display:none}
+.msg .badge{margin-top:calc(var(--du)*.75)}
+.msg.err{color:var(--error)}.msg.ok{color:var(--success)}.msg.wait{color:var(--text-2)}
+
+.steps{counter-reset:s;list-style:none;margin:0 0 calc(var(--du)*4);padding:0}
+.steps>li{counter-increment:s;display:flex;gap:calc(var(--du)*3);padding:calc(var(--du)*3);border-bottom:calc(var(--du)*.25) solid var(--divider)}
 .steps>li:last-child{border-bottom:0}
 .steps>li::before{content:counter(s);flex:none;width:calc(var(--du)*6);height:calc(var(--du)*6);display:flex;align-items:center;justify-content:center;
   border:calc(var(--du)*.25) solid var(--border-strong);font-weight:700}
 .steps>li.done::before{content:"✓";color:var(--success);border-color:var(--success)}
 .steps>li.wait{color:var(--text-off)}
+.steps>li.wait a{color:inherit}
 .steps>li>div{flex:1;min-width:0}
-code{background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--border);padding:0 calc(var(--du)*1)}
-a{color:var(--accent)}
-/* Rows */
-.list{border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
-.row{display:flex;align-items:center;gap:calc(var(--du)*2);min-height:calc(var(--du)*10);padding:calc(var(--du)*2) calc(var(--du)*3);
-  border-bottom:calc(var(--du)*.25) solid var(--border);width:100%;background:none;color:inherit;font:inherit;text-align:left;border-left:0;border-right:0;border-top:0}
-.row:last-child{border-bottom:0}
-button.row{cursor:pointer}
-button.row:active{background:var(--surface-alt)}
-.row.pending{pointer-events:none;color:var(--pending)}
-.row.ok{color:var(--success)}.row.err{color:var(--error)}
-.row.sel{background:var(--surface-alt);box-shadow:inset calc(var(--du)*.5) 0 0 var(--accent)}
-.row .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row .k{color:var(--text-2);flex:none}
-.row .v{flex:1;min-width:0;text-align:right;overflow-wrap:anywhere}
-.bars{display:inline-flex;align-items:flex-end;gap:1px;height:calc(var(--du)*3.5);flex:none}
-.bars i{width:calc(var(--du)*.75);background:var(--off-border)}
-.bars i:nth-child(1){height:25%}.bars i:nth-child(2){height:50%}.bars i:nth-child(3){height:75%}.bars i:nth-child(4){height:100%}
-.bars i.lit{background:var(--text)}
-.empty{padding:calc(var(--du)*3);color:var(--text-2)}
-/* Status badge */
-.badge{width:calc(var(--du)*3);height:calc(var(--du)*3);border-radius:50%;border:calc(var(--du)*.25) solid var(--badge-border);flex:none;background:#000}
-.badge.on{background:var(--badge-on)}
-.badge.off{background:var(--badge-alarm);animation:blink .5s infinite alternate}
-.badge.wait{background:transparent;border-color:var(--pending);border-top-color:transparent;animation:spin .8s linear infinite}
-@keyframes blink{to{opacity:.35}}
-@keyframes spin{to{transform:rotate(360deg)}}
+
+/* OperatorTemplateEditor */
+.chips{display:flex;flex-wrap:wrap;gap:calc(var(--du)*1);margin-top:calc(var(--du)*1)}
+.chip{min-height:calc(var(--du)*6);padding:calc(var(--du)*.75) calc(var(--du)*1.5);border:calc(var(--du)*.25) solid var(--divider);background:var(--surface-alt);
+  color:var(--accent);font-size:11px;line-height:14px;font-weight:700;cursor:pointer}
+.preview{margin-top:calc(var(--du)*1);padding:calc(var(--du)*1.5) calc(var(--du)*2);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--divider);
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.preview.bad{border-color:var(--error);color:var(--error)}
+
 .power{display:flex;align-items:center;gap:calc(var(--du)*3);min-height:calc(var(--du)*14)}
 .power b{font-size:20px;line-height:26px;display:block}
-/* Inputs */
-label{display:block;font-size:11px;line-height:14px;color:var(--text-2);margin:calc(var(--du)*3) 0 calc(var(--du)*1)}
-.field{display:flex;border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
-.field:focus-within{border-color:var(--border-strong)}
-.field input,textarea{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font:500 14px/18px inherit;font-family:inherit;padding:0 calc(var(--du)*3);outline:0}
-textarea{display:block;width:100%;height:auto;min-height:calc(var(--du)*16);padding:calc(var(--du)*2) calc(var(--du)*3);resize:vertical;
-  border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
-textarea:focus{border-color:var(--border-strong)}
-.field button{border:0;border-left:calc(var(--du)*.25) solid var(--border);height:calc(var(--du)*10)}
-.chips{display:flex;flex-wrap:wrap;gap:calc(var(--du)*1);margin-top:calc(var(--du)*1)}
-.chip{min-height:calc(var(--du)*6);padding:calc(var(--du)*.75) calc(var(--du)*1.5);border:calc(var(--du)*.25) solid var(--border);background:var(--surface-alt);
-  color:var(--accent);font:700 11px/14px inherit;font-family:inherit;cursor:pointer}
-/* Action button with ControlState */
-.btn{position:relative;min-height:calc(var(--du)*10);padding:0 calc(var(--du)*4);background:var(--surface);color:var(--text);
-  border:calc(var(--du)*.25) solid var(--border);font:500 14px/18px inherit;font-family:inherit;cursor:pointer;text-align:center}
-.btn:active{border-color:var(--border-strong);background:var(--surface-alt)}
-.btn.primary{border-color:var(--accent);color:var(--accent)}
-.btn:disabled{background:var(--off-surface);color:var(--text-off);border-color:var(--off-border);cursor:default}
-.btn.pending{color:transparent;pointer-events:none;border-color:var(--border)}
-.btn.pending::after{content:"";position:absolute;left:50%;top:50%;width:calc(var(--du)*4);height:calc(var(--du)*4);margin:calc(var(--du)*-2);
-  border-radius:50%;border:calc(var(--du)*.375) solid var(--pending);border-top-color:transparent;animation:spin .8s linear infinite}
-.btn.ok{color:var(--success);border:calc(var(--du)*.5) solid var(--success);background:color-mix(in srgb,var(--success) 15%,var(--surface));animation:pulse .4s infinite alternate}
-.btn.err{color:var(--error);border:calc(var(--du)*.5) solid var(--error);background:color-mix(in srgb,var(--error) 15%,var(--surface));animation:pulse .4s infinite alternate}
-@keyframes pulse{from{border-color:color-mix(in srgb,currentColor 55%,transparent)}}
-.btn.wide{width:100%}
-.btn.danger{color:var(--error);border-color:var(--error);background:color-mix(in srgb,var(--error) 15%,var(--surface))}
-.actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
-.actions .btn{flex:1 1 calc(var(--du)*40)}
-.msg{margin-top:calc(var(--du)*2);min-height:18px;overflow-wrap:anywhere}
-.msg.err{color:var(--error)}.msg.ok{color:var(--success)}.msg.wait{color:var(--pending)}
-.progress{display:flex;gap:calc(var(--du)*1);flex:none}
-.progress i{width:calc(var(--du)*5);height:calc(var(--du)*1);background:var(--off-border)}
-.progress i.lit{background:var(--accent)}
 .meter{height:calc(var(--du)*2);margin-top:calc(var(--du)*3);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--border)}
 .meter i{display:block;height:100%;width:0;background:var(--accent)}
-.hidden{display:none!important}
+.result{display:flex;gap:calc(var(--du)*3);align-items:flex-start}
+.result .badge{margin-top:calc(var(--du)*1)}
+.result b{display:block;font-size:15px;line-height:20px}
+
+/* OperatorConfirmDialog */
+dialog{width:clamp(calc(var(--du)*60),90vw,calc(var(--du)*75));max-width:calc(100vw - var(--du)*8);padding:calc(var(--du)*4);border:0;
+  background:var(--surface);color:var(--text);animation:show .15s var(--fast)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog .actions{margin-top:calc(var(--du)*4)}
+@keyframes show{from{opacity:0;transform:scale(.95)}}
 </style>
 </head>
 <body>
 <header>
-  <div style="flex:1;min-width:0">
+  <button class="back hidden" id="back" type="button" aria-label="Назад" data-go="dashboard"></button>
+  <div class="head">
     <h1 id="title">МОНІТОР СВІТЛА</h1>
     <div class="sub" id="subtitle">підключення…</div>
   </div>
@@ -126,9 +210,9 @@ textarea:focus{border-color:var(--border-strong)}
   <form class="card" id="login-form">
     <h2>Вхід</h2>
     <p class="muted">Панель захищено паролем.</p>
-    <label for="login-pass">Пароль</label>
-    <div class="field"><input id="login-pass" type="password" autocomplete="current-password" required></div>
-    <div class="actions"><button class="btn primary" id="login-btn">Увійти</button></div>
+    <label class="cap" for="login-pass">Пароль</label>
+    <div class="field" data-field><input id="login-pass" type="password" autocomplete="current-password" required></div>
+    <div class="actions"><button class="btn" id="login-btn">Увійти</button></div>
     <div class="msg" id="login-msg"></div>
   </form>
   <div class="card alt">
@@ -143,30 +227,24 @@ textarea:focus{border-color:var(--border-strong)}
 <section id="s-wifi">
   <div class="card">
     <h2>Крок 1 · Wi-Fi</h2>
-    <p class="muted">Оберіть мережу, до якої підключатиметься пристрій, і введіть пароль.
-      Точка доступу налаштування працюватиме до перезавантаження, тож ця сторінка не зникне.</p>
+    <p class="muted">Торкніться своєї домашньої мережі й введіть її пароль.</p>
   </div>
   <div class="card alt hidden" id="link-card">
-    <div class="row" style="padding:0;min-height:0;border:0"><span class="badge" id="link-badge"></span><span class="grow" id="link-text"></span></div>
+    <div class="result"><span class="badge" id="link-badge"></span>
+      <div style="flex:1;min-width:0"><b id="link-title"></b><span class="small muted" id="link-text"></span></div></div>
+    <div class="actions hidden" id="link-next"><button class="btn wide" type="button" data-go="bot">Далі: Telegram-бот</button></div>
   </div>
-  <div class="row" style="padding:0 0 calc(var(--du)*2);min-height:0;border:0">
-    <span class="grow small muted" id="scan-note">Пошук мереж…</span>
-    <span class="badge wait" id="scan-badge"></span>
-  </div>
-  <div class="list" id="networks"><div class="empty">Пошук мереж…</div></div>
-  <div class="card hidden" id="join" style="margin-top:calc(var(--du)*4)">
-    <h2 id="join-title"></h2>
-    <form id="join-form">
-      <label for="join-pass">Пароль</label>
-      <div class="field"><input id="join-pass" type="password" autocomplete="current-password" maxlength="63"></div>
-      <div class="actions">
-        <button class="btn" type="button" id="join-cancel">Скасувати</button>
-        <button class="btn primary" id="join-btn">Підключити</button>
-      </div>
-      <div class="msg" id="join-msg"></div>
-    </form>
-  </div>
-  <div class="actions hidden" id="wifi-back"><button class="btn wide" type="button" data-go="dashboard">← До панелі</button></div>
+  <div class="msg wait" id="scan-note" style="margin:0 0 calc(var(--du)*2)"></div>
+  <div class="list" id="networks"><div class="empty"><span class="badge pending"></span>Шукаю мережі…</div></div>
+  <form class="joinbox hidden" id="join" autocomplete="off">
+    <label class="cap" for="join-pass" id="join-label">Пароль мережі</label>
+    <div class="field" data-field id="join-field"><input id="join-pass" type="password" autocomplete="current-password" maxlength="63"></div>
+    <div class="actions">
+      <button class="btn" type="button" id="join-cancel">Скасувати</button>
+      <button class="btn" id="join-btn">Підключити</button>
+    </div>
+    <div class="msg" id="join-msg"></div>
+  </form>
 </section>
 
 <!-- Step 2: Telegram bot -->
@@ -177,11 +255,11 @@ textarea:focus{border-color:var(--border-strong)}
     <p class="small muted hidden" id="bot-offline">Якщо в телефона зараз немає інтернету, перейдіть у свою домашню мережу й відкрийте
       <a id="sta-link" href="#"></a> — це та сама сторінка.</p>
   </div>
-  <ol class="steps card">
+  <ol class="steps card" style="padding:0">
     <li><div>Відкрийте <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> у Telegram і надішліть <code>/newbot</code>.
       Придумайте назву, потім ім'я користувача, що закінчується на <code>bot</code>.</div></li>
     <li id="st-token"><div>Скопіюйте токен, який надішле BotFather, і вставте сюди:
-      <div class="field" style="margin-top:calc(var(--du)*2)">
+      <div class="field" data-field id="token-field" style="margin-top:calc(var(--du)*2)">
         <input id="token" placeholder="123456789:AAH…" autocomplete="off" autocapitalize="off" spellcheck="false">
         <button class="btn" id="token-btn" type="button">Перевірити</button>
       </div>
@@ -190,50 +268,49 @@ textarea:focus{border-color:var(--border-strong)}
       <span id="bot-link-wrap" class="hidden">— <a id="bot-link" target="_blank" rel="noopener"></a></span>.
       Щоб отримувати повідомлення в групі, додайте бота в групу й напишіть там.</div></li>
     <li id="st-chat" class="wait"><div>Оберіть чат, куди надсилати повідомлення:
-      <div class="list" id="chats" style="margin-top:calc(var(--du)*2)"><div class="empty">Чекаю на повідомлення боту…</div></div>
+      <div class="list" id="chats" style="margin-top:calc(var(--du)*2)"><div class="empty">Спершу перевірте токен.</div></div>
       <div class="msg" id="chat-msg"></div></div></li>
   </ol>
-  <div class="actions hidden" id="bot-back"><button class="btn wide" type="button" data-go="dashboard">← До панелі</button></div>
 </section>
 
 <!-- Step 3: dashboard -->
 <section id="s-dashboard">
   <div class="card">
-    <div class="power"><span class="badge wait" id="power-badge"></span>
+    <div class="power"><span class="badge big pending" id="power-badge"></span>
       <div><b id="power-text">ВИЗНАЧАЄТЬСЯ…</b><span class="muted small" id="power-for"></span></div></div>
   </div>
   <div class="list" style="margin-bottom:calc(var(--du)*4)">
-    <div class="row"><span class="k">Wi-Fi</span><span class="v" id="d-wifi"></span></div>
-    <div class="row"><span class="k">Точка доступу</span><span class="v" id="d-ap"></span></div>
-    <div class="row"><span class="k">Telegram</span><span class="v" id="d-telegram"></span></div>
-    <div class="row"><span class="k">Чат</span><span class="v" id="d-chat"></span></div>
-    <div class="row"><span class="k">У черзі</span><span class="v" id="d-pending"></span></div>
+    <div class="item"><span class="k">Wi-Fi</span><span class="v" id="d-wifi"></span></div>
+    <div class="item"><span class="k">Точка доступу</span><span class="v" id="d-ap"></span></div>
+    <div class="item"><span class="k">Telegram</span><span class="v" id="d-telegram"></span></div>
+    <div class="item"><span class="k">Чат</span><span class="v" id="d-chat"></span></div>
+    <div class="item"><span class="k">У черзі</span><span class="v" id="d-pending"></span></div>
   </div>
   <div class="actions" style="margin:0 0 calc(var(--du)*4)">
     <button class="btn" type="button" id="test-btn">Тестове повідомлення</button>
-    <button class="btn" type="button" data-go="wifi">Змінити Wi-Fi</button>
-    <button class="btn" type="button" data-go="bot">Змінити бота</button>
+    <button class="btn" type="button" data-go="wifi" data-nav>Змінити Wi-Fi</button>
+    <button class="btn" type="button" data-go="bot" data-nav>Змінити бота</button>
   </div>
-  <div class="msg" id="test-msg"></div>
+  <div class="msg" id="test-msg" style="margin:0 0 calc(var(--du)*4)"></div>
   <form class="card" id="messages-form">
     <h2>Повідомлення</h2>
     <p class="small muted">Змінні: <code>{device}</code> — назва пристрою, <code>{duration}</code> — скільки тривав попередній стан.
       Якщо повідомлення доставлено із запізненням, пристрій сам допише, коли це сталося.</p>
-    <label for="m-device_name">Назва пристрою</label>
-    <div class="field"><input id="m-device_name" name="device_name" maxlength="32" required></div>
+    <label class="cap" for="m-device_name">Назва пристрою</label>
+    <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
     <div id="templates"></div>
-    <div class="actions"><button class="btn primary" id="messages-btn">Зберегти</button></div>
+    <div class="actions"><button class="btn" id="messages-btn">Зберегти</button></div>
     <div class="msg" id="messages-msg"></div>
   </form>
   <div class="card">
     <h2>Доступ до панелі</h2>
     <p class="small muted" id="access-state"></p>
     <form id="password-form">
-      <label for="pw-new">Новий пароль</label>
-      <div class="field"><input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="4" maxlength="64" required></div>
-      <label for="pw-confirm">Повторіть пароль</label>
-      <div class="field"><input id="pw-confirm" name="confirm" type="password" autocomplete="new-password" minlength="4" maxlength="64" required></div>
-      <div class="actions"><button class="btn primary" id="pw-btn">Зберегти пароль</button></div>
+      <label class="cap" for="pw-new">Новий пароль</label>
+      <div class="field" data-field><input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="4" maxlength="64" required></div>
+      <label class="cap" for="pw-confirm">Повторіть пароль</label>
+      <div class="field" data-field><input id="pw-confirm" name="confirm" type="password" autocomplete="new-password" minlength="4" maxlength="64" required></div>
+      <div class="actions"><button class="btn" id="pw-btn">Зберегти пароль</button></div>
     </form>
     <div class="actions" id="access-actions">
       <button class="btn" type="button" id="pw-off-btn">Вимкнути пароль</button>
@@ -244,16 +321,16 @@ textarea:focus{border-color:var(--border-strong)}
   <div class="card" id="ota-card">
     <h2>Прошивка</h2>
     <div class="list" style="margin-bottom:calc(var(--du)*3)">
-      <div class="row"><span class="k">Версія</span><span class="v" id="fw-version"></span></div>
-      <div class="row"><span class="k">Зібрана</span><span class="v" id="fw-built"></span></div>
-      <div class="row"><span class="k">Слот</span><span class="v" id="fw-slot"></span></div>
+      <div class="item"><span class="k">Версія</span><span class="v" id="fw-version"></span></div>
+      <div class="item"><span class="k">Зібрана</span><span class="v" id="fw-built"></span></div>
+      <div class="item"><span class="k">Слот</span><span class="v" id="fw-slot"></span></div>
     </div>
     <p class="small muted">Файл <code>power-monitor.bin</code> створює <code>./flash.sh --image</code>.
       Після запису пристрій перезапуститься з новою прошивкою. Якщо вона не запуститься, повернеться попередня.</p>
-    <label for="ota-file">Файл прошивки (.bin)</label>
-    <div class="field"><input id="ota-file" type="file" accept=".bin,application/octet-stream" style="padding-top:calc(var(--du)*2.5)"></div>
+    <label class="cap" for="ota-file">Файл прошивки (.bin)</label>
+    <div class="field" data-field><input id="ota-file" type="file" accept=".bin,application/octet-stream" style="padding-top:calc(var(--du)*2.5)"></div>
     <div class="meter hidden" id="ota-meter"><i id="ota-bar"></i></div>
-    <div class="actions"><button class="btn primary" type="button" id="ota-btn" disabled>Оновити</button></div>
+    <div class="actions"><button class="btn" type="button" id="ota-btn" disabled>Оновити</button></div>
     <div class="msg" id="ota-msg"></div>
   </div>
   <div class="card">
@@ -261,31 +338,33 @@ textarea:focus{border-color:var(--border-strong)}
     <p class="small muted">Стирає Wi-Fi, бота, тексти й пароль. Пристрій перезапуститься з точкою доступу
       «PowerMonitor-Setup». Без доступу до панелі те саме робиться так: 5 разів поспіль увімкніть живлення
       і через 2–3 секунди знову вимкніть (кожне вмикання має бути коротшим за 10 секунд).</p>
-    <div class="actions"><button class="btn danger" type="button" id="reset-btn">Скинути все</button></div>
-    <div class="msg" id="reset-msg"></div>
+    <div class="actions"><button class="btn danger" type="button" id="reset-open">Скинути все</button></div>
   </div>
 </section>
 
 </main>
+
+<dialog id="reset-dialog">
+  <h2>Скинути все?</h2>
+  <p class="muted">Буде стерто Wi-Fi, бота, тексти й пароль, і пристрій перезапуститься.</p>
+  <div class="actions">
+    <button class="btn" type="button" id="reset-cancel">Скасувати</button>
+    <button class="btn" type="button" id="reset-btn">Скинути</button>
+  </div>
+  <div class="msg" id="reset-msg"></div>
+</dialog>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const TEXTS = [
   ["start_present", "Запуск, світло є", false],
   ["start_absent", "Запуск, світла немає", false],
   ["lost", "Світло зникло", true],
   ["returned", "Світло з'явилось", true],
 ];
-let state = null, view = null, picked = null, verifiedToken = null, messagesFilled = false;
-
-async function api(path, fields) {
-  const init = fields ? {method: "POST", body: new URLSearchParams(fields)} : {};
-  const response = await fetch(path, init);
-  const data = await response.json().catch(() => ({error: "Пристрій не відповів"}));
-  if (response.status === 401 && data.login) { show("login"); throw new Error(data.error); }
-  if (!response.ok) throw new Error(data.error || "Помилка " + response.status);
-  return data;
-}
+let state = null, view = null, picked = null, verifiedToken = null, messagesFilled = false, joining = false;
 
 function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
@@ -294,39 +373,207 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
-function say(id, text, kind) {
-  const node = $(id);
-  node.textContent = text || "";
-  node.className = "msg" + (kind ? " " + kind : "");
+/* ---------- OperatorIcons (Material paths, 24×24) ---------- */
+const ICONS = {
+  check: "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+  close: "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
+  back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
+  lock: "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z",
+  eye: "M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z",
+  eyeOff: "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z",
+};
+const SVG = "http://www.w3.org/2000/svg";
+function icon(name) {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "ic");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(SVG, "path");
+  path.setAttribute("d", ICONS[name]);
+  svg.append(path);
+  return svg;
 }
 
-/* ControlState: pending → ok/err pulse for 800 ms → idle. */
-async function act(button, work) {
-  button.classList.remove("ok", "err");
-  button.classList.add("pending");
-  let ok = false;
-  try { await work(); ok = true; } finally {
-    button.classList.remove("pending");
-    button.classList.add(ok ? "ok" : "err");
-    setTimeout(() => button.classList.remove("ok", "err"), 800);
+/* ---------- ControlState frame (operatorStateBorder) ----------
+   Strokes are inset by half their width so they stay inside the control.
+   The pending segment is 25% of the perimeter and runs clockwise in 2 s. */
+const frames = new ResizeObserver(entries => entries.forEach(e => layoutFrame(e.target)));
+function layoutFrame(node) {
+  const svg = node.querySelector(":scope>.sf");
+  const w = node.offsetWidth, h = node.offsetHeight;
+  if (!svg || !w || !h) return;
+  for (const rect of svg.children) {
+    const inset = (+rect.dataset.stroke || 0) / 2;
+    rect.setAttribute("x", inset); rect.setAttribute("y", inset);
+    rect.setAttribute("width", Math.max(0, w - 2 * inset)); rect.setAttribute("height", Math.max(0, h - 2 * inset));
+  }
+  const perimeter = 2 * (w + h - 2 * 1.5);
+  const run = svg.querySelector(".run");
+  run.style.setProperty("--perimeter", perimeter + "px");
+  run.setAttribute("stroke-dasharray", perimeter / 4 + " " + perimeter * 3 / 4);
+}
+
+class Control {
+  constructor(node) {
+    this.node = node;
+    this.state = "idle";
+    node.classList.add("ctl");
+    const svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("class", "sf");
+    svg.setAttribute("aria-hidden", "true");
+    for (const [cls, stroke] of [["tint", 0], ["base", 1], ["run", 1.5], ["stat", 2]]) {
+      const rect = document.createElementNS(SVG, "rect");
+      rect.setAttribute("class", cls);
+      rect.dataset.stroke = stroke;
+      svg.append(rect);
+    }
+    node.prepend(svg);
+    node.dataset.state = "idle";
+    frames.observe(node);
+    ripple(node);
+  }
+  /* idle | pending | ok | err. Leaving ok/err fades the status colour over 500 ms. */
+  set(next) {
+    const node = this.node, was = this.state;
+    if (next === was) return;
+    this.state = next;
+    clearTimeout(this.exitTimer);
+    if (next === "ok" || next === "err") {
+      node.classList.remove("exit");
+      node.dataset.tone = next;
+    } else if (was === "ok" || was === "err") {
+      node.classList.add("exit");
+      this.exitTimer = setTimeout(() => { node.classList.remove("exit"); delete node.dataset.tone; }, 500);
+    }
+    node.dataset.state = next;
   }
 }
 
+/* Flat ripple from the touch point; Pressed state while held. */
+function ripple(node) {
+  if (node.tagName !== "BUTTON") return;
+  node.addEventListener("pointerdown", e => {
+    if (node.disabled || node.dataset.state === "pending") return;
+    const box = node.getBoundingClientRect();
+    const r = Math.hypot(Math.max(e.clientX - box.left, box.right - e.clientX), Math.max(e.clientY - box.top, box.bottom - e.clientY));
+    const dot = el("span", {class: "rip"});
+    Object.assign(dot.style, {width: 2 * r + "px", height: 2 * r + "px", left: e.clientX - box.left - r + "px", top: e.clientY - box.top - r + "px"});
+    node.append(dot);
+    node.classList.add("pressed");
+    const release = () => {
+      node.classList.remove("pressed");
+      dot.classList.add("out");
+      setTimeout(() => dot.remove(), 300);
+      ["pointerup", "pointercancel", "pointerleave"].forEach(t => node.removeEventListener(t, release));
+    };
+    ["pointerup", "pointercancel", "pointerleave"].forEach(t => node.addEventListener(t, release));
+  });
+}
+
+/* ---------- OperatorActionButton ----------
+   Pending: label hidden (it keeps the width), spinner, running border.
+   Result: 0.5 s icon, 0.3 s label in the result colour, then 0.5 s fade. */
+function actionButton(node, work, options = {}) {
+  const label = el("span", {class: "lbl"});
+  label.append(...node.childNodes);
+  const control = new Control(node);
+  node.append(label,
+    el("span", {class: "over wait"}, el("span", {class: "spin"})),
+    el("span", {class: "over ok"}, icon("check")),
+    el("span", {class: "over err"}, icon("close")));
+  if (options.ring === false) node.classList.add("noring");
+  let run = 0;
+  control.run = async () => {
+    if (control.state === "pending" || node.disabled) return;
+    if (options.danger && control.state !== "idle") return;
+    const id = ++run;
+    control.set("pending");
+    options.frame?.set("pending");
+    let ok = true;
+    try { await work(); } catch (err) {
+      ok = false;
+      if (options.msg) say(options.msg, err.message, "err");
+    }
+    if (id !== run) return;
+    control.set(ok ? "ok" : "err");
+    options.frame?.set(ok ? "ok" : "err");
+    node.dataset.flash = "";
+    const holdIcon = ok && options.keepIcon;
+    await sleep(holdIcon ? 800 : 500);
+    if (id !== run) return;
+    delete node.dataset.flash;
+    if (!holdIcon) await sleep(300);
+    if (id !== run) return;
+    control.set("idle");
+    options.frame?.set("idle");
+    options.after?.(ok);
+  };
+  node.addEventListener("click", e => { e.preventDefault(); control.run(); });
+  return control;
+}
+
+/* ---------- OperatorTextField ---------- */
+function textField(node) {
+  const control = new Control(node);
+  const input = node.querySelector("input");
+  if (input && input.type === "password") {
+    const eye = el("button", {type: "button", class: "eye", "aria-label": "Показати пароль"}, icon("eye"));
+    eye.onclick = () => {
+      const hidden = input.type === "password";
+      input.type = hidden ? "text" : "password";
+      eye.replaceChildren(icon(hidden ? "eyeOff" : "eye"));
+      input.focus();
+    };
+    node.append(eye);
+  }
+  return control;
+}
+const fields = {};
+document.querySelectorAll("[data-field]").forEach(node => {
+  const control = textField(node);
+  if (node.id) fields[node.id] = control;
+});
+
+/* ---------- messages ---------- */
+function say(id, text, kind) {
+  const node = $(id);
+  node.className = "msg" + (kind ? " " + kind : "");
+  node.replaceChildren();
+  if (!text) return;
+  if (kind === "wait") node.append(el("span", {class: "badge pending"}));
+  node.append(el("span", {}, text));
+}
+
+async function api(path, fields) {
+  const init = fields ? {method: "POST", body: new URLSearchParams(fields)} : {};
+  let response;
+  try { response = await fetch(path, init); } catch (e) { throw new Error("Немає зв'язку з пристроєм"); }
+  const data = await response.json().catch(() => ({error: "Пристрій не відповів"}));
+  if (response.status === 401 && data.login) { show("login"); throw new Error(data.error); }
+  if (!response.ok) throw new Error(data.error || "Помилка " + response.status);
+  return data;
+}
+
 /* ---------- screens ---------- */
+$("back").append(icon("back"));
 function show(name) {
   view = name;
   ["login", "wifi", "bot", "dashboard"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
   const step = {login: 0, wifi: 1, bot: 2, dashboard: 3}[name];
   [...$("progress").children].forEach((bar, i) => bar.classList.toggle("lit", i < step));
   const configured = state && state.stage === "dashboard";
-  $("wifi-back").classList.toggle("hidden", !configured);
-  $("bot-back").classList.toggle("hidden", !configured);
+  $("back").classList.toggle("hidden", !(configured && (name === "wifi" || name === "bot")));
+  window.scrollTo(0, 0);
+  if (name === "wifi") refreshNetworks();
+  if (name === "bot") refreshChats();
 }
 
 document.addEventListener("click", e => {
   const go = e.target.closest("[data-go]");
-  if (go) { show(go.dataset.go); window.scrollTo(0, 0); refreshNetworks(); }
+  if (go) show(go.dataset.go);
 });
+document.querySelectorAll("[data-nav]").forEach(node => new Control(node));
+new Control($("link-next").querySelector("button"));
 
 /* ---------- state ---------- */
 async function refreshState() {
@@ -334,14 +581,13 @@ async function refreshState() {
     $("subtitle").textContent = view === "login" ? "потрібен пароль" : "немає зв'язку з пристроєм";
     return;
   }
-  if (view === "login") view = null;
-  // Follow the setup forward only while the user is still on the step just finished.
-  const advanced = stageBefore !== null && stageBefore !== state.stage && view === stageBefore;
-  if (!view || advanced) show(state.stage);
-  stageBefore = state.stage;
+  if (view === "login" || view === null) show(state.stage);
+  render();
+}
+
+function render() {
   renderHeader(); renderLink(); renderDashboard();
 }
-let stageBefore = null;
 
 function linkText(link) {
   switch (link.state) {
@@ -359,19 +605,21 @@ function renderHeader() {
 
 function renderLink() {
   const link = state.link;
-  $("link-card").classList.toggle("hidden", link.state === "idle");
-  $("link-badge").className = "badge " + {connecting: "wait", connected: "on", failed: "off"}[link.state];
-  $("link-text").textContent = linkText(link);
   const connected = link.state === "connected";
+  $("link-card").classList.toggle("hidden", link.state === "idle" || picked !== null);
+  $("link-badge").className = "badge " + {connecting: "pending", connected: "online", failed: "error"}[link.state];
+  $("link-title").textContent = {connecting: "Підключаюся…", connected: "Підключено", failed: "Не вдалося підключитися"}[link.state] || "";
+  $("link-text").textContent = connected
+    ? "Мережа «" + link.ssid + "». Адреса панелі вдома: http://" + link.ip + "/"
+    : link.state === "failed" ? "«" + link.ssid + "»: " + link.reason : "«" + link.ssid + "»";
+  $("link-next").classList.toggle("hidden", !connected || state.stage === "dashboard");
   $("bot-offline").classList.toggle("hidden", !(connected && state.setup_ap));
   if (connected) { $("sta-link").textContent = "http://" + link.ip + "/"; $("sta-link").href = "http://" + link.ip + "/"; }
-  if (link.state === "failed" && picked === link.ssid) say("join-msg", link.reason, "err");
-  if (link.state === "connected" && picked === link.ssid) say("join-msg", "Підключено. IP " + link.ip, "ok");
 }
 
 function renderDashboard() {
   const p = state.power;
-  $("power-badge").className = "badge " + (p ? (p.present ? "on" : "off") : "wait");
+  $("power-badge").className = "badge big " + (p ? (p.present ? "online" : "alarm") : "pending");
   $("power-text").textContent = p ? (p.present ? "СВІТЛО Є" : "СВІТЛА НЕМАЄ") : "ВИЗНАЧАЄТЬСЯ…";
   $("power-for").textContent = p ? "вже " + p.lasted : "";
   $("d-wifi").textContent = linkText(state.link);
@@ -390,155 +638,247 @@ function renderDashboard() {
 }
 
 /* ---------- Wi-Fi ---------- */
+let networks = [];
 async function refreshNetworks() {
-  if (view !== "wifi") return;
-  let networks;
-  try { networks = await api("/api/networks"); } catch (e) { $("scan-note").textContent = e.message; return; }
-  $("scan-note").textContent = "Знайдено мереж: " + networks.length + " · оновлюється автоматично";
-  const list = $("networks");
-  list.replaceChildren(...(networks.length ? networks.map(networkRow) : [el("div", {class: "empty"}, "Мереж не знайдено, шукаю далі…")]));
+  // While a network is chosen the list stays still: no jumping rows, and no
+  // scans that would disturb the radio during the connection.
+  if (view !== "wifi" || picked) return;
+  try { networks = await api("/api/networks"); } catch (e) { say("scan-note", e.message, "err"); return; }
+  say("scan-note", networks.length ? "Знайдено мереж: " + networks.length + ". Список оновлюється сам." : "Шукаю мережі…", "wait");
+  renderNetworks();
+}
+
+function renderNetworks() {
+  const rows = networks.map(n => {
+    const row = networkRow(n);
+    return picked === n.ssid ? [row, $("join")] : [row];
+  }).flat();
+  if (!rows.length) rows.push(el("div", {class: "empty"}, el("span", {class: "badge pending"}), "Шукаю мережі…"));
+  // The form is reused: it moves under the chosen row and waits hidden at the end otherwise.
+  if (!rows.includes($("join"))) rows.push($("join"));
+  $("networks").replaceChildren(...rows);
+  $("join").classList.toggle("hidden", !picked);
+}
+
+function signal(rssi) {
+  return rssi >= -55 ? [4, "сильний сигнал"] : rssi >= -67 ? [3, "добрий сигнал"] : rssi >= -78 ? [2, "слабкий сигнал"] : [1, "дуже слабкий сигнал"];
 }
 
 function networkRow(n) {
-  const level = n.rssi >= -55 ? 4 : n.rssi >= -67 ? 3 : n.rssi >= -78 ? 2 : 1;
+  const [level, words] = signal(n.rssi);
   const bars = el("span", {class: "bars", title: n.rssi + " dBm"}, ...[1, 2, 3, 4].map(i => el("i", {class: i <= level ? "lit" : ""})));
-  const row = el("button", {type: "button", class: "row" + (picked === n.ssid ? " sel" : "")},
-    bars, el("span", {class: "grow"}, n.ssid), el("span", {class: "k small"}, n.secure ? "🔒" : "відкрита"));
-  row.onclick = () => pick(n);
+  const row = el("button", {type: "button", class: "item two" + (picked === n.ssid ? " sel" : "")},
+    bars,
+    el("span", {class: "txt"}, el("span", {class: "t"}, n.ssid), el("span", {class: "s"}, (n.secure ? "з паролем" : "відкрита") + " · " + words)),
+    el("span", {class: "trail"}, n.secure ? icon("lock") : ""));
+  ripple(row);
+  row.onclick = () => { if (!joining) pick(n); };
   return row;
 }
 
 function pick(n) {
   picked = n.ssid;
-  $("join").classList.remove("hidden");
-  $("join-title").textContent = "Мережа «" + n.ssid + "»";
   $("join-pass").value = "";
-  $("join-pass").closest(".field").classList.toggle("hidden", !n.secure);
-  $("join-pass").previousElementSibling.classList.toggle("hidden", !n.secure);
+  $("join-pass").type = "password";
+  $("join-label").classList.toggle("hidden", !n.secure);
+  $("join-field").classList.toggle("hidden", !n.secure);
   say("join-msg", "");
-  refreshNetworks();
-  $("join").scrollIntoView({behavior: "smooth"});
+  renderNetworks();
   if (n.secure) $("join-pass").focus();
 }
 
-$("join-cancel").onclick = () => { picked = null; $("join").classList.add("hidden"); refreshNetworks(); };
-$("join-form").onsubmit = e => {
-  e.preventDefault();
-  act($("join-btn"), async () => {
+function unpick() {
+  picked = null;
+  say("join-msg", "");
+  renderNetworks();
+  refreshNetworks();
+}
+const joinCancel = new Control($("join-cancel"));
+$("join-cancel").onclick = () => { if (!joining) unpick(); };
+
+/* Waits until the device reports how the attempt ended. The phone may drop
+   off the setup network for a moment while the radio changes channel. */
+async function waitForLink(ssid) {
+  const until = Date.now() + 60000;
+  while (Date.now() < until) {
+    await sleep(1000);
+    try { state = await api("/api/state"); } catch (e) {
+      say("join-msg", "Зв'язок із пристроєм на мить перервався, чекаю…", "wait");
+      continue;
+    }
+    render();
+    const link = state.link;
+    if (link.ssid !== ssid) continue;
+    if (link.state === "connected") return link;
+    if (link.state === "failed") throw new Error(link.reason);
+    say("join-msg", "Підключаюся до «" + ssid + "»…", "wait");
+  }
+  throw new Error("Пристрій не відповідає. Перепідключіть телефон до «PowerMonitor-Setup».");
+}
+
+actionButton($("join-btn"), async () => {
+  joining = true;
+  $("join-cancel").disabled = true;
+  try {
+    say("join-msg", "Підключаюся до «" + picked + "»…", "wait");
     await api("/api/wifi", {ssid: picked, password: $("join-pass").value});
-    say("join-msg", "Підключаюся… Телефон може на мить втратити зв'язок із точкою доступу.", "wait");
-  }).catch(err => say("join-msg", err.message, "err"));
-};
+    const link = await waitForLink(picked);
+    say("join-msg", "Підключено. Адреса панелі вдома: http://" + link.ip + "/", "ok");
+  } finally {
+    joining = false;
+    $("join-cancel").disabled = false;
+  }
+}, {msg: "join-msg", frame: fields["join-field"], after: ok => {
+  if (!ok) return;
+  picked = null;
+  renderNetworks();
+  render();
+  if (state.stage !== "dashboard") show("bot");
+}});
 
 /* ---------- bot ---------- */
-$("token-btn").onclick = () => {
+actionButton($("token-btn"), async () => {
   const token = $("token").value.trim();
-  act($("token-btn"), async () => {
-    const bot = await api("/api/bot/check", {token});
-    verifiedToken = token;
-    say("token-msg", "Бот @" + bot.username + " знайдено.", "ok");
-    $("bot-link").textContent = "@" + bot.username;
-    $("bot-link").href = "https://t.me/" + bot.username;
-    $("bot-link-wrap").classList.remove("hidden");
-    $("st-token").classList.add("done");
-    $("st-write").classList.remove("wait");
-    $("st-chat").classList.remove("wait");
-    refreshChats();
-  }).catch(err => { verifiedToken = null; say("token-msg", err.message, "err"); });
-};
+  verifiedToken = null;
+  say("token-msg", "");
+  const bot = await api("/api/bot/check", {token});
+  verifiedToken = token;
+  say("token-msg", "Бот @" + bot.username + " знайдено.", "ok");
+  $("bot-link").textContent = "@" + bot.username;
+  $("bot-link").href = "https://t.me/" + bot.username;
+  $("bot-link-wrap").classList.remove("hidden");
+  $("st-token").classList.add("done");
+  $("st-write").classList.remove("wait");
+  $("st-chat").classList.remove("wait");
+  $("chats").replaceChildren(el("div", {class: "empty"}, el("span", {class: "badge pending"}), "Чекаю на повідомлення боту…"));
+  refreshChats();
+}, {msg: "token-msg", ring: false, frame: fields["token-field"]});
 
+let choosingChat = false;
 async function refreshChats() {
-  if (view !== "bot" || !verifiedToken) return;
+  if (view !== "bot" || !verifiedToken || choosingChat) return;
   let chats;
   try { chats = await api("/api/bot/chats", {token: verifiedToken}); } catch (e) { say("chat-msg", e.message, "err"); return; }
+  if (choosingChat) return;
   if (chats.length) $("st-write").classList.add("done");
-  $("chats").replaceChildren(...(chats.length ? chats.map(chatRow) : [el("div", {class: "empty"}, "Чекаю на повідомлення боту…")]));
+  $("chats").replaceChildren(...(chats.length ? chats.map(chatRow)
+    : [el("div", {class: "empty"}, el("span", {class: "badge pending"}), "Чекаю на повідомлення боту…")]));
 }
 
 function chatRow(chat) {
-  const row = el("button", {type: "button", class: "row"},
-    el("span", {class: "grow"}, chat.title), el("span", {class: "k small"}, chat.id < 0 ? "група" : "особистий"));
-  row.onclick = () => act(row, async () => {
-    say("chat-msg", "Надсилаю тестове повідомлення…", "wait");
-    await api("/api/bot", {token: verifiedToken, chat_id: chat.id});
-    say("chat-msg", "Готово! Перевірте Telegram.", "ok");
-    $("st-chat").classList.add("done");
-    await refreshState();
-    setTimeout(() => show("dashboard"), 900);
-  }).catch(err => say("chat-msg", err.message, "err"));
-  return row;
+  const choose = el("button", {type: "button", class: "btn"}, "Обрати");
+  actionButton(choose, async () => {
+    choosingChat = true;
+    try {
+      say("chat-msg", "Надсилаю тестове повідомлення…", "wait");
+      await api("/api/bot", {token: verifiedToken, chat_id: chat.id});
+      say("chat-msg", "Готово! Перевірте Telegram.", "ok");
+      $("st-chat").classList.add("done");
+      await refreshState();
+    } catch (err) {
+      choosingChat = false;
+      throw err;
+    }
+  }, {msg: "chat-msg", keepIcon: true, after: ok => {
+    // The list stays untouched until the button's feedback has played out.
+    choosingChat = false;
+    if (ok) show("dashboard");
+  }});
+  return el("div", {class: "item two"},
+    el("span", {class: "txt"}, el("span", {class: "t"}, chat.title), el("span", {class: "s"}, chat.id < 0 ? "група" : "особистий чат")),
+    choose);
 }
 
 /* ---------- dashboard ---------- */
-$("test-btn").onclick = () => act($("test-btn"), async () => {
+actionButton($("test-btn"), async () => {
+  say("test-msg", "");
   await api("/api/test", {});
   say("test-msg", "Тестове повідомлення надіслано.", "ok");
-}).catch(err => say("test-msg", err.message, "err"));
+}, {msg: "test-msg"});
 
+const SAMPLE_DURATION = "2 год 15 хв";
 function fillMessages(messages) {
   messagesFilled = true;
   $("m-device_name").value = messages.device_name;
   $("templates").replaceChildren(...TEXTS.map(([key, title, withDuration]) => {
-    const area = el("textarea", {id: "m-" + key, name: key, maxlength: "500", rows: "3"});
+    const area = el("textarea", {id: "m-" + key, name: key, maxlength: "500", rows: "3", class: "area"});
     area.value = messages[key];
+    const wrap = el("div", {class: "areawrap"}, area);
+    new Control(wrap);
     const vars = withDuration ? ["{device}", "{duration}"] : ["{device}"];
+    const preview = el("div", {class: "preview"});
+    const update = () => renderPreview(preview, area.value, vars);
+    area.addEventListener("input", update);
+    $("m-device_name").addEventListener("input", update);
     const chips = el("div", {class: "chips"}, ...vars.map(v => {
       const chip = el("button", {type: "button", class: "chip"}, v);
-      chip.onclick = () => { area.setRangeText(v, area.selectionStart, area.selectionEnd, "end"); area.focus(); };
+      chip.onclick = () => { area.setRangeText(v, area.selectionStart, area.selectionEnd, "end"); area.focus(); update(); };
       return chip;
     }));
-    return el("div", {}, el("label", {for: "m-" + key}, title), area, chips);
+    update();
+    return el("div", {}, el("label", {class: "cap", for: "m-" + key}, title), wrap, chips, preview);
   }));
 }
 
-$("messages-form").onsubmit = e => {
-  e.preventDefault();
-  const fields = Object.fromEntries(new FormData(e.target));
-  act($("messages-btn"), async () => {
-    await api("/api/messages", fields);
-    say("messages-msg", "Збережено.", "ok");
-  }).catch(err => say("messages-msg", err.message, "err"));
-};
+/* Live preview with the same variables the device substitutes. */
+function renderPreview(node, text, allowed) {
+  const unknown = (text.match(/\{[^{}]*\}/g) || []).filter(v => !allowed.includes(v));
+  node.classList.toggle("bad", unknown.length > 0);
+  node.textContent = unknown.length
+    ? "Невідома змінна: " + unknown[0] + ". Доступні: " + allowed.join(", ")
+    : text.replaceAll("{device}", $("m-device_name").value).replaceAll("{duration}", SAMPLE_DURATION);
+}
+
+actionButton($("messages-btn"), async () => {
+  if (!$("messages-form").reportValidity()) throw new Error("Заповніть назву пристрою.");
+  say("messages-msg", "");
+  await api("/api/messages", Object.fromEntries(new FormData($("messages-form"))));
+  say("messages-msg", "Збережено.", "ok");
+}, {msg: "messages-msg"});
 
 /* ---------- access ---------- */
-$("login-form").onsubmit = e => {
-  e.preventDefault();
-  act($("login-btn"), async () => {
-    await api("/api/login", {password: $("login-pass").value});
-    $("login-pass").value = "";
-    say("login-msg", "");
-    await refreshState();
-  }).catch(err => say("login-msg", err.message, "err"));
-};
+actionButton($("login-btn"), async () => {
+  say("login-msg", "");
+  await api("/api/login", {password: $("login-pass").value});
+  $("login-pass").value = "";
+  view = null;
+  await refreshState();
+}, {msg: "login-msg"});
 
-$("password-form").onsubmit = e => {
-  e.preventDefault();
-  act($("pw-btn"), async () => {
-    await api("/api/password", {password: $("pw-new").value, confirm: $("pw-confirm").value});
-    e.target.reset();
-    say("pw-msg", "Пароль збережено. Інші пристрої мають увійти заново.", "ok");
-    await refreshState();
-  }).catch(err => say("pw-msg", err.message, "err"));
-};
+actionButton($("pw-btn"), async () => {
+  if (!$("password-form").reportValidity()) throw new Error("Пароль — від 4 до 64 символів.");
+  say("pw-msg", "");
+  await api("/api/password", {password: $("pw-new").value, confirm: $("pw-confirm").value});
+  $("password-form").reset();
+  say("pw-msg", "Пароль збережено. Інші пристрої мають увійти заново.", "ok");
+  await refreshState();
+}, {msg: "pw-msg"});
 
-$("pw-off-btn").onclick = () => act($("pw-off-btn"), async () => {
+actionButton($("pw-off-btn"), async () => {
+  say("pw-msg", "");
   await api("/api/password/off", {});
   say("pw-msg", "Пароль вимкнено.", "ok");
   await refreshState();
-}).catch(err => say("pw-msg", err.message, "err"));
+}, {msg: "pw-msg"});
 
-$("logout-btn").onclick = () => act($("logout-btn"), async () => {
+actionButton($("logout-btn"), async () => {
   await api("/api/logout", {});
-  show("login");
-}).catch(err => say("pw-msg", err.message, "err"));
+}, {msg: "pw-msg", after: ok => { if (ok) show("login"); }});
 
-$("reset-btn").onclick = () => {
-  if (!confirm("Стерти всі налаштування й перезапустити пристрій?")) return;
-  act($("reset-btn"), async () => {
+/* ---------- factory reset (OperatorConfirmDialog) ---------- */
+const dialog = $("reset-dialog");
+const dialogFrame = new Control(dialog);
+const resetCancel = new Control($("reset-cancel"));
+new Control($("reset-open")).node.onclick = () => { say("reset-msg", ""); dialog.showModal(); };
+$("reset-cancel").onclick = () => dialog.close();
+actionButton($("reset-btn"), async () => {
+  $("reset-cancel").disabled = true;
+  try {
     await api("/api/factory-reset", {});
-    say("reset-msg", "Налаштування стерто. Підключіться до Wi-Fi «PowerMonitor-Setup».", "ok");
-  }).catch(err => say("reset-msg", err.message, "err"));
-};
+    say("reset-msg", "Налаштування стерто. Пристрій перезапускається — підключіться до Wi-Fi «PowerMonitor-Setup».", "ok");
+  } finally { $("reset-cancel").disabled = false; }
+}, {msg: "reset-msg", danger: true, frame: dialogFrame});
+$("reset-btn").classList.add("danger");
 
 /* ---------- firmware update ---------- */
 $("ota-file").onchange = () => { $("ota-btn").disabled = !$("ota-file").files.length; say("ota-msg", ""); };
@@ -566,22 +906,18 @@ function upload(file) {
   });
 }
 
-$("ota-btn").onclick = () => {
-  const file = $("ota-file").files[0];
+actionButton($("ota-btn"), async () => {
   $("ota-meter").classList.remove("hidden");
   $("ota-bar").style.width = "0";
-  act($("ota-btn"), async () => {
-    const info = await upload(file);
-    say("ota-msg", "Записано " + info.version + " (" + info.built + "). Перезапуск…", "ok");
-    setTimeout(() => location.reload(), 12000);
-  }).catch(err => say("ota-msg", err.message, "err"));
-};
+  const info = await upload($("ota-file").files[0]);
+  say("ota-msg", "Записано " + info.version + " (" + info.built + "). Перезапуск…", "wait");
+  setTimeout(() => location.reload(), 12000);
+}, {msg: "ota-msg"});
 
 refreshState();
-setInterval(refreshState, 3000);
+setInterval(() => { if (!joining) refreshState(); }, 3000);
 setInterval(refreshNetworks, 5000);
 setInterval(refreshChats, 4000);
-setTimeout(refreshNetworks, 300);
 </script>
 </body>
 </html>
