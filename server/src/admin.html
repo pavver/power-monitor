@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Віддалена підтримка</title>
+<style>/*CSS*/</style>
+</head>
+<body>
+<header>
+  <div class="head"><h1 id="title">Віддалена підтримка</h1><div class="sub" id="sub"></div></div>
+</header>
+<main>
+
+<form class="card hidden" id="s-login" autocomplete="on">
+  <h2>Вхід</h2>
+  <label class="cap" for="password">Пароль</label>
+  <div class="field" data-field><input id="password" type="password" autocomplete="current-password" required></div>
+  <label class="cap" for="captcha">Цифри з картинки</label>
+  <div class="captcha">
+    <img id="captcha-img" alt="Цифри для перевірки" width="200" height="64">
+    <button class="btn" type="button" id="captcha-new">Інші цифри</button>
+  </div>
+  <div class="field" data-field><input id="captcha" inputmode="numeric" maxlength="5" autocomplete="off" required></div>
+  <div class="actions"><button class="btn" type="submit" id="login-btn">Увійти</button></div>
+  <div class="msg" id="login-msg"></div>
+</form>
+
+<section class="hidden" id="s-devices">
+  <div id="devices"></div>
+  <div class="card hidden" id="no-devices"><p class="muted">Пристроїв ще немає. Кожен з'явиться тут після першої перевірки сервера.</p></div>
+  <div class="card alt"><p class="muted small">Пристрій перевіряє сервер раз на годину, а з «Чекаю пристрій» кожні 2 хв.
+    «Відкрити панель» запитує сесію й відкриває панель пристрою, щойно він з'явиться.</p></div>
+</section>
+
+</main>
+
+<template id="device-card">
+  <div class="card">
+    <div class="devhead"><span class="badge"></span><div class="txt"><span class="t" data-name></span><span class="s" data-meta></span></div></div>
+    <div class="list">
+      <div class="item"><span class="k">На зв'язку</span><span class="v" data-seen></span></div>
+      <div class="item"><span class="k">Сесія</span><span class="v" data-session></span></div>
+      <div class="item control"><span class="txt"><span class="t">Чекаю пристрій</span><span class="s">перевірка кожні 2 хв замість щогодини</span></span>
+        <button class="switch" type="button" role="switch" aria-checked="false" aria-label="Чекаю пристрій" data-waiting><i></i></button></div>
+    </div>
+    <div class="actions">
+      <button class="btn" type="button" data-open>Відкрити панель</button>
+      <button class="btn" type="button" data-end>Завершити сесію</button>
+      <button class="btn danger" type="button" data-forget>Забути</button>
+    </div>
+    <div class="msg" data-msg></div>
+  </div>
+</template>
+
+<dialog id="forget-dialog">
+  <h2>Забути пристрій?</h2>
+  <p class="muted" id="forget-text"></p>
+  <div class="actions">
+    <button class="btn" type="button" id="forget-cancel">Скасувати</button>
+    <button class="btn danger" type="button" id="forget-btn">Забути</button>
+  </div>
+  <div class="msg" id="forget-msg"></div>
+</dialog>
+
+<script>/*SCRIPT*/</script>
+</body>
+</html>

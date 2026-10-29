@@ -102,10 +102,10 @@ fn draw(answer: &str, seed: u64) -> String {
         }
         let _ = write!(svg, "<path stroke-width='3' d='{d}'/>");
     }
-    for _ in 0..7 {
+    for _ in 0..5 {
         let mut point = || (rng.random_range(0.0..WIDTH), rng.random_range(0.0..HEIGHT));
         let (a, b, c) = (point(), point(), point());
-        let width = rng.random_range(1.0..2.5);
+        let width = rng.random_range(1.0..1.8);
         let _ = write!(svg, "<path stroke-width='{width:.1}' d='M{:.1} {:.1}Q{:.1} {:.1} {:.1} {:.1}'/>", a.0, a.1, b.0, b.1, c.0, c.1);
     }
     svg + "</g></svg>"

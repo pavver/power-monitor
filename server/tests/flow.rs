@@ -46,11 +46,10 @@ fn login(form: &str) -> Request<Body> {
         .unwrap()
 }
 
-/// The captcha on the login page: its id and, peeked from the server, the answer.
+/// A captcha for the login form: its id and, peeked from the server, the answer.
 async fn captcha(app: &App) -> (String, String) {
-    let (_, _, page) = call(app, Request::get("/admin").body(Body::empty()).unwrap()).await;
-    let page = String::from_utf8(page).unwrap();
-    let id = page.split("name=captcha_id value=").nth(1).unwrap()[..32].to_string();
+    let (_, _, body) = call(app, Request::get("/admin/api/captcha").body(Body::empty()).unwrap()).await;
+    let id = json(&body)["id"].as_str().unwrap().to_string();
     let answer = app.captcha_answer(&id).unwrap();
     (id, answer)
 }
@@ -62,6 +61,10 @@ async fn admin(app: &App) -> String {
     let set = headers.get(header::SET_COOKIE).unwrap().to_str().unwrap();
     let token = set.split(';').next().unwrap().to_string();
     format!("{token}; svitlo_device={ID}; session=panel-token")
+}
+
+fn json(body: &[u8]) -> Value {
+    serde_json::from_slice(body).unwrap()
 }
 
 fn browser(method: &str, uri: &str, cookies: &str, body: impl Into<Body>) -> Request<Body> {
@@ -93,9 +96,10 @@ async fn waiting_flag_brings_the_device_back_soon_and_open_asks_for_a_session() 
     call(&app, browser("POST", &format!("/admin/devices/{ID}/waiting"), &cookies, "on=1")).await;
     assert_eq!(checkin(&app).await, serde_json::json!({ "session": false, "soon": true }));
 
-    let (status, _, page) = call(&app, browser("GET", &format!("/admin/devices/{ID}/open"), &cookies, "")).await;
+    let (status, headers, body) = call(&app, browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, "")).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(String::from_utf8_lossy(&page).contains("Очікую"));
+    assert_eq!(json(&body), serde_json::json!({ "online": false }));
+    assert!(headers[header::SET_COOKIE].to_str().unwrap().starts_with(&format!("svitlo_device={ID};")));
     assert_eq!(checkin(&app).await["session"], true);
 
     // Once the session starts the request is used up.
@@ -151,9 +155,10 @@ async fn the_relay_needs_the_admin() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers[header::LOCATION], "/admin");
     let (id, answer) = captcha(&app).await;
-    let (_, headers, _) = call(&app, login(&format!("password=guess&captcha_id={id}&captcha={answer}"))).await;
+    let (status, headers, body) = call(&app, login(&format!("password=guess&captcha_id={id}&captcha={answer}"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(headers.get(header::SET_COOKIE).is_none());
-    assert_eq!(headers[header::LOCATION], "/admin?wrong");
+    assert_eq!(json(&body)["field"], "password");
 }
 
 // Paused time: failed logins wait a second.
@@ -161,9 +166,10 @@ async fn the_relay_needs_the_admin() {
 async fn the_password_alone_does_not_log_in() {
     let app = app();
     let (id, answer) = captcha(&app).await;
-    let (_, headers, _) = call(&app, login("password=correct+horse+battery")).await;
+    let (status, headers, body) = call(&app, login("password=correct+horse+battery")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(headers.get(header::SET_COOKIE).is_none());
-    assert_eq!(headers[header::LOCATION], "/admin?captcha");
+    assert_eq!(json(&body)["field"], "captcha");
 
     let wrong = if answer == "00000" { "11111" } else { "00000" };
     let (_, headers, _) = call(&app, login(&format!("password=correct+horse+battery&captcha_id={id}&captcha={wrong}"))).await;
@@ -178,7 +184,8 @@ async fn a_solved_captcha_logs_in_once() {
     let app = app();
     let (id, answer) = captcha(&app).await;
     let form = format!("password=correct+horse+battery&captcha_id={id}&captcha={answer}");
-    let (_, headers, _) = call(&app, login(&form)).await;
+    let (status, headers, _) = call(&app, login(&form)).await;
+    assert_eq!(status, StatusCode::OK);
     assert!(headers.get(header::SET_COOKIE).is_some());
     let (_, headers, _) = call(&app, login(&form)).await;
     assert!(headers.get(header::SET_COOKIE).is_none());
@@ -205,7 +212,7 @@ async fn a_device_out_of_session_is_asked_for_one() {
     let cookies = admin(&app).await;
     let (status, headers, _) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION], format!("/admin/devices/{ID}/open"));
+    assert_eq!(headers[header::LOCATION], format!("/admin?open={ID}"));
 }
 
 #[tokio::test]
@@ -231,4 +238,38 @@ async fn pages_use_the_operator_font() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CONTENT_TYPE], "font/woff");
     assert!(font.starts_with(b"wOFF"));
+}
+
+#[tokio::test]
+async fn the_device_list_needs_the_admin_and_follows_the_actions() {
+    let app = app();
+    checkin(&app).await;
+    let (status, _, body) = call(&app, browser("GET", "/admin/api/devices", "", "")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(json(&body), serde_json::json!({ "login": true }));
+    let (status, _, _) = call(&app, browser("POST", &format!("/admin/devices/{ID}/waiting"), "", "on=1")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let cookies = admin(&app).await;
+    let list = |app: App, cookies: String| async move { json(&call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await.2) };
+    let devices = list(app.clone(), cookies.clone()).await;
+    assert_eq!(devices[0]["id"], ID);
+    assert_eq!(devices[0]["name"], "Дім");
+    assert_eq!(devices[0]["version"], "0.1.0");
+    assert_eq!(devices[0]["online"], false);
+    assert_eq!(devices[0]["requested"], false);
+    assert_eq!(devices[0]["waiting"], false);
+
+    let (status, _, _) = call(&app, browser("POST", &format!("/admin/devices/{ID}/waiting"), &cookies, "on=1")).await;
+    assert_eq!(status, StatusCode::OK);
+    call(&app, browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, "")).await;
+    let devices = list(app.clone(), cookies.clone()).await;
+    assert_eq!(devices[0]["waiting"], true);
+    assert_eq!(devices[0]["requested"], true);
+
+    let (status, _, _) = call(&app, browser("POST", &format!("/admin/devices/{ID}/forget"), &cookies, "")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list(app.clone(), cookies.clone()).await, serde_json::json!([]));
+    let (status, _, _) = call(&app, browser("POST", &format!("/admin/devices/{ID}/waiting"), &cookies, "on=1")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

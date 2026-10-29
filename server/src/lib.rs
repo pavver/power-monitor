@@ -136,7 +136,9 @@ impl App {
             .route("/admin/captcha/{id}", get(captcha_image))
             .route("/admin/operator-mono.woff", get(font))
             .route("/admin/devices/{id}/waiting", post(set_waiting))
-            .route("/admin/devices/{id}/open", get(open_panel))
+            .route("/admin/devices/{id}/open", post(open_panel))
+            .route("/admin/api/devices", get(device_list))
+            .route("/admin/api/captcha", get(new_captcha))
             .route("/admin/devices/{id}/end", post(end_session))
             .route("/admin/devices/{id}/forget", post(forget))
             .fallback(relay)
@@ -317,7 +319,7 @@ async fn relay(State(app): State<App>, request: Request) -> Response {
     };
     let link = app.link(&id);
     if !link.online() {
-        return Redirect::to(&format!("/admin/devices/{id}/open")).into_response();
+        return Redirect::to(&format!("/admin?open={id}")).into_response();
     }
     let method = match *request.method() {
         Method::GET => remote::Method::Get,
@@ -364,6 +366,52 @@ async fn relay(State(app): State<App>, request: Request) -> Response {
     }
 }
 
+/* ---------- the admin app (admin.html) and its JSON ---------- */
+
+const PAGE: &str = include_str!("admin.html");
+const CSS: &str = include_str!("admin.css");
+const SCRIPT: &str = include_str!("admin.js");
+const FONT: &[u8] = include_bytes!("../../firmware/ui/operator-mono.woff");
+
+/// One page for login and the device list; the script drives it through JSON.
+async fn admin_page() -> Response {
+    let page = PAGE.replacen("/*CSS*/", CSS, 1).replacen("/*SCRIPT*/", SCRIPT, 1);
+    ([(header::CACHE_CONTROL, "no-store")], Html(page)).into_response()
+}
+
+async fn font() -> Response {
+    ([(header::CONTENT_TYPE, "font/woff"), (header::CACHE_CONTROL, "public, max-age=86400")], FONT).into_response()
+}
+
+fn json_reply(status: StatusCode, body: serde_json::Value) -> Response {
+    (status, Json(body)).into_response()
+}
+
+fn ok() -> Response {
+    json_reply(StatusCode::OK, serde_json::json!({}))
+}
+
+/// The answer to a call that needs the admin; the page shows the login then.
+fn login_first() -> Response {
+    json_reply(StatusCode::UNAUTHORIZED, serde_json::json!({ "login": true }))
+}
+
+fn unknown_device() -> Response {
+    json_reply(StatusCode::NOT_FOUND, serde_json::json!({ "error": "Такого пристрою вже немає." }))
+}
+
+async fn new_captcha(State(app): State<App>) -> Response {
+    let id = app.0.captchas.lock().unwrap().issue(&mut rand::rng(), Instant::now());
+    ([(header::CACHE_CONTROL, "no-store")], Json(serde_json::json!({ "id": id }))).into_response()
+}
+
+async fn captcha_image(State(app): State<App>, Path(id): Path<String>) -> Response {
+    match app.0.captchas.lock().unwrap().image(&id) {
+        Some(svg) => ([(header::CONTENT_TYPE, "image/svg+xml"), (header::CACHE_CONTROL, "no-store")], svg).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 #[derive(Deserialize)]
 struct LoginForm {
     password: String,
@@ -376,20 +424,60 @@ struct LoginForm {
 async fn login(State(app): State<App>, Form(form): Form<LoginForm>) -> Response {
     let solved = app.0.captchas.lock().unwrap().check(&form.captcha_id, &form.captcha, Instant::now());
     let failure = if !solved {
-        Some("/admin?captcha")
+        Some(("captcha", "Цифри з картинки не збіглися. Введіть нові."))
     } else if !same(&sha256(&form.password), &sha256(&app.0.config.admin_password)) {
-        Some("/admin?wrong")
+        Some(("password", "Невірний пароль."))
     } else {
         None
     };
-    if let Some(page) = failure {
+    if let Some((field, error)) = failure {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        return Redirect::to(page).into_response();
+        return json_reply(StatusCode::FORBIDDEN, serde_json::json!({ "field": field, "error": error }));
     }
     let token = random_hex(16);
     app.0.admins.lock().unwrap().insert(token.clone());
     let cookie = format!("{ADMIN_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax");
-    ([(header::SET_COOKIE, cookie)], Redirect::to("/admin")).into_response()
+    ([(header::SET_COOKIE, cookie)], ok()).into_response()
+}
+
+/// A device as the list shows it.
+#[derive(Serialize)]
+struct DeviceView {
+    id: String,
+    name: String,
+    version: String,
+    /// Seconds since its last call.
+    seen: u64,
+    /// In a session now.
+    online: bool,
+    /// A session is asked for at the next check-in.
+    requested: bool,
+    waiting: bool,
+}
+
+async fn device_list(State(app): State<App>, headers: HeaderMap) -> Response {
+    if !app.is_admin(&headers) {
+        return login_first();
+    }
+    let now = unix_now();
+    let mut devices: Vec<DeviceView> = app
+        .0
+        .devices
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, d)| DeviceView {
+            id: id.clone(),
+            name: d.name.clone(),
+            version: d.version.clone(),
+            seen: now.saturating_sub(d.last_seen),
+            online: app.link(id).online(),
+            requested: d.want_session,
+            waiting: d.waiting,
+        })
+        .collect();
+    devices.sort_by_key(|d| d.seen);
+    ([(header::CACHE_CONTROL, "no-store")], Json(devices)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -400,169 +488,52 @@ struct WaitingForm {
 
 async fn set_waiting(State(app): State<App>, headers: HeaderMap, Path(id): Path<String>, Form(form): Form<WaitingForm>) -> Response {
     if !app.is_admin(&headers) {
-        return Redirect::to("/admin").into_response();
+        return login_first();
     }
-    if let Some(device) = app.0.devices.lock().unwrap().get_mut(&id) {
-        device.waiting = form.on == "1";
+    match app.0.devices.lock().unwrap().get_mut(&id) {
+        Some(device) => device.waiting = form.on == "1",
+        None => return unknown_device(),
     }
     app.save();
-    Redirect::to("/admin").into_response()
+    ok()
 }
 
-/// Picks the device for the relay; asks for a session if it is not in one.
+/// Picks the device for the relay and asks for a session if it is not in one.
 async fn open_panel(State(app): State<App>, headers: HeaderMap, Path(id): Path<String>) -> Response {
     if !app.is_admin(&headers) {
-        return Redirect::to("/admin").into_response();
+        return login_first();
     }
-    let name = {
-        let mut devices = app.0.devices.lock().unwrap();
-        let Some(device) = devices.get_mut(&id) else { return Redirect::to("/admin").into_response() };
-        if !app.link(&id).online() {
-            device.want_session = true;
-        }
-        device.name.clone()
-    };
+    let online = app.link(&id).online();
+    match app.0.devices.lock().unwrap().get_mut(&id) {
+        Some(device) => device.want_session |= !online,
+        None => return unknown_device(),
+    }
     app.save();
     let pick = format!("{DEVICE_COOKIE}={id}; Path=/; HttpOnly; Secure; SameSite=Lax");
-    if app.link(&id).online() {
-        return ([(header::SET_COOKIE, pick)], Redirect::to("/")).into_response();
-    }
-    let body = "<div class=card><div class=waitrow><span class=spin></span><span>Сесію запитано.</span></div>\
-        <p class=muted style=margin-top:12px>Пристрій відкриє її на найближчій перевірці: за кілька хвилин, якщо \
-        увімкнено «Чекаю пристрій», інакше до години. Сторінка оновлюється сама й відкриє панель, щойно пристрій з'явиться.</p></div>";
-    let title = format!("Очікую «{}»", escape(&name));
-    ([(header::SET_COOKIE, pick)], page(&title, "Оновлюється кожні 5 с", true, Some(5), body)).into_response()
+    ([(header::SET_COOKIE, pick)], Json(serde_json::json!({ "online": online }))).into_response()
 }
 
 async fn end_session(State(app): State<App>, headers: HeaderMap, Path(id): Path<String>) -> Response {
     if !app.is_admin(&headers) {
-        return Redirect::to("/admin").into_response();
+        return login_first();
     }
-    if let Some(device) = app.0.devices.lock().unwrap().get_mut(&id) {
-        device.want_session = false;
+    match app.0.devices.lock().unwrap().get_mut(&id) {
+        Some(device) => device.want_session = false,
+        None => return unknown_device(),
     }
     let link = app.link(&id);
     link.ending.store(true, Ordering::SeqCst);
     let _ = link.jobs.send(Job::End);
     app.save();
-    Redirect::to("/admin").into_response()
+    ok()
 }
 
 async fn forget(State(app): State<App>, headers: HeaderMap, Path(id): Path<String>) -> Response {
     if !app.is_admin(&headers) {
-        return Redirect::to("/admin").into_response();
+        return login_first();
     }
     app.0.devices.lock().unwrap().remove(&id);
     app.0.links.lock().unwrap().remove(&id);
     app.save();
-    Redirect::to("/admin").into_response()
-}
-
-const CSS: &str = include_str!("admin.css");
-const FONT: &[u8] = include_bytes!("../../firmware/ui/operator-mono.woff");
-const BACK: &str = "<a class=back href=/admin aria-label='До списку'><svg class=ic viewBox='0 0 24 24'>\
-    <path d='M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'/></svg></a>";
-
-/// An admin page: the Operator header over `body`; `refresh` reloads it every so many seconds.
-fn page(title: &str, sub: &str, back: bool, refresh: Option<u32>, body: &str) -> Html<String> {
-    Html(format!(
-        "<!doctype html><html lang=uk><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>\
-         {refresh}<title>{title}</title><style>{CSS}</style>\
-         <header>{back}<div class=head><h1>{title}</h1><div class=sub>{sub}</div></div></header><main>{body}</main>",
-        refresh = refresh.map(|s| format!("<meta http-equiv=refresh content={s}>")).unwrap_or_default(),
-        back = if back { BACK } else { "" },
-    ))
-}
-
-async fn font() -> Response {
-    ([(header::CONTENT_TYPE, "font/woff"), (header::CACHE_CONTROL, "public, max-age=86400")], FONT).into_response()
-}
-
-async fn captcha_image(State(app): State<App>, Path(id): Path<String>) -> Response {
-    match app.0.captchas.lock().unwrap().image(&id) {
-        Some(svg) => ([(header::CONTENT_TYPE, "image/svg+xml"), (header::CACHE_CONTROL, "no-store")], svg).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
-}
-
-async fn admin_page(State(app): State<App>, headers: HeaderMap, request: Request) -> Response {
-    if !app.is_admin(&headers) {
-        let problem = match request.uri().query() {
-            Some("wrong") => "<p class=err>Невірний пароль.</p>",
-            Some("captcha") => "<p class=err>Цифри з картинки не збіглися, спробуйте нові.</p>",
-            _ => "",
-        };
-        let id = app.0.captchas.lock().unwrap().issue(&mut rand::rng(), Instant::now());
-        let body = format!(
-            "<form class=card method=post action=/admin/login><h2>Вхід</h2>{problem}\
-             <label class=cap for=password>Пароль</label>\
-             <input class=field id=password type=password name=password autocomplete=current-password autofocus required>\
-             <label class=cap for=captcha>Цифри з картинки</label>\
-             <img class=captcha src=/admin/captcha/{id} alt='Цифри для перевірки' width=200 height=64>\
-             <input type=hidden name=captcha_id value={id}>\
-             <input class=field id=captcha name=captcha inputmode=numeric autocomplete=off maxlength=5 required style=margin-top:4px>\
-             <div class=actions><button class='btn wide'>Увійти</button></div></form>"
-        );
-        return page("Віддалена підтримка", "Вхід адміністратора", false, None, &body).into_response();
-    }
-    let mut devices: Vec<(String, Device)> = app.0.devices.lock().unwrap().clone().into_iter().collect();
-    devices.sort_by_key(|(_, d)| std::cmp::Reverse(d.last_seen));
-    let now = unix_now();
-    let cards: String = devices.iter().map(|(id, d)| device_card(id, d, app.link(id).online(), now)).collect();
-    let cards = if cards.is_empty() {
-        "<div class=card><p class=muted>Пристроїв ще немає. Кожен з'явиться тут після першої перевірки сервера.</p></div>".to_string()
-    } else {
-        cards
-    };
-    let body = format!(
-        "{cards}<div class='card alt'><p class='muted small'>Пристрій перевіряє сервер раз на годину, а з «Чекаю пристрій» \
-         кожні 2 хв. «Відкрити панель» запитує сесію й відкриває панель пристрою, щойно він з'явиться.</p></div>"
-    );
-    page("Пристрої", "Віддалена підтримка · оновлюється кожні 15 с", false, Some(15), &body).into_response()
-}
-
-fn device_card(id: &str, d: &Device, online: bool, now: u64) -> String {
-    let (state, tone) = if online {
-        ("відкрита", " ok")
-    } else if d.want_session {
-        ("запитано", " pending")
-    } else {
-        ("немає", "")
-    };
-    let end = if online {
-        format!("<form method=post action=/admin/devices/{id}/end><button class=btn>Завершити сесію</button></form>")
-    } else {
-        String::new()
-    };
-    format!(
-        "<div class=card><div class=devhead><span class='badge{badge}'></span><div class=txt>\
-         <span class=t>{name}</span><span class=s>{id}{version}</span></div></div>\
-         <div class=list><div class=item><span class=k>На зв'язку</span><span class=v>{seen}</span></div>\
-         <div class=item><span class=k>Сесія</span><span class='v{tone}'>{state}</span></div>\
-         <form class=item method=post action=/admin/devices/{id}/waiting><input type=hidden name=on value='{on}'>\
-         <span class=txt><span class=t>Чекаю пристрій</span><span class=s>перевірка кожні 2 хв замість щогодини</span></span>\
-         <button class=switch role=switch aria-checked={waiting} aria-label='Чекаю пристрій'><i></i></button></form></div>\
-         <div class=actions><a class=btn href=/admin/devices/{id}/open>Відкрити панель</a>{end}\
-         <form method=post action=/admin/devices/{id}/forget onsubmit=\"return confirm('Забути пристрій?')\">\
-         <button class='btn danger'>Забути</button></form></div></div>",
-        badge = if online { " online" } else { "" },
-        name = escape(if d.name.is_empty() { "без назви" } else { &d.name }),
-        version = if d.version.is_empty() { String::new() } else { format!(" · v{}", escape(&d.version)) },
-        seen = ago(now.saturating_sub(d.last_seen)),
-        on = if d.waiting { "" } else { "1" },
-        waiting = d.waiting,
-    )
-}
-
-fn ago(seconds: u64) -> String {
-    match seconds {
-        0..=59 => format!("{seconds} с тому"),
-        60..=3599 => format!("{} хв тому", seconds / 60),
-        3600..=86_399 => format!("{} год тому", seconds / 3600),
-        _ => format!("{} д тому", seconds / 86_400),
-    }
-}
-
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+    ok()
 }

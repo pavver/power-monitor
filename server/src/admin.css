@@ -1,18 +1,18 @@
-/* Operator UI, as on the device's panel (firmware/ui/index.html): 1 DU = 4px,
-   sharp corners, monospace; control frames are 1px inset strokes. */
+/* Operator UI (design_system/), as on the device's panel (firmware/ui/index.html):
+   1 DU = 4px, sharp corners, monospace, ControlState frames drawn as inset vector strokes. */
 :root{
-  --du:4px;--fast:cubic-bezier(.4,0,.2,1);
+  --du:4px;--smooth:cubic-bezier(.5,0,.5,1);--fast:cubic-bezier(.4,0,.2,1);
   --background:#F6F8FA;--surface:#FFFFFF;--surface-alt:#F0F2F5;--border:#B2C0CE;--border-strong:#57606A;--divider:#DDE3EA;
   --accent:#0969DA;--pending:#9A6700;--success:#1A7F37;--error:#CF222E;--pressed:#E0EEF2;
-  --text:#24292F;--text-2:#57606A;--text-off:#8C959F;
-  --badge-online:#15803D;--badge-offline:#000;--badge-border:#9EADBC;
+  --text:#24292F;--text-2:#57606A;--text-off:#8C959F;--off-surface:#F3F4F6;--off-border:#D9E0E7;
+  --badge-online:#15803D;--badge-offline:#000;--badge-activity:#15803D;--badge-border:#9EADBC;
   --switch-on:#C8E6C9;--switch-off:#FFCDD2;--captcha:#FFFFFF;
 }
 @media (prefers-color-scheme:dark){:root{
   --background:#0D1117;--surface:#161B22;--surface-alt:#0F141C;--border:#3E4A5C;--border-strong:#8B949E;--divider:#252C36;
   --accent:#58A6FF;--pending:#E3B341;--success:#39D353;--error:#FF7B72;--pressed:#22313D;
-  --text:#F0F6FC;--text-2:#8B949E;--text-off:#484F58;
-  --badge-online:#3DDC84;--badge-offline:#000;--badge-border:#3A4656;
+  --text:#F0F6FC;--text-2:#8B949E;--text-off:#484F58;--off-surface:#10141A;--off-border:#1F252E;
+  --badge-online:#3DDC84;--badge-offline:#000;--badge-activity:#3DDC84;--badge-border:#3A4656;
   --switch-on:#193B2D;--switch-off:#3B1E1E;--captcha:#C9D1D9;
 }}
 /* Cascadia Code subset, renamed per its OFL licence (firmware/ui/make-font.py). */
@@ -22,14 +22,13 @@ html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--background);color:var(--text);
   font:400 14px/18px "Operator Mono","Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 button,input{font-family:inherit}
-.ic{width:calc(var(--du)*4.5);height:calc(var(--du)*4.5);fill:currentColor;display:block}
+.ic{width:calc(var(--du)*4);height:calc(var(--du)*4);fill:currentColor;flex:none;display:block}
+.hidden{display:none!important}
 
 /* OperatorHeader */
 header{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:calc(var(--du)*.25) solid var(--border);
-  min-height:calc(var(--du)*13.5);display:flex;align-items:center;padding-right:calc(var(--du)*4)}
-.back{width:calc(var(--du)*12);align-self:stretch;flex:none;display:flex;align-items:center;justify-content:center;color:var(--text)}
-.head{flex:1;min-width:0;padding-left:calc(var(--du)*4)}
-.back+.head{padding-left:0}
+  min-height:calc(var(--du)*13.5);display:flex;align-items:center;padding:0 calc(var(--du)*4)}
+.head{flex:1;min-width:0}
 header h1{font-size:20px;line-height:26px;font-weight:700;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 header .sub{font-size:11px;line-height:14px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
@@ -42,37 +41,79 @@ p{margin:0 0 calc(var(--du)*2)}
 p:last-child{margin-bottom:0}
 .muted{color:var(--text-2)}
 .small{font-size:11px;line-height:14px}
-.err{color:var(--error)}
-a{color:var(--accent)}
-form{margin:0}
+
+/* ControlState frame: base border, running pending segment, status pulse and tint. */
+.ctl{position:relative;isolation:isolate;overflow:hidden;
+  transition:color .15s var(--fast),background-color .15s var(--fast)}
+.ctl>.sf{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:visible}
+.ctl>:not(.sf):not(.rip):not(.over){position:relative;z-index:1}
+dialog.ctl{position:fixed}
+.sf rect{fill:none}
+.sf .base{stroke:var(--border);stroke-width:1px;transition:stroke .15s var(--fast)}
+.sf .run{stroke:var(--pending);stroke-width:1.5px;opacity:0}
+.sf .tint,.sf .stat{opacity:0;transition:opacity .5s var(--smooth)}
+.sf .tint{stroke:none}
+.sf .stat{stroke-width:2px}
+.ctl[data-tone=ok] .tint{fill:var(--success);fill-opacity:.15}
+.ctl[data-tone=err] .tint{fill:var(--error);fill-opacity:.15}
+.ctl[data-tone=ok] .stat{stroke:var(--success);animation:pulse .4s var(--fast) infinite alternate}
+.ctl[data-tone=err] .stat{stroke:var(--error);animation:pulse .4s var(--fast) infinite alternate}
+.ctl[data-state=ok] .tint,.ctl[data-state=ok] .stat,.ctl[data-state=err] .tint,.ctl[data-state=err] .stat{opacity:1;transition:none}
+.ctl[data-state=pending] .run{opacity:1;animation:run 2s linear infinite}
+.ctl[data-state=ok]{color:var(--success);transition:none}
+.ctl[data-state=err]{color:var(--error);transition:none}
+.ctl.exit{transition-duration:.5s;transition-timing-function:var(--smooth)}
+.ctl.exit .sf .base{transition:none}
+.field:focus-within .base,.ctl:focus-visible .base,.ctl.pressed .base{stroke:var(--border-strong)}
+.ctl:focus-visible{outline:0}
+.ctl:disabled{background:var(--off-surface);color:var(--text-off);cursor:default}
+.ctl:disabled .base{stroke:var(--off-border)}
+@keyframes run{from{stroke-dashoffset:var(--perimeter)}to{stroke-dashoffset:0}}
+@keyframes pulse{from{stroke-opacity:.55}to{stroke-opacity:1}}
+/* Flat ripple */
+.rip{position:absolute;border-radius:50%;background:var(--pressed);pointer-events:none;z-index:0;transform:scale(0);
+  animation:rip .35s var(--fast) forwards}
+.rip.out{opacity:0;transition:opacity .25s var(--fast)}
+@keyframes rip{to{transform:scale(1)}}
+
+/* OperatorProgressIndicator */
+.spin{display:block;width:calc(var(--du)*4);height:calc(var(--du)*4);border-radius:50%;border:calc(var(--du)*.375) solid var(--pending);
+  border-top-color:transparent;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* OperatorActionButton */
-.btn{min-height:calc(var(--du)*10);padding:0 calc(var(--du)*4);background:var(--surface);color:var(--text);border:0;
-  box-shadow:inset 0 0 0 1px var(--border);font-size:14px;line-height:18px;font-weight:500;cursor:pointer;text-decoration:none;white-space:nowrap;
-  display:inline-flex;align-items:center;justify-content:center;transition:background-color .15s var(--fast)}
-.btn:hover,.btn:focus-visible{box-shadow:inset 0 0 0 1px var(--border-strong);outline:0}
-.btn:active{background:var(--pressed)}
+.btn{min-height:calc(var(--du)*10);min-width:max-content;padding:0 calc(var(--du)*4);background:var(--surface);color:var(--text);
+  border:0;font-size:14px;line-height:18px;font-weight:500;cursor:pointer;text-align:center;
+  display:inline-flex;align-items:center;justify-content:center}
 .btn.danger{background:color-mix(in srgb,var(--error) 15%,var(--surface));color:var(--error)}
-.btn.danger:active{background:color-mix(in srgb,var(--error) 30%,var(--surface))}
-.btn.wide{width:100%}
+.btn.danger.pressed{background:color-mix(in srgb,var(--error) 30%,var(--surface))}
+.btn .lbl{display:flex;align-items:center;justify-content:center;gap:calc(var(--du)*2)}
+.btn .over{position:absolute;z-index:1;left:50%;top:50%;transform:translate(-50%,-50%);display:none}
+.btn[data-state=pending]{cursor:default}
+.btn[data-state=pending] .lbl,.btn[data-flash] .lbl{visibility:hidden}
+.btn[data-state=pending] .over.wait{display:block}
+.btn[data-flash][data-state=ok] .over.ok,.btn[data-flash][data-state=err] .over.err{display:block}
 .actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
-.actions>*{flex:1 1 auto;min-width:max-content;display:flex}
-.actions .btn{flex:1}
+.actions .btn{flex:1 1 auto}
 
 /* OperatorTextField */
 label.cap{display:block;font-size:11px;line-height:14px;color:var(--text-2);margin:calc(var(--du)*3) 0 calc(var(--du)*1)}
-.field{display:block;width:100%;height:calc(var(--du)*10);border:0;box-shadow:inset 0 0 0 1px var(--border);background:var(--surface);
-  color:var(--text);font-size:14px;font-weight:500;padding:0 calc(var(--du)*3);outline:0}
-.field:focus{box-shadow:inset 0 0 0 1px var(--border-strong)}
-.field::placeholder{color:var(--text-off)}
-.captcha{display:block;width:100%;max-width:calc(var(--du)*50);height:auto;background:var(--captcha);
-  box-shadow:inset 0 0 0 1px var(--border)}
+.field{display:flex;align-items:stretch;min-height:calc(var(--du)*10);background:var(--surface)}
+.field input{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font-size:14px;font-weight:500;
+  padding:0 0 0 calc(var(--du)*3);outline:0}
+.field input::placeholder{color:var(--text-off)}
+.field .eye{width:calc(var(--du)*10);flex:none;border:0;background:none;color:var(--text-2);cursor:pointer;display:flex;align-items:center;justify-content:center}
+/* The captcha picture over its field, "Інші цифри" beside it. */
+.captcha{display:flex;gap:calc(var(--du)*2);align-items:stretch;margin-bottom:calc(var(--du)*2)}
+.captcha img{display:block;flex:1;min-width:0;max-width:calc(var(--du)*50);height:auto;aspect-ratio:200/64;background:var(--captcha);
+  border:calc(var(--du)*.25) solid var(--border)}
 
 /* OperatorListItem */
 .list{border:calc(var(--du)*.25) solid var(--border);background:var(--surface);margin-top:calc(var(--du)*3)}
 .item{display:flex;align-items:center;gap:calc(var(--du)*3);min-height:calc(var(--du)*10);padding:calc(var(--du)*2) calc(var(--du)*3);
   border-bottom:calc(var(--du)*.25) solid var(--divider)}
 .item:last-child{border-bottom:0}
+.item.control{min-height:calc(var(--du)*13)}
 .item .txt{flex:1;min-width:0}
 .item .t{display:block;font-size:15px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item .s{display:block;font-size:11px;line-height:14px;color:var(--text-2);overflow-wrap:anywhere}
@@ -84,23 +125,36 @@ label.cap{display:block;font-size:11px;line-height:14px;color:var(--text-2);marg
 .devhead .txt{flex:1;min-width:0}
 .devhead .t{display:block;font-size:15px;line-height:20px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .devhead .s{display:block;font-size:11px;line-height:14px;color:var(--text-2);overflow-wrap:anywhere}
-.empty{padding:calc(var(--du)*3);color:var(--text-2)}
 
 /* OperatorStatusBadge */
 .badge{width:calc(var(--du)*3);height:calc(var(--du)*3);border-radius:50%;flex:none;border:calc(var(--du)*.25) solid var(--badge-border);background:var(--badge-offline)}
 .badge.online{background:var(--badge-online)}
+.badge.pending{background:none;border:calc(var(--du)*.3) solid var(--badge-activity);border-top-color:transparent;animation:spin .8s linear infinite}
 
-/* OperatorAsyncSwitch, here a form button */
-.switchrow{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--du)*3)}
+/* Messages under controls */
+.msg{display:flex;align-items:flex-start;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);overflow-wrap:anywhere}
+.msg:empty{display:none}
+.msg .badge{margin-top:calc(var(--du)*.75)}
+.msg.err{color:var(--error)}.msg.ok{color:var(--success)}.msg.wait{color:var(--text-2)}
+
+/* OperatorAsyncSwitch */
 .switch{flex:none;width:calc(var(--du)*13);height:calc(var(--du)*8);padding:0;border-radius:calc(var(--du)*4);cursor:pointer;position:relative;
   background:var(--switch-off);border:calc(var(--du)*.25) solid var(--border)}
 .switch i{position:absolute;top:calc(var(--du)*.75);left:calc(var(--du)*.75);width:calc(var(--du)*6);height:calc(var(--du)*6);border-radius:50%;
-  background:var(--error);border:calc(var(--du)*.25) solid var(--border-strong)}
+  background:var(--error);border:calc(var(--du)*.25) solid var(--border-strong);transition:left .2s var(--fast)}
 .switch[aria-checked=true]{background:var(--switch-on);border-color:var(--accent)}
 .switch[aria-checked=true] i{left:calc(var(--du)*5.75);background:var(--success)}
+.switch[data-state=pending]{background:var(--surface-alt)}
+.switch[data-state=pending] i{left:calc(var(--du)*3.25);background:none;border:calc(var(--du)*.375) solid var(--pending);border-top-color:transparent;
+  animation:spin .8s linear infinite}
+.switch[data-state=ok]{animation:swok .4s var(--fast) 2 alternate}
+.switch[data-state=err]{animation:swerr .4s var(--fast) 2 alternate}
+@keyframes swok{to{border-color:var(--success);box-shadow:0 0 0 calc(var(--du)*.5) var(--success)}}
+@keyframes swerr{to{border-color:var(--error);box-shadow:0 0 0 calc(var(--du)*.5) var(--error)}}
 
-/* OperatorProgressIndicator */
-.waitrow{display:flex;align-items:center;gap:calc(var(--du)*3)}
-.spin{display:block;width:calc(var(--du)*4);height:calc(var(--du)*4);border-radius:50%;border:calc(var(--du)*.375) solid var(--pending);
-  border-top-color:transparent;animation:spin .8s linear infinite;flex:none}
-@keyframes spin{to{transform:rotate(360deg)}}
+/* OperatorConfirmDialog */
+dialog{width:clamp(calc(var(--du)*60),90vw,calc(var(--du)*75));max-width:calc(100vw - var(--du)*8);padding:calc(var(--du)*4);border:0;
+  background:var(--surface);color:var(--text);animation:show .15s var(--fast)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog .actions{margin-top:calc(var(--du)*4)}
+@keyframes show{from{opacity:0;transform:scale(.95)}}
