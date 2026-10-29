@@ -1,0 +1,162 @@
+//! Mains presence detection from an unfiltered optocoupler.
+//!
+//! With 220 V present the optocoupler pulls the pin low on every mains half-wave
+//! (50 Hz pulses); with no voltage the pin stays high. The firmware samples the
+//! pin once per millisecond and hands each window's count of low samples here.
+
+/// Whether mains voltage is on the line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerState {
+    Present,
+    Absent,
+}
+
+/// Low samples a window needs to count as "pulses seen". A 100 ms window at
+/// 50 Hz holds at least five pulses of several ms each, so 3 rejects single
+/// spikes of noise while keeping a wide margin.
+pub const MIN_LOW_SAMPLES: u32 = 3;
+
+pub fn classify_window(low_samples: u32) -> PowerState {
+    if low_samples >= MIN_LOW_SAMPLES {
+        PowerState::Present
+    } else {
+        PowerState::Absent
+    }
+}
+
+/// A confirmed state, emitted once at start-up and then on every change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PowerEvent {
+    pub state: PowerState,
+    /// Monotonic time of the first window that showed the new state.
+    pub at_ms: u64,
+    /// How long the previous confirmed state lasted; `None` for the first event.
+    pub previous_lasted_ms: Option<u64>,
+}
+
+/// Turns noisy per-window readings into confirmed state changes.
+pub struct Detector {
+    confirm_windows: u32,
+    /// The confirmed state and when it began.
+    stable: Option<(PowerState, u64)>,
+    /// A run of windows that disagree with `stable`.
+    streak: Option<Streak>,
+}
+
+#[derive(Clone, Copy)]
+struct Streak {
+    state: PowerState,
+    started_ms: u64,
+    windows: u32,
+}
+
+impl Detector {
+    /// `confirm_windows` consecutive agreeing windows confirm a state.
+    pub fn new(confirm_windows: u32) -> Self {
+        Self { confirm_windows, stable: None, streak: None }
+    }
+
+    pub fn observe(&mut self, window: PowerState, now_ms: u64) -> Option<PowerEvent> {
+        if self.stable.map(|(state, _)| state) == Some(window) {
+            self.streak = None;
+            return None;
+        }
+        let streak = self.extend_streak(window, now_ms);
+        if streak.windows < self.confirm_windows {
+            return None;
+        }
+        let at_ms = streak.started_ms;
+        let previous_lasted_ms = self.stable.map(|(_, since)| at_ms - since);
+        self.stable = Some((window, at_ms));
+        self.streak = None;
+        Some(PowerEvent { state: window, at_ms, previous_lasted_ms })
+    }
+
+    fn extend_streak(&mut self, window: PowerState, now_ms: u64) -> Streak {
+        let streak = self
+            .streak
+            .take()
+            .filter(|s| s.state == window)
+            .unwrap_or(Streak { state: window, started_ms: now_ms, windows: 0 });
+        *self.streak.insert(Streak { windows: streak.windows + 1, ..streak })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use PowerState::*;
+
+    /// Feeds `count` windows of `state`, 100 ms apart starting at `start_ms`,
+    /// and returns every event emitted.
+    fn feed(d: &mut Detector, state: PowerState, start_ms: u64, count: u64) -> Vec<PowerEvent> {
+        (0..count)
+            .filter_map(|i| d.observe(state, start_ms + i * 100))
+            .collect()
+    }
+
+    #[test]
+    fn window_with_enough_low_samples_means_present() {
+        assert_eq!(classify_window(MIN_LOW_SAMPLES), Present);
+        assert_eq!(classify_window(40), Present);
+    }
+
+    #[test]
+    fn window_with_too_few_low_samples_means_absent() {
+        assert_eq!(classify_window(0), Absent);
+        assert_eq!(classify_window(MIN_LOW_SAMPLES - 1), Absent);
+    }
+
+    #[test]
+    fn first_state_is_reported_once_confirmed() {
+        let mut d = Detector::new(3);
+        assert_eq!(feed(&mut d, Present, 0, 2), vec![]);
+        assert_eq!(
+            d.observe(Present, 200),
+            Some(PowerEvent { state: Present, at_ms: 0, previous_lasted_ms: None })
+        );
+    }
+
+    #[test]
+    fn steady_state_is_reported_only_once() {
+        let mut d = Detector::new(3);
+        assert_eq!(feed(&mut d, Absent, 0, 50).len(), 1);
+    }
+
+    #[test]
+    fn change_reports_how_long_the_previous_state_lasted() {
+        let mut d = Detector::new(3);
+        feed(&mut d, Present, 0, 10);
+        let events = feed(&mut d, Absent, 1_000, 3);
+        assert_eq!(
+            events,
+            vec![PowerEvent { state: Absent, at_ms: 1_000, previous_lasted_ms: Some(1_000) }]
+        );
+        let events = feed(&mut d, Present, 5_000, 3);
+        assert_eq!(
+            events,
+            vec![PowerEvent { state: Present, at_ms: 5_000, previous_lasted_ms: Some(4_000) }]
+        );
+    }
+
+    #[test]
+    fn short_blip_is_ignored() {
+        let mut d = Detector::new(3);
+        feed(&mut d, Present, 0, 5);
+        assert_eq!(feed(&mut d, Absent, 500, 2), vec![]);
+        assert_eq!(feed(&mut d, Present, 700, 5), vec![]);
+    }
+
+    #[test]
+    fn interrupted_streak_starts_counting_again() {
+        let mut d = Detector::new(3);
+        feed(&mut d, Present, 0, 5);
+        feed(&mut d, Absent, 500, 2);
+        feed(&mut d, Present, 700, 1);
+        assert_eq!(feed(&mut d, Absent, 800, 2), vec![]);
+        assert_eq!(
+            d.observe(Absent, 1_000),
+            Some(PowerEvent { state: Absent, at_ms: 800, previous_lasted_ms: Some(800) })
+        );
+    }
+}
