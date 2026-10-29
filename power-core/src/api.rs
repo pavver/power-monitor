@@ -15,6 +15,27 @@ pub enum Stage {
     Dashboard,
 }
 
+impl Stage {
+    /// The setup network stays up until the bot is set up: that step needs the
+    /// home network, and until then the setup network is the way back in.
+    pub fn needs_setup_ap(self) -> bool {
+        self != Stage::Dashboard
+    }
+}
+
+/// The setup access point while it is up, with the page's address on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SetupAp {
+    pub ssid: &'static str,
+    pub portal: String,
+}
+
+impl SetupAp {
+    pub fn new(ssid: &'static str) -> Self {
+        Self { ssid, portal: crate::portal::portal_url() }
+    }
+}
+
 pub fn stage(wifi_saved: bool, bot_saved: bool) -> Stage {
     match (wifi_saved, bot_saved) {
         (false, _) => Stage::Wifi,
@@ -84,8 +105,8 @@ pub struct State<'a> {
     /// `None` until the first state is confirmed.
     pub power: Option<Power>,
     pub link: &'a Link,
-    /// Name of the setup access point while it is up.
-    pub setup_ap: Option<&'a str>,
+    /// The setup access point while it is up.
+    pub setup_ap: Option<&'a SetupAp>,
     pub telegram: &'a str,
     pub pending: usize,
     pub chat_id: Option<i64>,
@@ -110,6 +131,21 @@ mod tests {
         assert_eq!(stage(false, true), Stage::Wifi);
         assert_eq!(stage(true, false), Stage::Bot);
         assert_eq!(stage(true, true), Stage::Dashboard);
+    }
+
+    #[test]
+    fn setup_ap_runs_until_the_bot_is_set_up() {
+        // The bot is set up over the home network, so the setup network must
+        // stay reachable until then; afterwards it only exposes the panel.
+        assert!(Stage::Wifi.needs_setup_ap());
+        assert!(Stage::Bot.needs_setup_ap());
+        assert!(!Stage::Dashboard.needs_setup_ap());
+    }
+
+    #[test]
+    fn setup_ap_tells_the_page_its_portal_address() {
+        let value = serde_json::to_value(SetupAp::new("PowerMonitor-Setup")).unwrap();
+        assert_eq!(value, json!({"ssid": "PowerMonitor-Setup", "portal": "http://192.168.71.1/"}));
     }
 
     #[test]
