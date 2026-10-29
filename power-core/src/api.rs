@@ -91,6 +91,8 @@ pub struct State<'a> {
     pub chat_id: Option<i64>,
     pub messages: &'a Messages,
     pub firmware: &'a Firmware,
+    /// Whether the page asks for a password.
+    pub password_set: bool,
 }
 
 #[cfg(test)]
@@ -131,6 +133,7 @@ mod tests {
             chat_id: Some(42),
             messages: &messages,
             firmware: &firmware,
+            password_set: true,
         };
         let value = serde_json::to_value(&state).unwrap();
         assert_eq!(value["stage"], json!("dashboard"));
@@ -138,6 +141,7 @@ mod tests {
         assert_eq!(value["link"], json!({"state": "connected", "ssid": "Home", "ip": "192.168.1.5"}));
         assert_eq!(value["setup_ap"], json!(null));
         assert_eq!(value["messages"]["device_name"], json!("Дім"));
+        assert_eq!(value["password_set"], json!(true));
         assert_eq!(value["firmware"], json!({"version": "v1", "built": "Oct 29 2026", "slot": "ota_1"}));
     }
 }

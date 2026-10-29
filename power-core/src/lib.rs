@@ -11,3 +11,4 @@ pub mod template;
 pub mod settings;
 pub mod api;
 pub mod ota;
+pub mod auth;
