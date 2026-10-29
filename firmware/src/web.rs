@@ -13,6 +13,7 @@ use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer,
 use power_core::auth::{expired_cookie, NewPassword, PasswordHash, Sessions};
 use power_core::form;
 use power_core::message::test_text;
+use power_core::portal::redirect_target;
 use power_core::settings::{Bot, BotToken, Messages, WifiCredentials};
 use serde::Serialize;
 
@@ -65,6 +66,8 @@ pub fn start(
         // Bot setup runs TLS handshakes inside handlers.
         stack_size: 14 * 1024,
         max_uri_handlers: 20,
+        // Phones open several connections at once while probing the portal.
+        max_open_sockets: 7,
         ..Default::default()
     })?;
     let auth = Arc::new(Auth { settings: settings.clone(), sessions: Mutex::new(Sessions::new(MAX_SESSIONS)) });
@@ -167,8 +170,10 @@ pub fn start(
         respond(req, reply)
     })?;
 
+    // Connectivity probes (generate_204, hotspot-detect.html, …) land here.
     server.fn_handler::<anyhow::Error, _>("/*", Method::Get, |req| {
-        req.into_response(302, None, &[("Location", "/")])?;
+        let location = redirect_target(req.header("Host"));
+        req.into_response(302, None, &[("Location", &location), ("Cache-Control", "no-store")])?;
         Ok(())
     })?;
 

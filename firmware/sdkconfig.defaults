@@ -9,3 +9,6 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 # A new OTA image that crashes before confirming itself is rolled back.
 # Needs the bootloader built here, see flash.sh (--bootloader).
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# Web server (7 connections + 2 internal), captive DNS and Telegram TLS
+# together exceed the default of 10 sockets.
+CONFIG_LWIP_MAX_SOCKETS=16

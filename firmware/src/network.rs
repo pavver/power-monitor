@@ -4,7 +4,9 @@
 //! start-up) the setup access point runs alongside the station, with a DNS
 //! responder for the captive portal, until the next restart.
 
+use std::ffi::CString;
 use std::net::UdpSocket;
+use std::sync::OnceLock;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::thread;
@@ -12,12 +14,20 @@ use std::time::{Duration, Instant};
 
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::modem::Modem;
+use esp_idf_svc::handle::RawHandle;
+use esp_idf_svc::ipv4::{self, Ipv4Addr};
+use esp_idf_svc::netif::{EspNetif, NetifConfiguration, NetifStack};
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
+use esp_idf_svc::sys::{
+    esp, esp_netif_dhcp_option_id_t_ESP_NETIF_CAPTIVEPORTAL_URI, esp_netif_dhcp_option_mode_t_ESP_NETIF_OP_SET,
+    esp_netif_dhcps_option, esp_netif_dhcps_start, esp_netif_dhcps_stop, ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED,
+};
 use esp_idf_svc::wifi::{
-    AccessPointConfiguration, AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi,
+    AccessPointConfiguration, AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiDriver,
 };
 use power_core::api::{tidy_networks, Link, Network};
 use power_core::dns;
+use power_core::portal::{portal_url, SETUP_IP};
 use power_core::message::Notice;
 use power_core::settings::WifiCredentials;
 
@@ -53,7 +63,9 @@ pub fn start(
     status: Arc<Status>,
     notices: Sender<Notice>,
 ) -> anyhow::Result<Sender<Command>> {
-    let wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
+    let driver = WifiDriver::new(modem, sys_loop.clone(), Some(nvs))?;
+    let esp_wifi = EspWifi::wrap_all(driver, EspNetif::new(NetifStack::Sta)?, setup_ap_netif()?)?;
+    let wifi = BlockingWifi::wrap(esp_wifi, sys_loop)?;
     let mut network = Radio { wifi, setup_ap: false, last_scan: None, settings, status, notices };
     network.boot()?;
     let (commands, inbox) = mpsc::channel();
@@ -179,11 +191,52 @@ impl Radio {
         self.setup_ap = true;
         self.wifi.set_configuration(&Configuration::Mixed(client, setup_ap()))?;
         self.wifi.start()?;
-        let ip = self.wifi.wifi().ap_netif().get_ip_info()?.ip;
-        log::info!("setup access point {SETUP_SSID} at {ip}");
+        offer_portal_uri(self.wifi.wifi().ap_netif())?;
+        log::info!("setup access point {SETUP_SSID} at {}", portal_url());
         self.status.set_setup_ap(SETUP_SSID);
-        spawn_dns(ip.octets())
+        spawn_dns(SETUP_IP)
     }
+}
+
+/// The setup network's interface. Its DHCP server must name the device itself
+/// as DNS server (the library default is 8.8.8.8, unreachable here), otherwise
+/// phones never ask our DNS responder and the portal does not open.
+fn setup_ap_netif() -> anyhow::Result<EspNetif> {
+    let ip = Ipv4Addr::from(SETUP_IP);
+    let mut conf = NetifConfiguration::wifi_default_router();
+    conf.ip_configuration = Some(ipv4::Configuration::Router(ipv4::RouterConfiguration {
+        subnet: ipv4::Subnet { gateway: ip, mask: ipv4::Mask(24) },
+        dhcp_enabled: true,
+        dns: Some(ip),
+        secondary_dns: None,
+    }));
+    Ok(EspNetif::new_with_conf(&conf)?)
+}
+
+/// DHCP option 114 (RFC 8910): recent Android and iOS open this URL as the
+/// captive portal directly, without relying on their connectivity probes.
+fn offer_portal_uri(netif: &EspNetif) -> anyhow::Result<()> {
+    // DHCP keeps the pointer, so the string lives for the whole program.
+    static URI: OnceLock<CString> = OnceLock::new();
+    let uri = URI.get_or_init(|| CString::new(portal_url()).unwrap());
+    let handle = netif.handle();
+    // SAFETY: `handle` is the live AP interface; option value and length
+    // describe a NUL-terminated string that is never freed.
+    unsafe {
+        esp!(esp_netif_dhcps_stop(handle)).or_else(|e| {
+            // Already stopped is fine.
+            if e.code() == ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED { Ok(()) } else { Err(e) }
+        })?;
+        esp!(esp_netif_dhcps_option(
+            handle,
+            esp_netif_dhcp_option_mode_t_ESP_NETIF_OP_SET,
+            esp_netif_dhcp_option_id_t_ESP_NETIF_CAPTIVEPORTAL_URI,
+            uri.as_ptr() as *mut _,
+            uri.as_bytes().len() as u32,
+        ))?;
+        esp!(esp_netif_dhcps_start(handle))?;
+    }
+    Ok(())
 }
 
 /// Answers every DNS query with our address so phones open the portal.
