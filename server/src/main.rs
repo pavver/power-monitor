@@ -1,5 +1,6 @@
 //! `ADMIN_PASSWORD=… [BIND=127.0.0.1:8080] [DATA_DIR=./data] remote-server`
-//! Point Cloudflare Tunnel (or any HTTPS proxy) at BIND.
+//! Point Cloudflare Tunnel (or any HTTPS proxy) at BIND; server/Dockerfile
+//! bundles both.
 
 use std::path::PathBuf;
 

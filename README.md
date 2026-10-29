@@ -158,18 +158,28 @@ JK02: 24S до заліза 10.x, 32S з 11.x) і нічого в ній не з
 
 У панелі клієнта картка «Віддалена підтримка»: перемикач, адреса сервера (лише `https://`),
 «З'єднатись зараз», стан і позначка «зараз підключено» на дашборді.
-Адресу можна вшити при збірці: `REMOTE_SERVER=https://svitlo.example.com cargo build --release`.
+Адресу можна вшити при збірці: `REMOTE_SERVER=https://remote.pavver.net cargo build --release`.
 Тоді підтримка ввімкнена одразу, а клієнт може її вимкнути.
 
-Сервер — `server/` (Rust, axum):
+Сервер — `server/` (Rust, axum). Один сервер обслуговує всі пристрої, тому домен загальний:
+`https://remote.pavver.net`. Найпростіше запускати Docker-контейнер, у якому разом із сервером
+працює `cloudflared`. Портів він не відкриває, бо назовні виходить лише тунель:
+
+1. Cloudflare Zero Trust → Networks → Tunnels → Create a tunnel (Cloudflared), скопіювати токен.
+2. У тунелі Public hostname: `remote.pavver.net` → `HTTP` `localhost:8080`.
+3. `cp server/.env.example server/.env`, вписати `ADMIN_PASSWORD` (від 12 символів) і `TUNNEL_TOKEN`.
+4. `cd server && docker compose up -d --build`
+
+Дані (`devices.json`) лежать у томі `data`. Якщо сервер або тунель падає, зупиняється весь
+контейнер, і `restart: unless-stopped` піднімає обидва знову. Без Docker:
 
 ```sh
 cd server && cargo build --release
 ADMIN_PASSWORD='довгий-пароль' BIND=127.0.0.1:8080 DATA_DIR=/var/lib/svitlo ./target/release/remote-server
-cloudflared tunnel --url http://127.0.0.1:8080   # або іменований тунель на свій домен
+cloudflared tunnel run --token …   # тунель з hostname на http://localhost:8080
 ```
 
-Адмінка: `https://ваш-домен/admin`. Пристрій реєструється при першому чек-іні: сервер запам'ятовує
+Адмінка: `https://remote.pavver.net/admin`. Пристрій реєструється при першому чек-іні: сервер запам'ятовує
 хеш його секрету, і чужий пристрій під тим самим ID не пройде. Скидання пристрою до заводських
 налаштувань створює новий ID. Якщо перед сервером стоїть Cloudflare Access, шлях `/device/*`
 треба пропустити без входу: пристрої не вміють проходити SSO.

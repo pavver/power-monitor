@@ -1,0 +1,6 @@
+# Only power-core and server go into the server image.
+**/target
+.git
+firmware
+server/data
+server/.env

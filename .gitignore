@@ -3,3 +3,4 @@ target/
 .embuild/
 /power-monitor.bin
 /server/data/
+/server/.env

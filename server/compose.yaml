@@ -1,0 +1,14 @@
+# docker compose up -d --build   (needs server/.env, see .env.example)
+services:
+  remote:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: svitlo-remote
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - data:/data
+
+volumes:
+  data:
