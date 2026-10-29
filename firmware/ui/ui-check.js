@@ -50,6 +50,25 @@ function route(page, dev) {
       { id: -500, thread_id: 7, title: "Будинок › Світло" },
       { id: 42, thread_id: null, title: "Олена" },
     ]);
+    if (url.pathname === "/api/bms") {
+      if (route.request().method() === "POST") {
+        dev.bmsSaved = Object.fromEntries(new URLSearchParams(route.request().postData()));
+        dev.bms.battery = { name: dev.bmsSaved.name, address: dev.bmsSaved.address };
+        dev.bms.link = "connected";
+        dev.bms.reading = BMS_READING;
+        return json("saved");
+      }
+      dev.bmsPolls++;
+      return json(dev.bms);
+    }
+    if (url.pathname === "/api/bms/scan") {
+      dev.bms.scanning = true;
+      setTimeout(() => {
+        dev.bms.scanning = false;
+        dev.bms.found = [{ name: "JK-B2A24S", address: "C8:47:8C:F2:7E:03", random: false, rssi: -60, likely: true }];
+      }, 1500);
+      return json("scanning");
+    }
     if (url.pathname === "/api/bot") {
       dev.saved = Object.fromEntries(new URLSearchParams(route.request().postData()));
       dev.stage = "dashboard";
@@ -57,6 +76,53 @@ function route(page, dev) {
     }
     return route.fulfill({ status: 404, body: "{}" });
   });
+}
+
+const BMS_READING = {
+  age_s: 1, cells_mv: [3327, 3329, 3331, 3330],
+  values: { bms_soc: "85", bms_voltage: "53.22", bms_current: "-1.5", bms_power: "-80", bms_remaining: "42.8",
+    bms_capacity: "50.0", bms_cycles: "3", bms_cell_min: "3.327", bms_cell_max: "3.331", bms_cell_delta: "0.004",
+    bms_temp1: "20.7", bms_temp2: "20.7", bms_mosfet: "23.4", bms_charging: "так", bms_discharging: "ні" },
+};
+
+/* Battery screen: the BMS is asked only while its screen is open. */
+async function runBms() {
+  const browser = await chromium.launch({ executablePath: exe });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  const dev = device();
+  dev.stage = "dashboard"; dev.setupAp = false; dev.link = { state: "connected", ssid: "Home", ip: "192.168.1.50" };
+  dev.bms = { battery: null, link: "off", error: null, device: null, reading: null, scanning: false, found: [] };
+  dev.bmsPolls = 0;
+  await route(page, dev);
+  await page.goto("http://192.168.1.50/");
+  await page.waitForFunction(() => document.querySelector("section.on").id === "s-dashboard");
+  await page.waitForTimeout(3500);
+  const pollsOnDashboard = dev.bmsPolls;
+  await page.click("[data-go=bms]");
+  await page.waitForSelector("#s-bms.on");
+  await page.click("#bms-scan-btn");
+  await page.waitForSelector("#bms-found .item button", { timeout: 6000 });
+  await page.screenshot({ path: OUT + "/bms-0-found.png" });
+  await page.click("#bms-found .item button");
+  await page.waitForFunction(() => document.getElementById("bms-head").textContent.includes("85%"), null, { timeout: 6000 });
+  const cells = await page.$$eval("#bms-cells span", n => n.length);
+  const shown = await page.$eval("#bms-values", n => n.textContent);
+  await page.screenshot({ path: OUT + "/bms-1-live.png", fullPage: true });
+  await page.click("#back");
+  await page.waitForSelector("#s-dashboard.on");
+  const pollsLeaving = dev.bmsPolls;
+  await page.waitForTimeout(4000);
+  const pollsAfter = dev.bmsPolls;
+  await page.fill("#m-lost", "Батарея {bms_soc}%, {bms_temp1}°");
+  const preview = await page.$eval("#m-lost", a => a.closest("div").parentElement.querySelector(".preview").textContent);
+  await browser.close();
+  const ok = errors.length === 0 && pollsOnDashboard === 0 && pollsAfter === pollsLeaving && pollsLeaving > 0
+    && dev.bmsSaved && dev.bmsSaved.address === "C8:47:8C:F2:7E:03" && dev.bmsSaved.random === ""
+    && cells === 4 && shown.includes("53.22 В") && preview === "Батарея 85%, 20.7°";
+  if (!ok) process.exitCode = 1;
+  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, cells, preview, errors }));
 }
 
 /* Bot step: choosing a forum topic saves it as the destination. */
@@ -138,4 +204,5 @@ const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + resul
   // From the home network (changing Wi-Fi later) it goes straight on.
   await run({ name: "home", password: "right", expect: { view: "s-bot", states: timeline("ok") } });
   await runBot();
+  await runBms();
 })().catch(e => { console.error(e); process.exit(1); });

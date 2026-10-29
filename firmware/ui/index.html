@@ -180,6 +180,14 @@ button.item{cursor:pointer}
   white-space:pre-wrap;overflow-wrap:anywhere}
 .preview.bad{border-color:var(--error);color:var(--error)}
 
+/* Battery cells, lowest and highest marked */
+.cells{display:grid;grid-template-columns:repeat(4,1fr);gap:calc(var(--du)*1)}
+.cells span{padding:calc(var(--du)*1) calc(var(--du)*1.5);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--divider);
+  font-size:13px;line-height:18px;font-weight:500;text-align:right}
+.cells i{float:left;font-style:normal;color:var(--text-2);font-size:11px}
+.cells .lo{color:var(--error);border-color:var(--error)}
+.cells .hi{color:var(--accent);border-color:var(--accent)}
+
 .power{display:flex;align-items:center;gap:calc(var(--du)*3);min-height:calc(var(--du)*14)}
 .power b{font-size:20px;line-height:26px;display:block}
 .meter{height:calc(var(--du)*2);margin-top:calc(var(--du)*3);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--border)}
@@ -319,6 +327,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <button class="btn" type="button" id="test-btn">Тестове повідомлення</button>
     <button class="btn" type="button" data-go="wifi" data-nav>Змінити Wi-Fi</button>
     <button class="btn" type="button" data-go="bot" data-nav>Змінити бота</button>
+    <button class="btn" type="button" data-go="bms" data-nav>Батарея (BMS)</button>
   </div>
   <div class="msg" id="test-msg" style="margin:0 0 calc(var(--du)*4)"></div>
   <form class="card" id="messages-form">
@@ -326,6 +335,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <p class="small muted">Змінні: <code>{device}</code> — назва пристрою, <code>{duration}</code> — скільки тривав попередній стан.
       Якщо повідомлення про зникнення чи появу світла доставлено із запізненням, пристрій сам допише, коли це сталося.
       Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
+    <p class="small muted" id="bms-vars"></p>
     <label class="cap" for="m-device_name">Назва пристрою</label>
     <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
     <div id="templates"></div>
@@ -369,6 +379,30 @@ dialog .actions{margin-top:calc(var(--du)*4)}
       «PowerMonitor-Setup». Без доступу до панелі те саме робиться так: 5 разів поспіль увімкніть живлення
       і через 2–3 секунди знову вимкніть (кожне вмикання має бути коротшим за 10 секунд).</p>
     <div class="actions"><button class="btn danger" type="button" id="reset-open">Скинути все</button></div>
+  </div>
+</section>
+
+<!-- Battery: a JK BMS read over Bluetooth while this screen is open -->
+<section id="s-bms">
+  <div class="card hidden" id="bms-live">
+    <div class="power"><span class="badge big pending" id="bms-badge"></span>
+      <div><b id="bms-head">—</b><span class="muted small" id="bms-sub"></span></div></div>
+    <div class="list" id="bms-values"></div>
+    <label class="cap">Комірки, В</label>
+    <div class="cells" id="bms-cells"></div>
+    <p class="small muted" id="bms-device"></p>
+  </div>
+  <div class="card">
+    <h2>BMS</h2>
+    <p class="small muted" id="bms-chosen"></p>
+    <p class="small muted">Пристрій лише читає дані BMS і нічого в ній не змінює. Bluetooth вмикається,
+      тільки поки відкрито цей екран або коли повідомлення містить значення батареї.</p>
+    <div class="actions">
+      <button class="btn" type="button" id="bms-scan-btn">Шукати поруч</button>
+      <button class="btn hidden" type="button" id="bms-forget-btn">Забути BMS</button>
+    </div>
+    <div class="msg" id="bms-msg"></div>
+    <div class="list hidden" id="bms-found" style="margin-top:calc(var(--du)*3)"></div>
   </div>
 </section>
 
@@ -588,14 +622,15 @@ async function api(path, fields) {
 $("back").append(icon("back"));
 function show(name) {
   view = name;
-  ["login", "wifi", "move", "bot", "dashboard"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
-  const step = {login: 0, wifi: 1, move: 2, bot: 2, dashboard: 3}[name];
+  ["login", "wifi", "move", "bot", "dashboard", "bms"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
+  const step = {login: 0, wifi: 1, move: 2, bot: 2, dashboard: 3, bms: 3}[name];
   [...$("progress").children].forEach((bar, i) => bar.classList.toggle("lit", i < step));
   const configured = state && state.stage === "dashboard";
-  $("back").classList.toggle("hidden", !(configured && (name === "wifi" || name === "bot")));
+  $("back").classList.toggle("hidden", !(configured && ["wifi", "bot", "bms"].includes(name)));
   window.scrollTo(0, 0);
   if (name === "wifi") refreshNetworks();
   if (name === "bot") refreshChats();
+  if (name === "bms") refreshBms();
 }
 
 document.addEventListener("click", e => {
@@ -898,13 +933,17 @@ function fillMessages(messages) {
   }));
 }
 
-/* Live preview with the same variables the device substitutes. */
+/* Live preview with the same variables the device substitutes; battery
+   values are the last ones read on the battery screen, else samples. */
 function renderPreview(node, text, allowed) {
-  const unknown = (text.match(/\{[^{}]*\}/g) || []).filter(v => !allowed.includes(v));
+  const known = [...allowed, ...BMS_VARS.map(([name]) => "{" + name + "}")];
+  const unknown = (text.match(/\{[A-Za-z][A-Za-z0-9_]*\}/g) || []).filter(v => !known.includes(v));
   node.classList.toggle("bad", unknown.length > 0);
+  const values = {device: $("m-device_name").value, duration: SAMPLE_DURATION,
+    ...(bms && bms.reading ? bms.reading.values : BMS_SAMPLE)};
   node.textContent = unknown.length
-    ? "Невідома змінна: " + unknown[0] + ". Доступні: " + allowed.join(", ")
-    : text.replaceAll("{device}", $("m-device_name").value).replaceAll("{duration}", SAMPLE_DURATION);
+    ? "Невідома змінна: " + unknown[0] + ". Доступні: " + allowed.join(", ") + " і змінні батареї {bms_…}"
+    : text.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (all, name) => name in values ? values[name] : all);
 }
 
 actionButton($("messages-btn"), async () => {
@@ -913,6 +952,96 @@ actionButton($("messages-btn"), async () => {
   await api("/api/messages", Object.fromEntries(new FormData($("messages-form"))));
   say("messages-msg", "Збережено.", "ok");
 }, {msg: "messages-msg"});
+
+/* ---------- battery (JK BMS) ---------- */
+const BMS_VARS = [
+  ["bms_soc", "Заряд", "%"], ["bms_voltage", "Напруга", "В"], ["bms_current", "Струм (+ заряд, - розряд)", "А"],
+  ["bms_power", "Потужність", "Вт"], ["bms_remaining", "Залишок", "А·год"], ["bms_capacity", "Ємність", "А·год"],
+  ["bms_cycles", "Цикли", ""], ["bms_cell_min", "Найнижча комірка", "В"], ["bms_cell_max", "Найвища комірка", "В"],
+  ["bms_cell_delta", "Різниця комірок", "В"], ["bms_temp1", "Датчик 1", "°C"], ["bms_temp2", "Датчик 2", "°C"],
+  ["bms_mosfet", "MOSFET", "°C"], ["bms_charging", "Заряд дозволено", ""], ["bms_discharging", "Розряд дозволено", ""],
+];
+const BMS_SAMPLE = {bms_soc: "84", bms_voltage: "13.28", bms_current: "-2.0", bms_power: "-27", bms_remaining: "84.0",
+  bms_capacity: "100.0", bms_cycles: "12", bms_cell_min: "3.318", bms_cell_max: "3.322", bms_cell_delta: "0.004",
+  bms_temp1: "21.0", bms_temp2: "20.5", bms_mosfet: "25.0", bms_charging: "так", bms_discharging: "так"};
+$("bms-vars").append("Батарея (коли вибрано BMS): ",
+  ...BMS_VARS.flatMap(([name, label, unit], i) => [i ? "; " : "", el("code", {}, "{" + name + "}"),
+    " — " + label.toLowerCase() + (unit ? ", " + unit : "")]),
+  ". Перед таким повідомленням пристрій зчитає BMS; якщо вона недоступна, буде 🤷‍♂️.");
+
+/* Only this screen asks for the values: each request keeps the link up a little longer. */
+let bms = null;
+async function refreshBms() {
+  if (view !== "bms") return;
+  try { bms = await api("/api/bms"); } catch (e) { say("bms-msg", e.message, "err"); return; }
+  renderBms();
+}
+
+function bmsLinkText() {
+  const r = bms.reading;
+  switch (bms.link) {
+    case "connected": return r ? "оновлено " + r.age_s + " с тому" : "з'єднано, чекаю даних";
+    case "connecting": return "з'єднуюся…";
+    case "failed": return "помилка: " + bms.error;
+    default: return r ? "дані " + r.age_s + " с тому" : "очікую з'єднання";
+  }
+}
+
+function renderBms() {
+  const b = bms.battery, r = bms.reading;
+  $("bms-live").classList.toggle("hidden", !b);
+  $("bms-chosen").textContent = b ? "Вибрано «" + b.name + "», " + b.address + "."
+    : "BMS ще не вибрано. Натисніть «Шукати поруч» і оберіть свою BMS зі списку.";
+  $("bms-forget-btn").classList.toggle("hidden", !b);
+  if (b) {
+    $("bms-badge").className = "badge big " + ({connected: "online", failed: "error"}[bms.link] || "pending");
+    $("bms-head").textContent = r ? r.values.bms_soc + "% · " + r.values.bms_voltage + " В" : "—";
+    $("bms-sub").textContent = bmsLinkText();
+    $("bms-values").replaceChildren(...(r ? BMS_VARS.map(([name, label, unit]) => el("div", {class: "item"},
+      el("span", {class: "k"}, label), el("span", {class: "v"}, r.values[name] + (unit ? " " + unit : "")))) : []));
+    const cells = r ? r.cells_mv : [];
+    const lo = Math.min(...cells), hi = Math.max(...cells);
+    $("bms-cells").replaceChildren(...cells.map((mv, i) =>
+      el("span", {class: lo === hi ? "" : mv === lo ? "lo" : mv === hi ? "hi" : ""}, el("i", {}, i + 1), (mv / 1000).toFixed(3))));
+    const d = bms.device;
+    $("bms-device").textContent = d ? d.model + " · залізо " + d.hardware + " · прошивка " + d.software : "";
+  }
+  const found = bms.found.filter(f => !b || f.address !== b.address);
+  $("bms-found").classList.toggle("hidden", !bms.scanning && !found.length);
+  if (!choosingBms) $("bms-found").replaceChildren(...(bms.scanning
+    ? [el("div", {class: "empty"}, el("span", {class: "badge pending"}), "Шукаю пристрої Bluetooth поруч…")]
+    : found.map(bmsRow)));
+}
+
+let choosingBms = false;
+function bmsRow(f) {
+  const choose = el("button", {type: "button", class: "btn"}, "Обрати");
+  actionButton(choose, async () => {
+    choosingBms = true;
+    try {
+      await api("/api/bms", {address: f.address, random: f.random ? "1" : "", name: f.name});
+      say("bms-msg", "Збережено. З'єднуюся з «" + f.name + "»…", "ok");
+    } finally { choosingBms = false; }
+    await refreshBms();
+  }, {msg: "bms-msg"});
+  return el("div", {class: "item two"},
+    el("span", {class: "txt"}, el("span", {class: "t"}, f.name),
+      el("span", {class: "s"}, f.address + " · " + f.rssi + " дБм" + (f.likely ? " · схоже на JK BMS" : ""))),
+    choose);
+}
+
+actionButton($("bms-scan-btn"), async () => {
+  say("bms-msg", "");
+  await api("/api/bms/scan", {});
+  await refreshBms();
+}, {msg: "bms-msg"});
+
+actionButton($("bms-forget-btn"), async () => {
+  say("bms-msg", "");
+  await api("/api/bms/forget", {});
+  say("bms-msg", "BMS забуто.", "ok");
+  await refreshBms();
+}, {msg: "bms-msg"});
 
 /* ---------- access ---------- */
 actionButton($("login-btn"), async () => {
@@ -996,6 +1125,7 @@ refreshState();
 setInterval(() => { if (!joining) refreshState(); }, 3000);
 setInterval(refreshNetworks, 5000);
 setInterval(refreshChats, 4000);
+setInterval(refreshBms, 3000);
 </script>
 </body>
 </html>

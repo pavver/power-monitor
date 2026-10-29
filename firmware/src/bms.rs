@@ -95,7 +95,9 @@ impl Bms {
             "device": state.device,
             "reading": reading,
             "scanning": state.scanning || state.scan_asked,
-            "found": state.found,
+            "found": state.found.iter().map(|f| serde_json::json!({
+                "name": f.name, "address": f.address, "random": f.random, "rssi": f.rssi, "likely": f.likely(),
+            })).collect::<Vec<_>>(),
         })
     }
 
