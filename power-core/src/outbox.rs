@@ -1,30 +1,28 @@
-//! Events waiting for delivery. Wi-Fi usually drops together with the power,
-//! so events pile up here until the network is back.
+//! Messages waiting for delivery. Wi-Fi usually drops together with the power,
+//! so they pile up here until the network is back.
 
 use std::collections::VecDeque;
 
-use crate::power::PowerEvent;
-
-pub struct Outbox {
-    pending: VecDeque<PowerEvent>,
+pub struct Outbox<T> {
+    pending: VecDeque<T>,
     capacity: usize,
 }
 
-impl Outbox {
+impl<T> Outbox<T> {
     pub fn new(capacity: usize) -> Self {
         Self { pending: VecDeque::with_capacity(capacity), capacity }
     }
 
-    /// Queues `event`; when full, the oldest event is dropped to make room.
-    pub fn push(&mut self, event: PowerEvent) {
+    /// Queues `item`; when full, the oldest one is dropped to make room.
+    pub fn push(&mut self, item: T) {
         if self.pending.len() == self.capacity {
             self.pending.pop_front();
         }
-        self.pending.push_back(event);
+        self.pending.push_back(item);
     }
 
-    /// The next event to send; it stays queued until `delivered`.
-    pub fn next(&self) -> Option<&PowerEvent> {
+    /// The next item to send; it stays queued until `delivered`.
+    pub fn next(&self) -> Option<&T> {
         self.pending.front()
     }
 
@@ -44,7 +42,7 @@ impl Outbox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::power::PowerState;
+    use crate::power::{PowerEvent, PowerState};
 
     fn event(at_ms: u64) -> PowerEvent {
         PowerEvent { state: PowerState::Absent, at_ms, previous_lasted_ms: None }
@@ -75,7 +73,7 @@ mod tests {
 
     #[test]
     fn delivered_on_an_empty_outbox_does_nothing() {
-        let mut outbox = Outbox::new(2);
+        let mut outbox: Outbox<PowerEvent> = Outbox::new(2);
         outbox.delivered();
         assert!(outbox.is_empty());
     }
