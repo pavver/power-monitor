@@ -19,7 +19,8 @@ pub fn now_ms() -> u64 {
 
 #[derive(Default)]
 pub struct Status {
-    power: Mutex<Option<(PowerState, u64)>>,
+    /// The state and when it began, if that was seen.
+    power: Mutex<Option<(PowerState, Option<u64>)>>,
     link: Mutex<Link>,
     setup_ap: Mutex<Option<SetupAp>>,
     networks: Mutex<Vec<Network>>,
@@ -33,7 +34,7 @@ impl Status {
         Self { firmware, ..Default::default() }
     }
 
-    pub fn set_power(&self, state: PowerState, since_ms: u64) {
+    pub fn set_power(&self, state: PowerState, since_ms: Option<u64>) {
         *self.power.lock().unwrap() = Some((state, since_ms));
     }
 
@@ -75,7 +76,7 @@ impl Status {
             .power
             .lock()
             .unwrap()
-            .map(|(state, since)| Power::new(state, now_ms().saturating_sub(since)));
+            .map(|(state, since)| Power::new(state, since.map(|since| now_ms().saturating_sub(since))));
         let setup_ap = self.setup_ap.lock().unwrap().clone();
         let state = api::State {
             stage: settings.stage(),

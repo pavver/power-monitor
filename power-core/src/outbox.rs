@@ -42,10 +42,10 @@ impl<T> Outbox<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::power::{PowerEvent, PowerState};
+    use crate::power::{Before, PowerEvent, PowerState};
 
     fn event(at_ms: u64) -> PowerEvent {
-        PowerEvent { state: PowerState::Absent, at_ms, previous_lasted_ms: None }
+        PowerEvent { state: PowerState::Absent, at_ms, before: Before::StartUp }
     }
 
     #[test]

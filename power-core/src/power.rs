@@ -30,15 +30,32 @@ pub struct PowerEvent {
     pub state: PowerState,
     /// Monotonic time of the first window that showed the new state.
     pub at_ms: u64,
-    /// How long the previous confirmed state lasted; `None` for the first event.
-    pub previous_lasted_ms: Option<u64>,
+    pub before: Before,
+}
+
+impl PowerEvent {
+    /// When the new state began, if the device saw it begin.
+    pub fn began_ms(&self) -> Option<u64> {
+        (self.before != Before::StartUp).then_some(self.at_ms)
+    }
+}
+
+/// What came before an event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Before {
+    /// Nothing: this is the state found at start-up.
+    StartUp,
+    /// The state found at start-up, whose beginning nobody saw.
+    Unmeasured,
+    /// A state that began and ended while the device ran, this long.
+    Lasted(u64),
 }
 
 /// Turns noisy per-window readings into confirmed state changes.
 pub struct Detector {
     confirm_windows: u32,
-    /// The confirmed state and when it began.
-    stable: Option<(PowerState, u64)>,
+    /// The confirmed state and when it began (`None` if before start-up).
+    stable: Option<(PowerState, Option<u64>)>,
     /// A run of windows that disagree with `stable`.
     streak: Option<Streak>,
 }
@@ -66,10 +83,15 @@ impl Detector {
             return None;
         }
         let at_ms = streak.started_ms;
-        let previous_lasted_ms = self.stable.map(|(_, since)| at_ms - since);
-        self.stable = Some((window, at_ms));
+        let before = match self.stable {
+            None => Before::StartUp,
+            Some((_, None)) => Before::Unmeasured,
+            Some((_, Some(since))) => Before::Lasted(at_ms - since),
+        };
+        let event = PowerEvent { state: window, at_ms, before };
+        self.stable = Some((window, event.began_ms()));
         self.streak = None;
-        Some(PowerEvent { state: window, at_ms, previous_lasted_ms })
+        Some(event)
     }
 
     fn extend_streak(&mut self, window: PowerState, now_ms: u64) -> Streak {
@@ -113,7 +135,7 @@ mod tests {
         assert_eq!(feed(&mut d, Present, 0, 2), vec![]);
         assert_eq!(
             d.observe(Present, 200),
-            Some(PowerEvent { state: Present, at_ms: 0, previous_lasted_ms: None })
+            Some(PowerEvent { state: Present, at_ms: 0, before: Before::StartUp })
         );
     }
 
@@ -127,16 +149,18 @@ mod tests {
     fn change_reports_how_long_the_previous_state_lasted() {
         let mut d = Detector::new(3);
         feed(&mut d, Present, 0, 10);
-        let events = feed(&mut d, Absent, 1_000, 3);
-        assert_eq!(
-            events,
-            vec![PowerEvent { state: Absent, at_ms: 1_000, previous_lasted_ms: Some(1_000) }]
-        );
+        feed(&mut d, Absent, 1_000, 3);
         let events = feed(&mut d, Present, 5_000, 3);
-        assert_eq!(
-            events,
-            vec![PowerEvent { state: Present, at_ms: 5_000, previous_lasted_ms: Some(4_000) }]
-        );
+        assert_eq!(events, vec![PowerEvent { state: Present, at_ms: 5_000, before: Before::Lasted(4_000) }]);
+    }
+
+    #[test]
+    fn state_found_at_start_up_has_no_known_length() {
+        // Power may have been off long before the device was switched on.
+        let mut d = Detector::new(3);
+        feed(&mut d, Absent, 0, 10);
+        let events = feed(&mut d, Present, 1_000, 3);
+        assert_eq!(events, vec![PowerEvent { state: Present, at_ms: 1_000, before: Before::Unmeasured }]);
     }
 
     #[test]
@@ -156,7 +180,7 @@ mod tests {
         assert_eq!(feed(&mut d, Absent, 800, 2), vec![]);
         assert_eq!(
             d.observe(Absent, 1_000),
-            Some(PowerEvent { state: Absent, at_ms: 800, previous_lasted_ms: Some(800) })
+            Some(PowerEvent { state: Absent, at_ms: 800, before: Before::Unmeasured })
         );
     }
 }

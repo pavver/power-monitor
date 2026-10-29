@@ -2,6 +2,9 @@
 
 use std::fmt;
 
+/// The placeholder for how long the previous state lasted.
+pub const DURATION: &str = "{duration}";
+
 const MAX_CHARS: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +46,7 @@ pub fn validate(template: &str, with_duration: bool) -> Result<(), TemplateError
 /// Fills the placeholders. Unknown ones cannot occur after `validate`.
 pub fn render(template: &str, device: &str, duration: &str) -> String {
     // Duration first: a device name may itself contain "{duration}".
-    template.replace("{duration}", duration).replace("{device}", device)
+    template.replace(DURATION, duration).replace("{device}", device)
 }
 
 /// Names written as `{name}`, where a name is ASCII letters and underscores.

@@ -80,13 +80,14 @@ pub fn tidy_networks(mut networks: Vec<Network>) -> Vec<Network> {
 pub struct Power {
     pub present: bool,
     /// How long the current state has lasted, formatted here so the page
-    /// does not repeat the duration rules.
-    pub lasted: String,
+    /// does not repeat the duration rules; `None` when it began before
+    /// start-up and its length is unknown.
+    pub lasted: Option<String>,
 }
 
 impl Power {
-    pub fn new(state: PowerState, lasted_ms: u64) -> Self {
-        Self { present: state == PowerState::Present, lasted: format_duration(lasted_ms) }
+    pub fn new(state: PowerState, lasted_ms: Option<u64>) -> Self {
+        Self { present: state == PowerState::Present, lasted: lasted_ms.map(format_duration) }
     }
 }
 
@@ -151,6 +152,12 @@ mod tests {
     }
 
     #[test]
+    fn power_found_at_start_up_has_no_length() {
+        let value = serde_json::to_value(Power::new(PowerState::Absent, None)).unwrap();
+        assert_eq!(value, json!({"present": false, "lasted": null}));
+    }
+
+    #[test]
     fn networks_are_unique_visible_and_strongest_first() {
         let tidy = tidy_networks(vec![net("A", -80), net("", -30), net("B", -50), net("A", -40), net("C", -90)]);
         assert_eq!(tidy, vec![net("A", -40), net("B", -50), net("C", -90)]);
@@ -163,7 +170,7 @@ mod tests {
         let firmware = Firmware { version: "v1".into(), built: "Oct 29 2026".into(), slot: "ota_1".into() };
         let state = State {
             stage: Stage::Dashboard,
-            power: Some(Power::new(PowerState::Present, 2 * 3_600_000 + 60_000)),
+            power: Some(Power::new(PowerState::Present, Some(2 * 3_600_000 + 60_000))),
             link: &link,
             setup_ap: None,
             telegram: "ok",

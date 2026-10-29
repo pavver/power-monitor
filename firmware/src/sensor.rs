@@ -29,7 +29,7 @@ pub fn spawn(
             let low_samples = count_low_samples(&input);
             if let Some(event) = detector.observe(classify_window(low_samples), started_ms) {
                 log::info!("power {:?}", event.state);
-                status.set_power(event.state, event.at_ms);
+                status.set_power(event.state, event.began_ms());
                 // Nobody listens until the bot is configured; that is fine.
                 let _ = notices.send(Notice::Power(event));
             }

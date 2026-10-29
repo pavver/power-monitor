@@ -1,6 +1,6 @@
 //! Telegram message texts.
 
-use crate::power::{PowerEvent, PowerState};
+use crate::power::{Before, PowerEvent, PowerState};
 use crate::settings::{Messages, Text};
 use crate::template;
 
@@ -28,19 +28,33 @@ pub fn format_duration(ms: u64) -> String {
 
 /// The message for `event`, written at monotonic time `now_ms`.
 pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64) -> String {
-    let text = match (event.state, event.previous_lasted_ms) {
-        (PowerState::Present, None) => Text::StartPresent,
-        (PowerState::Absent, None) => Text::StartAbsent,
-        (PowerState::Present, Some(_)) => Text::Returned,
-        (PowerState::Absent, Some(_)) => Text::Lost,
+    let start_up = event.before == Before::StartUp;
+    let text = match (event.state, start_up) {
+        (PowerState::Present, true) => Text::StartPresent,
+        (PowerState::Absent, true) => Text::StartAbsent,
+        (PowerState::Present, false) => Text::Returned,
+        (PowerState::Absent, false) => Text::Lost,
     };
-    let duration = format_duration(event.previous_lasted_ms.unwrap_or(0));
-    let mut out = template::render(messages.template(text), messages.device_name(), &duration);
+    let mut out = match event.before {
+        Before::Lasted(ms) => template::render(messages.template(text), messages.device_name(), &format_duration(ms)),
+        _ => without_duration(messages.template(text), messages.device_name()),
+    };
     let delay = now_ms.saturating_sub(event.at_ms);
-    if event.previous_lasted_ms.is_some() && delay >= LATE_AFTER_MS {
+    if !start_up && delay >= LATE_AFTER_MS {
         out += &format!("\n(сталося {} тому)", format_duration(delay));
     }
     out
+}
+
+/// A length nobody measured is never shown: lines naming `{duration}` are
+/// left out, and if that leaves nothing, the duration is called unknown.
+fn without_duration(template: &str, device: &str) -> String {
+    let kept: Vec<&str> = template.lines().filter(|line| !line.contains(template::DURATION)).collect();
+    if kept.iter().any(|line| !line.trim().is_empty()) {
+        template::render(&kept.join("\n"), device, "")
+    } else {
+        template::render(template, device, "невідомо скільки")
+    }
 }
 
 /// Something to tell the chat.
@@ -74,8 +88,14 @@ mod tests {
     const HOUR: u64 = 60 * MIN;
     const DAY: u64 = 24 * HOUR;
 
+    /// `None`: the start-up report; `Some(ms)`: a change after a state of known length.
     fn event(state: PowerState, previous_lasted_ms: Option<u64>) -> PowerEvent {
-        PowerEvent { state, at_ms: 10 * SEC, previous_lasted_ms }
+        let before = previous_lasted_ms.map_or(Before::StartUp, Before::Lasted);
+        PowerEvent { state, at_ms: 10 * SEC, before }
+    }
+
+    fn change_after_start_up(state: PowerState) -> PowerEvent {
+        PowerEvent { state, at_ms: 10 * SEC, before: Before::Unmeasured }
     }
 
     #[test]
@@ -167,6 +187,39 @@ mod tests {
             event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN),
             "🔴 Дім: світло зникло.\nБуло 5 хв.\n(сталося 12 хв тому)"
         );
+    }
+
+    #[test]
+    fn unknown_length_leaves_out_the_duration_line() {
+        // Power may have been off long before the device was switched on.
+        assert_eq!(
+            event_text(&Messages::default(), &change_after_start_up(Present), 10 * SEC),
+            "🟢 Дім: світло з'явилось."
+        );
+        assert_eq!(event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC), "🔴 Дім: світло зникло.");
+    }
+
+    #[test]
+    fn unknown_length_in_a_one_line_template_is_not_made_up() {
+        let body = form::encode(&[
+            ("device_name", "Дача"),
+            ("start_present", "a"),
+            ("start_absent", "b"),
+            ("lost", "Нема світла на {device} після {duration}"),
+            ("returned", "d"),
+        ]);
+        let messages = Messages::from_form(&body).unwrap();
+        assert_eq!(
+            event_text(&messages, &change_after_start_up(Absent), 10 * SEC),
+            "Нема світла на Дача після невідомо скільки"
+        );
+    }
+
+    #[test]
+    fn late_change_after_start_up_still_says_when_it_happened() {
+        // The moment of the change is measured; only the length before it is not.
+        let text = event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC + 12 * MIN);
+        assert_eq!(text, "🔴 Дім: світло зникло.\n(сталося 12 хв тому)");
     }
 
     #[test]
