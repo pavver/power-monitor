@@ -5,3 +5,4 @@ pub mod power;
 pub mod message;
 pub mod form;
 pub mod config;
+pub mod dns;
