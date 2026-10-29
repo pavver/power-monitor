@@ -14,3 +14,4 @@ pub mod ota;
 pub mod auth;
 pub mod reset;
 pub mod portal;
+pub mod radio;
