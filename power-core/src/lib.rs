@@ -8,3 +8,4 @@ pub mod config;
 pub mod dns;
 pub mod outbox;
 pub mod telegram;
+pub mod html;
