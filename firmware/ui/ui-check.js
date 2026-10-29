@@ -12,6 +12,7 @@ const exe = fs.readdirSync(process.env.HOME + "/.cache/ms-playwright/chromium_he
 function device() {
   const d = {
     link: { state: "idle" }, stage: "wifi", setupAp: true, closed: false,
+    remote: { enabled: false, server: null, phase: "off", next_in_s: null, last_contact_s: null, error: null },
     state() {
       return {
         stage: this.stage, link: this.link, setup_ap: this.setupAp ? { ssid: "PowerMonitor-Setup", portal: "http://192.168.71.1/" } : null, power: { present: true, lasted: "5 хв" },
@@ -19,6 +20,7 @@ function device() {
         messages: { device_name: "Дім", start_present: "{device}: запуск, світло є", start_absent: "{device}: запуск",
           lost: "{device}: світло зникло ({duration})", returned: "{device}: світло є ({duration})" },
         firmware: { version: "0.1.0", built: "", slot: "ota_0" },
+        remote: this.remote,
       };
     },
   };
@@ -31,7 +33,12 @@ function route(page, dev) {
     const json = body => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
     if (url.pathname === "/") return route.fulfill({ status: 200, contentType: "text/html", body: PAGE });
     if (url.pathname === "/operator-mono.woff") return route.fulfill({ status: 200, contentType: "font/woff", body: fs.readFileSync(path.join(path.dirname(process.argv[2]), "operator-mono.woff")) });
-    if (url.pathname === "/api/state") return json(dev.state());
+    if (url.pathname === "/api/state") {
+      // Answers what the device knew when asked, late: like a slow link.
+      const answer = dev.state();
+      if (dev.slowState) await new Promise(r => setTimeout(r, dev.slowState));
+      return json(answer);
+    }
     if (url.pathname === "/api/networks") return json([{ ssid: "Home", rssi: -50, secure: true }, { ssid: "Cafe", rssi: -80, secure: false }]);
     if (url.pathname === "/api/wifi") {
       const form = new URLSearchParams(route.request().postData());
@@ -69,6 +76,14 @@ function route(page, dev) {
       }, 1500);
       return json("scanning");
     }
+    if (url.pathname === "/api/remote") {
+      dev.remoteSaved = Object.fromEntries(new URLSearchParams(route.request().postData()));
+      const on = dev.remoteSaved.enabled === "1";
+      dev.remote = { ...dev.remote, enabled: on, server: dev.remoteSaved.server, phase: on ? "waiting" : "off", next_in_s: on ? 3540 : null };
+      return json("saved");
+    }
+    if (url.pathname === "/api/remote/connect") { dev.remote = { ...dev.remote, phase: "session", next_in_s: null, last_contact_s: 0 }; return json("connecting"); }
+    if (url.pathname === "/api/remote/end") { dev.remote = { ...dev.remote, phase: "waiting", next_in_s: 3600 }; dev.remoteEnded = true; return json("ended"); }
     if (url.pathname === "/api/bot") {
       dev.saved = Object.fromEntries(new URLSearchParams(route.request().postData()));
       dev.stage = "dashboard";
@@ -133,6 +148,48 @@ async function runBms() {
     && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0;
   if (!ok) process.exitCode = 1;
   console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, cells, preview, copied, copiedNote, chips, errors }));
+}
+
+/* Remote support: switch on with a server, connect now, see the session, end it. */
+async function runRemote() {
+  const browser = await chromium.launch({ executablePath: exe });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  const dev = device();
+  dev.stage = "dashboard"; dev.setupAp = false; dev.link = { state: "connected", ssid: "Home", ip: "192.168.1.50" };
+  await route(page, dev);
+  await page.goto("http://192.168.1.50/");
+  await page.waitForSelector("#s-dashboard.on");
+  const offTitle = await page.$eval("#remote-title", n => n.textContent);
+  dev.slowState = 1500;
+  await page.fill("#remote-server", "https://svitlo.example.com");
+  await page.evaluate(() => {
+    window.ariaLog = [];
+    const node = document.getElementById("remote-switch");
+    new MutationObserver(() => window.ariaLog.push(node.getAttribute("aria-checked"))).observe(node, { attributes: true, attributeFilter: ["aria-checked"] });
+  });
+  await page.click("#remote-switch");
+  await page.waitForFunction(() => document.getElementById("remote-switch").getAttribute("aria-checked") === "true", null, { timeout: 6000 });
+  await page.waitForFunction(() => document.getElementById("remote-sub").textContent.includes("59 хв"), null, { timeout: 6000 });
+  await page.waitForTimeout(3500);
+  // A state poll that left before the save must not flip the switch back.
+  const flips = await page.evaluate(() => window.ariaLog.slice(window.ariaLog.indexOf("true")).filter(v => v !== "true").length);
+  await page.$eval("#remote-card", n => n.scrollIntoView());
+  await page.screenshot({ path: OUT + "/remote-0-on.png" });
+  await page.click("#remote-connect");
+  await page.waitForFunction(() => document.getElementById("remote-title").textContent.includes("ПІДКЛЮЧЕНО"), null, { timeout: 6000 });
+  const dashboardRow = await page.$eval("#d-remote", n => n.textContent);
+  await page.$eval("#remote-card", n => n.scrollIntoView());
+  await page.screenshot({ path: OUT + "/remote-1-session.png" });
+  await page.click("#remote-end");
+  await page.waitForFunction(() => !document.getElementById("remote-title").textContent.includes("ПІДКЛЮЧЕНО"), null, { timeout: 6000 });
+  await browser.close();
+  const ok = errors.length === 0 && offTitle.includes("ВИМКНЕНО") && dev.remoteSaved
+    && dev.remoteSaved.enabled === "1" && dev.remoteSaved.server === "https://svitlo.example.com"
+    && dashboardRow.includes("підключено") && dev.remoteEnded && flips === 0;
+  if (!ok) process.exitCode = 1;
+  console.log((ok ? "PASS " : "FAIL ") + "remote", JSON.stringify({ offTitle, flips, saved: dev.remoteSaved, dashboardRow, ended: dev.remoteEnded, errors }));
 }
 
 /* Bot step: choosing a forum topic saves it as the destination. */
@@ -215,4 +272,5 @@ const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + resul
   await run({ name: "home", password: "right", expect: { view: "s-bot", states: timeline("ok") } });
   await runBot();
   await runBms();
+  await runRemote();
 })().catch(e => { console.error(e); process.exit(1); });

@@ -13,12 +13,14 @@
   --accent:#0969DA;--pending:#9A6700;--success:#1A7F37;--error:#CF222E;--pressed:#E0EEF2;--selection:#D4F1F4;
   --text:#24292F;--text-2:#57606A;--text-off:#8C959F;--off-surface:#F3F4F6;--off-border:#D9E0E7;
   --badge-online:#15803D;--badge-offline:#000;--badge-alarm:#C62828;--badge-activity:#15803D;--badge-border:#9EADBC;
+  --switch-on:#C8E6C9;--switch-off:#FFCDD2;
 }
 @media (prefers-color-scheme:dark){:root{
   --background:#0D1117;--surface:#161B22;--surface-alt:#0F141C;--border:#3E4A5C;--border-strong:#8B949E;--divider:#252C36;
   --accent:#58A6FF;--pending:#E3B341;--success:#39D353;--error:#FF7B72;--pressed:#22313D;--selection:#193B45;
   --text:#F0F6FC;--text-2:#8B949E;--text-off:#484F58;--off-surface:#10141A;--off-border:#1F252E;
   --badge-online:#3DDC84;--badge-offline:#000;--badge-alarm:#FF5C5C;--badge-activity:#3DDC84;--badge-border:#3A4656;
+  --switch-on:#193B2D;--switch-off:#3B1E1E;
 }}
 /* Cascadia Code subset, renamed per its OFL licence (ui/make-font.py). */
 @font-face{font-family:"Operator Mono";src:url(/operator-mono.woff) format("woff");font-weight:400 700;font-display:swap}
@@ -178,6 +180,22 @@ button.item{cursor:pointer}
   white-space:pre-wrap;overflow-wrap:anywhere}
 .preview.bad{border-color:var(--error);color:var(--error)}
 
+/* OperatorAsyncSwitch: moves only once the device confirmed */
+.switchrow{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--du)*3);margin-top:calc(var(--du)*3)}
+.switch{flex:none;width:calc(var(--du)*13);height:calc(var(--du)*8);padding:0;border-radius:calc(var(--du)*4);cursor:pointer;position:relative;
+  background:var(--switch-off);border:calc(var(--du)*.25) solid var(--border)}
+.switch i{position:absolute;top:calc(var(--du)*.75);left:calc(var(--du)*.75);width:calc(var(--du)*6);height:calc(var(--du)*6);border-radius:50%;
+  background:var(--error);border:calc(var(--du)*.25) solid var(--border-strong);transition:left .2s var(--fast)}
+.switch[aria-checked=true]{background:var(--switch-on);border-color:var(--accent)}
+.switch[aria-checked=true] i{left:calc(var(--du)*5.75);background:var(--success)}
+.switch[data-state=pending]{background:var(--surface-alt)}
+.switch[data-state=pending] i{left:calc(var(--du)*3.25);background:none;border:calc(var(--du)*.375) solid var(--pending);border-top-color:transparent;
+  animation:spin .8s linear infinite}
+.switch[data-state=ok]{animation:swok .4s var(--fast) 3 alternate}
+.switch[data-state=err]{animation:swerr .4s var(--fast) 3 alternate}
+@keyframes swok{to{border-color:var(--success);box-shadow:0 0 0 calc(var(--du)*.5) var(--success)}}
+@keyframes swerr{to{border-color:var(--error);box-shadow:0 0 0 calc(var(--du)*.5) var(--error)}}
+
 /* Battery cells, lowest and highest marked */
 .cells{display:grid;grid-template-columns:repeat(4,1fr);gap:calc(var(--du)*1)}
 .cells span{padding:calc(var(--du)*1) calc(var(--du)*1.5);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--divider);
@@ -320,6 +338,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <div class="item"><span class="k">Telegram</span><span class="v" id="d-telegram"></span></div>
     <div class="item"><span class="k">Чат</span><span class="v" id="d-chat"></span></div>
     <div class="item"><span class="k">У черзі</span><span class="v" id="d-pending"></span></div>
+    <div class="item"><span class="k">Віддалений доступ</span><span class="v" id="d-remote"></span></div>
   </div>
   <div class="actions" style="margin:0 0 calc(var(--du)*4)">
     <button class="btn" type="button" id="test-btn">Тестове повідомлення</button>
@@ -341,6 +360,23 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <div class="actions"><button class="btn" id="messages-btn">Зберегти</button></div>
     <div class="msg" id="messages-msg"></div>
   </form>
+  <div class="card" id="remote-card">
+    <h2>Віддалена підтримка</h2>
+    <div class="power"><span class="badge big" id="remote-badge"></span>
+      <div><b id="remote-title"></b><span class="muted small" id="remote-sub"></span></div></div>
+    <div class="switchrow"><span>Дозволити віддалене підключення</span>
+      <button class="switch" type="button" role="switch" aria-checked="false" id="remote-switch" aria-label="Дозволити віддалене підключення"><i></i></button></div>
+    <label class="cap" for="remote-server">Сервер підтримки</label>
+    <div class="field" data-field><input id="remote-server" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://example.com"></div>
+    <p class="small muted">Пристрій сам звертається до сервера раз на годину; порти назовні не відкриваються.
+      Відкрита сесія дає доступ до всієї панелі, разом з оновленням прошивки, і закривається сама через 15 хвилин без дій.</p>
+    <div class="actions">
+      <button class="btn" type="button" id="remote-save">Зберегти адресу</button>
+      <button class="btn" type="button" id="remote-connect">З'єднатись зараз</button>
+      <button class="btn hidden" type="button" id="remote-end">Завершити сесію</button>
+    </div>
+    <div class="msg" id="remote-msg"></div>
+  </div>
   <div class="card">
     <h2>Доступ до панелі</h2>
     <p class="small muted" id="access-state"></p>
@@ -735,6 +771,7 @@ function renderDashboard() {
     ? "Пароль увімкнено. Можна змінити його або вимкнути."
     : "Пароль вимкнено: панель відкрита всім у мережі. Задайте пароль, щоб захистити її.";
   $("access-actions").classList.toggle("hidden", !state.password_set);
+  renderRemote(state.remote);
 }
 
 /* ---------- Wi-Fi ---------- */
@@ -1055,6 +1092,75 @@ actionButton($("bms-forget-btn"), async () => {
   say("bms-msg", "BMS забуто.", "ok");
   await refreshBms();
 }, {msg: "bms-msg"});
+
+/* ---------- remote support ---------- */
+function minutes(seconds) {
+  return seconds < 60 ? "менше хвилини" : Math.round(seconds / 60) + " хв";
+}
+
+function renderRemote(r) {
+  const session = r.phase === "session";
+  $("remote-badge").className = "badge big " + (r.error ? "error" : session ? "online" : r.enabled ? "online" : "");
+  $("remote-title").textContent = session ? "ПІДКЛЮЧЕНО ВІДДАЛЕНО" : r.enabled ? "УВІМКНЕНО" : "ВИМКНЕНО";
+  const parts = [];
+  if (session) parts.push("сесія відкрита: власник сервера бачить і змінює налаштування");
+  else if (r.phase === "waiting") parts.push("наступна перевірка через " + minutes(r.next_in_s));
+  if (r.last_contact_s !== null && !session) parts.push("зв'язок був " + minutes(r.last_contact_s) + " тому");
+  if (r.error) parts.push("помилка: " + r.error);
+  $("remote-sub").textContent = parts.join(" · ");
+  if ($("remote-switch").dataset.state !== "pending") $("remote-switch").setAttribute("aria-checked", String(r.enabled));
+  // The address stays as typed until it is saved.
+  if (document.activeElement !== $("remote-server") && !remoteDirty) $("remote-server").value = r.server || "";
+  $("remote-connect").classList.toggle("hidden", !r.enabled || session);
+  $("remote-end").classList.toggle("hidden", !session);
+  $("d-remote").textContent = session ? "зараз підключено" : r.enabled ? "дозволено" : "вимкнено";
+}
+
+let remoteDirty = false;
+$("remote-server").addEventListener("input", () => { remoteDirty = true; });
+
+async function saveRemote(enabled) {
+  await api("/api/remote", {enabled: enabled ? "1" : "", server: $("remote-server").value.trim()});
+  remoteDirty = false;
+  await refreshState();
+}
+
+/* OperatorAsyncSwitch: pending until the device answers, then moves and flashes. */
+$("remote-switch").onclick = async () => {
+  const node = $("remote-switch");
+  const target = node.getAttribute("aria-checked") !== "true";
+  say("remote-msg", "");
+  node.dataset.state = "pending";
+  try {
+    await saveRemote(target);
+    node.setAttribute("aria-checked", String(target));
+    node.dataset.state = "ok";
+  } catch (e) {
+    node.dataset.state = "err";
+    say("remote-msg", e.message, "err");
+  }
+  setTimeout(() => { if (node.dataset.state !== "pending") delete node.dataset.state; }, 1300);
+};
+
+actionButton($("remote-save"), async () => {
+  say("remote-msg", "");
+  await saveRemote($("remote-switch").getAttribute("aria-checked") === "true");
+  say("remote-msg", "Адресу збережено.", "ok");
+}, {msg: "remote-msg"});
+
+actionButton($("remote-connect"), async () => {
+  say("remote-msg", "");
+  await api("/api/remote/connect", {});
+  say("remote-msg", "Сесію відкрито: власник сервера тепер може підключитися.", "ok");
+  await refreshState();
+}, {msg: "remote-msg"});
+
+actionButton($("remote-end"), async () => {
+  say("remote-msg", "");
+  await api("/api/remote/end", {});
+  say("remote-msg", "Сесію завершено.", "ok");
+  await refreshState();
+}, {msg: "remote-msg"});
 
 /* ---------- access ---------- */
 actionButton($("login-btn"), async () => {
