@@ -2,7 +2,9 @@
 //! round: once an hour it checks in, and when the server (or "connect now" on
 //! the panel) asks for it, it opens a session: it long-polls the server for
 //! requests to its own panel, runs each against its local web server and
-//! posts the answer back. Everything here is plain HTTPS.
+//! posts the answer back. While the owner waits for the device (a flag on
+//! the server) it checks in every two minutes instead. Everything here is
+//! plain HTTPS.
 
 use std::fmt;
 
@@ -13,6 +15,9 @@ use crate::form;
 pub const CHECKIN_EVERY_MS: u64 = 3_600_000;
 /// The first check-in after start-up, so a fresh install shows up soon.
 pub const FIRST_CHECKIN_MS: u64 = 60_000;
+/// Check-ins while the owner waits for this device (the "waiting" flag on
+/// the server), so a missed session is soon offered again.
+pub const SOON_CHECKIN_MS: u64 = 2 * 60_000;
 /// A session nobody uses closes after this.
 pub const SESSION_IDLE_MS: u64 = 15 * 60_000;
 /// Request bodies (a firmware image is the largest) and answers.
@@ -141,21 +146,29 @@ pub fn checkin_form(name: &str, version: &str) -> String {
 pub enum CheckIn {
     Idle,
     Session,
+    /// The owner is waiting for this device: check in again soon.
+    Soon,
 }
 
 pub fn checkin_answer(status: u16, body: &str) -> Result<CheckIn, RemoteError> {
     #[derive(Deserialize)]
     struct Answer {
         session: bool,
+        #[serde(default)]
+        soon: bool,
     }
     if status != 200 {
         return Err(RemoteError::Refused(status));
     }
     let answer: Answer = serde_json::from_str(body).map_err(|_| RemoteError::BadAnswer)?;
-    Ok(if answer.session { CheckIn::Session } else { CheckIn::Idle })
+    Ok(match (answer.session, answer.soon) {
+        (true, _) => CheckIn::Session,
+        (false, true) => CheckIn::Soon,
+        (false, false) => CheckIn::Idle,
+    })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Method {
     #[serde(rename = "GET")]
     Get,
@@ -164,7 +177,7 @@ pub enum Method {
 }
 
 /// A request to the panel, relayed by the server.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunnelRequest {
     /// Names the request in the body and reply calls.
     pub rid: String,
@@ -277,7 +290,8 @@ impl Schedule {
         }
         self.phase = match answer {
             Ok(CheckIn::Session) => Phase::Session { last_ms: now_ms },
-            _ => Phase::Waiting { at_ms: now_ms + CHECKIN_EVERY_MS },
+            Ok(CheckIn::Soon) => Phase::Waiting { at_ms: now_ms + SOON_CHECKIN_MS },
+            Ok(CheckIn::Idle) | Err(_) => Phase::Waiting { at_ms: now_ms + CHECKIN_EVERY_MS },
         };
     }
 
@@ -370,6 +384,8 @@ mod tests {
     fn checkin_answers() {
         assert_eq!(checkin_answer(200, r#"{"session":false}"#), Ok(CheckIn::Idle));
         assert_eq!(checkin_answer(200, r#"{"session":true}"#), Ok(CheckIn::Session));
+        assert_eq!(checkin_answer(200, r#"{"session":false,"soon":true}"#), Ok(CheckIn::Soon));
+        assert_eq!(checkin_answer(200, r#"{"session":true,"soon":true}"#), Ok(CheckIn::Session));
         assert_eq!(checkin_answer(403, "no"), Err(RemoteError::Refused(403)));
         assert_eq!(checkin_answer(200, "<html>"), Err(RemoteError::BadAnswer));
     }
@@ -435,6 +451,15 @@ mod tests {
         assert_eq!(schedule.due(MIN + HOUR + 1), Due::Sleep { ms: HOUR - 1 });
         schedule.checked_in(Ok(CheckIn::Session), 2 * HOUR);
         assert_eq!(schedule.due(2 * HOUR + 1), Due::Poll);
+    }
+
+    #[test]
+    fn a_waiting_owner_brings_check_ins_closer() {
+        let mut schedule = Schedule::new(true, 0);
+        schedule.checked_in(Ok(CheckIn::Soon), MIN);
+        assert_eq!(schedule.due(MIN), Due::Sleep { ms: SOON_CHECKIN_MS });
+        schedule.checked_in(Ok(CheckIn::Idle), MIN + SOON_CHECKIN_MS);
+        assert_eq!(schedule.due(MIN + SOON_CHECKIN_MS), Due::Sleep { ms: HOUR });
     }
 
     #[test]
