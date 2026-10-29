@@ -72,6 +72,9 @@ impl Server {
     }
 }
 
+/// The remote support server a new device calls.
+pub const DEFAULT_SERVER: &str = "https://iot.pavver.net";
+
 /// What the panel saves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteSettings {
@@ -80,6 +83,13 @@ pub struct RemoteSettings {
 }
 
 impl RemoteSettings {
+    /// Before the client saves anything: on, calling `built_in` (the address
+    /// given at build time) or else [`DEFAULT_SERVER`]. The client can switch it off.
+    pub fn factory(built_in: Option<&str>) -> Self {
+        let server = Server::parse(built_in.unwrap_or(DEFAULT_SERVER)).ok();
+        Self { enabled: server.is_some(), server }
+    }
+
     /// Reads `enabled` (`1` when on) and `server`; switching on needs a server.
     pub fn from_form(body: &str) -> Result<Self, RemoteError> {
         let fields = form::parse(body);
@@ -338,6 +348,17 @@ mod tests {
 
     const MIN: u64 = 60_000;
     const HOUR: u64 = 60 * MIN;
+
+    #[test]
+    fn a_new_device_has_remote_support_on_with_our_server() {
+        let fresh = RemoteSettings::factory(None);
+        assert!(fresh.enabled);
+        assert_eq!(fresh.active_server().unwrap().as_str(), "https://iot.pavver.net");
+        let other = RemoteSettings::factory(Some("https://svitlo.example.com"));
+        assert_eq!(other.active_server().unwrap().as_str(), "https://svitlo.example.com");
+        // A bad address given at build time leaves it off rather than calling somewhere unexpected.
+        assert_eq!(RemoteSettings::factory(Some("http://plain.example.com")), RemoteSettings { enabled: false, server: None });
+    }
 
     #[test]
     fn server_must_be_https() {

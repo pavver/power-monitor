@@ -8,7 +8,7 @@ use std::sync::{Mutex, RwLock};
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
-use power_core::remote::{Identity, RemoteSettings, Server};
+use power_core::remote::{Identity, RemoteSettings};
 use power_core::settings::{Battery, Bot, Messages, WifiCredentials};
 
 const NAMESPACE: &str = "monitor";
@@ -21,8 +21,8 @@ const QUICK_BOOTS: &str = "quick_boots";
 const BATTERY: &str = "bms";
 const REMOTE: &str = "remote";
 const IDENTITY: &str = "remote_id";
-/// Built in with `REMOTE_SERVER=https://… cargo build`: remote support then
-/// starts switched on, pointed there; the client can switch it off.
+/// `REMOTE_SERVER=https://… cargo build` points new devices at another
+/// server than `remote::DEFAULT_SERVER`.
 const BUILT_IN_SERVER: Option<&str> = option_env!("REMOTE_SERVER");
 
 pub struct Settings {
@@ -187,6 +187,5 @@ fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, 
 }
 
 fn built_in_remote() -> RemoteSettings {
-    let server = BUILT_IN_SERVER.and_then(|text| Server::parse(text).ok());
-    RemoteSettings { enabled: server.is_some(), server }
+    RemoteSettings::factory(BUILT_IN_SERVER)
 }
