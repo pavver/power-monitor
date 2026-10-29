@@ -1,10 +1,11 @@
 //! Live values shown on the page. Each field has exactly one writer thread:
 //! power — sensor; link, setup_ap, networks — network; telegram, pending — notifier.
+//! The firmware description is fixed at start-up.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use power_core::api::{self, Link, Network, Power};
+use power_core::api::{self, Firmware, Link, Network, Power};
 use power_core::power::PowerState;
 
 use crate::settings::Settings;
@@ -24,9 +25,14 @@ pub struct Status {
     networks: Mutex<Vec<Network>>,
     telegram: Mutex<String>,
     pending: AtomicUsize,
+    firmware: Firmware,
 }
 
 impl Status {
+    pub fn new(firmware: Firmware) -> Self {
+        Self { firmware, ..Default::default() }
+    }
+
     pub fn set_power(&self, state: PowerState, since_ms: u64) {
         *self.power.lock().unwrap() = Some((state, since_ms));
     }
@@ -79,6 +85,7 @@ impl Status {
             pending: self.pending.load(Ordering::Relaxed),
             chat_id: bot.map(|b| b.chat_id()),
             messages: &messages,
+            firmware: &self.firmware,
         };
         serde_json::to_string(&state).unwrap_or_default()
     }

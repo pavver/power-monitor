@@ -6,6 +6,7 @@
 
 mod network;
 mod notifier;
+mod ota;
 mod sensor;
 mod settings;
 mod status;
@@ -30,7 +31,7 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
     let settings = Arc::new(Settings::load(nvs.clone())?);
-    let status = Arc::new(Status::default());
+    let status = Arc::new(Status::new(ota::running()));
     status.set_telegram(if settings.bot().is_some() { "очікує подій" } else { "бот не налаштовано" });
 
     let (events_tx, events_rx) = mpsc::channel();
@@ -38,6 +39,8 @@ fn main() -> anyhow::Result<()> {
     notifier::spawn(events_rx, settings.clone(), status.clone())?;
     let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone())?;
     let _server = web::start(settings, status, network)?;
+    // Up far enough to take another update: keep this image.
+    ota::confirm_running();
 
     // The work happens in other threads; this one keeps the server alive.
     loop {

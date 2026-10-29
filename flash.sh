@@ -5,19 +5,22 @@
 #   ./flash.sh -p /dev/ttyUSB0 use this serial port
 #   ./flash.sh --reset         also erase saved settings (Wi-Fi, bot, texts)
 #   ./flash.sh --no-monitor    do not open the monitor after flashing
+#   ./flash.sh --image         only build power-monitor.bin for the web OTA update
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PORT_ARGS=()
 ERASE="otadata" # boot the freshly flashed ota_0 even after an OTA update
 MONITOR=(--monitor)
+IMAGE_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -p|--port) PORT_ARGS=(--port "$2"); shift 2 ;;
     --reset) ERASE="otadata,nvs"; shift ;;
     --no-monitor) MONITOR=(); shift ;;
-    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+    --image) IMAGE_ONLY=1; shift ;;
+    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
     *) echo "Невідомий параметр: $1 (див. --help)" >&2; exit 1 ;;
   esac
 done
@@ -39,10 +42,20 @@ echo "==> Тести логіки (power-core)"
 echo "==> Збірка прошивки"
 (cd "$ROOT/firmware" && cargo build --release)
 
-echo "==> Прошивка (стерти: $ERASE)"
 cd "$ROOT/firmware"
+ELF=target/xtensa-esp32-espidf/release/power-monitor
+
+if [[ $IMAGE_ONLY == 1 ]]; then
+  espflash save-image --chip esp32 "$ELF" "$ROOT/power-monitor.bin"
+  echo "==> Готово: $ROOT/power-monitor.bin — завантажте його на панелі пристрою, розділ «Прошивка»."
+  exit 0
+fi
+
+echo "==> Прошивка через USB (стерти: $ERASE)"
+# The bootloader built here has OTA rollback enabled; espflash's own does not.
 espflash flash "${PORT_ARGS[@]}" \
+  --bootloader target/xtensa-esp32-espidf/release/bootloader.bin \
   --partition-table partitions.csv \
   --erase-parts "$ERASE" \
   "${MONITOR[@]}" \
-  target/xtensa-esp32-espidf/release/power-monitor
+  "$ELF"

@@ -3,6 +3,8 @@
 
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 use embedded_svc::http::{Headers, Method};
 use embedded_svc::io::{Read, Write};
@@ -13,6 +15,7 @@ use power_core::settings::{Bot, BotToken, Messages, WifiCredentials};
 use serde::Serialize;
 
 use crate::network::Command;
+use crate::ota;
 use crate::settings::Settings;
 use crate::status::Status;
 use crate::telegram;
@@ -86,6 +89,15 @@ pub fn start(
         json(&"sent")
     })?;
 
+    server.fn_handler::<anyhow::Error, _>("/api/ota", Method::Post, |mut req| {
+        let size = req.content_len().unwrap_or(0) as usize;
+        let reply = ota::update(&mut req, size).and_then(|info| {
+            restart_soon();
+            json(&serde_json::json!({ "version": info.version, "built": info.built }))
+        });
+        respond(req, reply)
+    })?;
+
     server.fn_handler::<anyhow::Error, _>("/*", Method::Get, |req| {
         req.into_response(302, None, &[("Location", "/")])?;
         Ok(())
@@ -139,4 +151,12 @@ fn read_body(req: &mut Req) -> Result<String, String> {
     let mut body = vec![0; len];
     req.read_exact(&mut body).map_err(|e| format!("{e:?}"))?;
     Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// Lets the response reach the browser before the reboot into the new image.
+fn restart_soon() {
+    thread::spawn(|| {
+        thread::sleep(Duration::from_secs(2));
+        esp_idf_svc::hal::reset::restart();
+    });
 }

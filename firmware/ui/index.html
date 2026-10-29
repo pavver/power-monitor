@@ -105,6 +105,8 @@ textarea:focus{border-color:var(--border-strong)}
 .progress{display:flex;gap:calc(var(--du)*1);flex:none}
 .progress i{width:calc(var(--du)*5);height:calc(var(--du)*1);background:var(--off-border)}
 .progress i.lit{background:var(--accent)}
+.meter{height:calc(var(--du)*2);margin-top:calc(var(--du)*3);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--border)}
+.meter i{display:block;height:100%;width:0;background:var(--accent)}
 .hidden{display:none!important}
 </style>
 </head>
@@ -204,6 +206,21 @@ textarea:focus{border-color:var(--border-strong)}
     <div class="actions"><button class="btn primary" id="messages-btn">Зберегти</button></div>
     <div class="msg" id="messages-msg"></div>
   </form>
+  <div class="card" id="ota-card">
+    <h2>Прошивка</h2>
+    <div class="list" style="margin-bottom:calc(var(--du)*3)">
+      <div class="row"><span class="k">Версія</span><span class="v" id="fw-version"></span></div>
+      <div class="row"><span class="k">Зібрана</span><span class="v" id="fw-built"></span></div>
+      <div class="row"><span class="k">Слот</span><span class="v" id="fw-slot"></span></div>
+    </div>
+    <p class="small muted">Файл <code>power-monitor.bin</code> створює <code>./flash.sh --image</code>.
+      Після запису пристрій перезапуститься з новою прошивкою. Якщо вона не запуститься, повернеться попередня.</p>
+    <label for="ota-file">Файл прошивки (.bin)</label>
+    <div class="field"><input id="ota-file" type="file" accept=".bin,application/octet-stream" style="padding-top:calc(var(--du)*2.5)"></div>
+    <div class="meter hidden" id="ota-meter"><i id="ota-bar"></i></div>
+    <div class="actions"><button class="btn primary" type="button" id="ota-btn" disabled>Оновити</button></div>
+    <div class="msg" id="ota-msg"></div>
+  </div>
 </section>
 
 </main>
@@ -315,6 +332,9 @@ function renderDashboard() {
   $("d-chat").textContent = state.chat_id === null ? "—" : state.chat_id;
   $("d-pending").textContent = state.pending;
   if (!messagesFilled) fillMessages(state.messages);
+  $("fw-version").textContent = state.firmware.version || "—";
+  $("fw-built").textContent = state.firmware.built || "—";
+  $("fw-slot").textContent = state.firmware.slot || "—";
 }
 
 /* ---------- Wi-Fi ---------- */
@@ -426,6 +446,42 @@ $("messages-form").onsubmit = e => {
     await api("/api/messages", fields);
     say("messages-msg", "Збережено.", "ok");
   }).catch(err => say("messages-msg", err.message, "err"));
+};
+
+/* ---------- firmware update ---------- */
+$("ota-file").onchange = () => { $("ota-btn").disabled = !$("ota-file").files.length; say("ota-msg", ""); };
+
+/* XHR rather than fetch: it reports upload progress. */
+function upload(file) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/ota");
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round(100 * e.loaded / e.total);
+      $("ota-bar").style.width = pct + "%";
+      say("ota-msg", pct < 100 ? "Завантаження… " + pct + "%" : "Перевірка й запис…", "wait");
+    };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch (e) {}
+      xhr.status === 200 ? resolve(data) : reject(new Error(data.error || "Помилка " + xhr.status));
+    };
+    xhr.onerror = () => reject(new Error("Зв'язок із пристроєм перервався"));
+    xhr.send(file);
+  });
+}
+
+$("ota-btn").onclick = () => {
+  const file = $("ota-file").files[0];
+  $("ota-meter").classList.remove("hidden");
+  $("ota-bar").style.width = "0";
+  act($("ota-btn"), async () => {
+    const info = await upload(file);
+    say("ota-msg", "Записано " + info.version + " (" + info.built + "). Перезапуск…", "ok");
+    setTimeout(() => location.reload(), 12000);
+  }).catch(err => say("ota-msg", err.message, "err"));
 };
 
 refreshState();
