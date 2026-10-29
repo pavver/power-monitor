@@ -1,13 +1,13 @@
 //! Saved settings: NVS plus an in-memory copy. Each part has one writer —
 //! Wi-Fi and last address: the network thread; bot, messages and the page
-//! password: the web server.
+//! password, BMS: the web server.
 
 use std::sync::{Mutex, RwLock};
 
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
-use power_core::settings::{Bot, Messages, WifiCredentials};
+use power_core::settings::{Battery, Bot, Messages, WifiCredentials};
 
 const NAMESPACE: &str = "monitor";
 const WIFI: &str = "wifi";
@@ -16,6 +16,7 @@ const MESSAGES: &str = "messages";
 const PASSWORD: &str = "password";
 const LAST_IP: &str = "last_ip";
 const QUICK_BOOTS: &str = "quick_boots";
+const BATTERY: &str = "bms";
 
 pub struct Settings {
     nvs: Mutex<EspNvs<NvsDefault>>,
@@ -24,6 +25,7 @@ pub struct Settings {
     messages: RwLock<Messages>,
     password: RwLock<Option<PasswordHash>>,
     last_ip: RwLock<Option<String>>,
+    battery: RwLock<Option<Battery>>,
 }
 
 impl Settings {
@@ -35,6 +37,7 @@ impl Settings {
         let messages = read(&nvs, MESSAGES, Messages::from_form).unwrap_or_default();
         let password = read(&nvs, PASSWORD, |s| PasswordHash::from_stored(s).ok_or(()));
         let last_ip = read(&nvs, LAST_IP, |s| Ok::<_, ()>(s.to_string()));
+        let battery = read(&nvs, BATTERY, Battery::from_form);
         Ok(Self {
             nvs: Mutex::new(nvs),
             wifi: RwLock::new(wifi),
@@ -42,6 +45,7 @@ impl Settings {
             messages: RwLock::new(messages),
             password: RwLock::new(password),
             last_ip: RwLock::new(last_ip),
+            battery: RwLock::new(battery),
         })
     }
 
@@ -103,6 +107,22 @@ impl Settings {
     pub fn save_last_ip(&self, ip: &str) -> anyhow::Result<()> {
         self.write(LAST_IP, ip)?;
         *self.last_ip.write().unwrap() = Some(ip.to_string());
+        Ok(())
+    }
+
+    pub fn battery(&self) -> Option<Battery> {
+        self.battery.read().unwrap().clone()
+    }
+
+    /// `None` stops reading any BMS.
+    pub fn save_battery(&self, battery: Option<Battery>) -> anyhow::Result<()> {
+        match &battery {
+            Some(battery) => self.write(BATTERY, &battery.to_form())?,
+            None => {
+                self.nvs.lock().unwrap().remove(BATTERY)?;
+            }
+        }
+        *self.battery.write().unwrap() = battery;
         Ok(())
     }
 

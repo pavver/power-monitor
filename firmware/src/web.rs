@@ -15,9 +15,10 @@ use power_core::auth::{expired_cookie, NewPassword, PasswordHash, Sessions};
 use power_core::form;
 use power_core::message::test_text;
 use power_core::portal::redirect_target;
-use power_core::settings::{Bot, BotToken, Messages, WifiCredentials};
+use power_core::settings::{Battery, Bot, BotToken, Messages, WifiCredentials};
 use serde::Serialize;
 
+use crate::bms::Bms;
 use crate::network::Command;
 use crate::ota;
 use crate::settings::Settings;
@@ -64,12 +65,13 @@ pub fn start(
     settings: Arc<Settings>,
     status: Arc<Status>,
     network: Sender<Command>,
+    bms: Bms,
 ) -> anyhow::Result<EspHttpServer<'static>> {
     let mut server = EspHttpServer::new(&Configuration {
         uri_match_wildcard: true,
         // Bot setup runs TLS handshakes inside handlers.
         stack_size: 14 * 1024,
-        max_uri_handlers: 20,
+        max_uri_handlers: 24,
         // Phones open several connections at once while probing the portal.
         max_open_sockets: 7,
         ..Default::default()
@@ -155,6 +157,32 @@ pub fn start(
         let bot = s.bot().ok_or("Спершу налаштуйте бота.")?;
         telegram::send(&bot, &test_text(s.messages().device_name()))?;
         json(&"sent")
+    })?;
+
+    // Asking for the values is what keeps the BMS link up: the battery
+    // screen polls this while it is open.
+    let b = bms.clone();
+    get(&mut server, &auth, "/api/bms", move || json(&b.view()))?;
+
+    let b = bms.clone();
+    post(&mut server, &auth, "/api/bms/scan", move |_| {
+        b.scan();
+        json(&"scanning")
+    })?;
+
+    let (s, b) = (settings.clone(), bms.clone());
+    post(&mut server, &auth, "/api/bms", move |body| {
+        let battery = Battery::from_form(body).map_err(|e| e.to_string())?;
+        s.save_battery(Some(battery)).map_err(|e| e.to_string())?;
+        b.forget();
+        json(&"saved")
+    })?;
+
+    let s = settings.clone();
+    post(&mut server, &auth, "/api/bms/forget", move |_| {
+        s.save_battery(None).map_err(|e| e.to_string())?;
+        bms.forget();
+        json(&"forgotten")
     })?;
 
     let a = auth.clone();

@@ -12,3 +12,13 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # Web server (7 connections + 2 internal), captive DNS and Telegram TLS
 # together exceed the default of 10 sockets.
 CONFIG_LWIP_MAX_SOCKETS=16
+# Bluetooth LE to read a JK BMS: NimBLE (lighter than Bluedroid), as a
+# central with one connection; the classic Bluetooth controller is left out.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLE_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1

@@ -4,6 +4,7 @@
 //! with a captive portal that walks through Wi-Fi and bot setup; afterwards
 //! the same page is a dashboard.
 
+mod bms;
 mod network;
 mod notifier;
 mod ota;
@@ -39,11 +40,12 @@ fn main() -> anyhow::Result<()> {
     let status = Arc::new(Status::new(ota::running()));
     status.set_telegram(if settings.bot().is_some() { "очікує подій" } else { "бот не налаштовано" });
 
+    let bms = bms::Bms::start(settings.clone())?;
     let (notices, inbox) = mpsc::channel();
     sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone())?;
-    notifier::spawn(inbox, settings.clone(), status.clone())?;
+    notifier::spawn(inbox, settings.clone(), status.clone(), bms.clone())?;
     let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone(), notices)?;
-    let _server = web::start(settings, status, network)?;
+    let _server = web::start(settings, status, network, bms)?;
     // Up far enough to take another update: keep this image.
     ota::confirm_running();
 
