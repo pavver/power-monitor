@@ -25,7 +25,8 @@ use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sys::{
     esp, esp_netif_dhcp_option_id_t_ESP_NETIF_CAPTIVEPORTAL_URI, esp_netif_dhcp_option_mode_t_ESP_NETIF_OP_SET,
     esp_netif_dhcps_option, esp_netif_dhcps_start, esp_netif_dhcps_stop, esp_wifi_get_config, esp_wifi_set_config,
-    wifi_auth_mode_t_WIFI_AUTH_OPEN, wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK, wifi_config_t, wifi_interface_t_WIFI_IF_STA,
+    wifi_auth_mode_t_WIFI_AUTH_OPEN, wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK, wifi_config_t, wifi_interface_t_WIFI_IF_AP,
+    wifi_interface_t_WIFI_IF_STA,
     ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED,
 };
 use esp_idf_svc::wifi::{
@@ -234,12 +235,30 @@ impl Radio {
         self.wifi.stop()?;
         self.setup_ap = true;
         self.wifi.set_configuration(&Configuration::Mixed(station, setup_ap(channel)))?;
+        announce_channel_switches()?;
         self.wifi.start()?;
         offer_portal_uri(self.wifi.wifi().ap_netif())?;
         log::info!("setup access point {SETUP_SSID} on channel {channel} at {}", portal_url());
         self.status.set_setup_ap(SETUP_SSID);
         spawn_dns(SETUP_IP)
     }
+}
+
+/// When the station joins a network on another channel, the access point has
+/// to follow it. With a Channel Switch Announcement phones move along instead
+/// of dropping off (and closing the portal). esp-idf-svc leaves the count at
+/// zero, so the IDF defaults are restored before the access point starts.
+fn announce_channel_switches() -> anyhow::Result<()> {
+    let mut conf = wifi_config_t::default();
+    // SAFETY: the driver is initialised and stopped; the access point view of
+    // the union is the one read and written for WIFI_IF_AP.
+    unsafe {
+        esp!(esp_wifi_get_config(wifi_interface_t_WIFI_IF_AP, &mut conf))?;
+        conf.ap.csa_count = 3;
+        conf.ap.dtim_period = 1;
+        esp!(esp_wifi_set_config(wifi_interface_t_WIFI_IF_AP, &mut conf))?;
+    }
+    Ok(())
 }
 
 /// The setup network's interface. Its DHCP server must name the device itself

@@ -10,6 +10,7 @@ use std::time::Duration;
 use embedded_svc::http::{Headers, Method};
 use embedded_svc::io::{Read, Write};
 use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer, Request};
+use power_core::api::Link;
 use power_core::auth::{expired_cookie, NewPassword, PasswordHash, Sessions};
 use power_core::form;
 use power_core::message::test_text;
@@ -99,8 +100,12 @@ pub fn start(
         json(&st.networks())
     })?;
 
+    let st = status.clone();
     post(&mut server, &auth, "/api/wifi", move |body| {
         let credentials = WifiCredentials::from_form(body).map_err(|e| e.to_string())?;
+        // Set before replying, so the page never mistakes the previous
+        // attempt's result for this one's.
+        st.set_link(Link::Connecting { ssid: credentials.ssid().to_string() });
         network.send(Command::Connect(credentials)).map_err(|e| e.to_string())?;
         json(&"connecting")
     })?;
