@@ -43,6 +43,11 @@ ESP32 має живитися від джерела, яке не зникає р
 Скрипт сам підключає `~/export-esp.sh` і `~/.cargo/bin`. Тести логіки окремо:
 `cd power-core && cargo test`.
 
+Шрифт сторінки — Cascadia Code, урізаний до латиниці, кирилиці, цифр і
+розділових знаків (≈26 КБ, у прошивці). За ліцензією OFL змінену версію
+перейменовано на «Operator Mono». Перезібрати після зміни тексту сторінки:
+`python3 firmware/ui/make-font.py` (скрипт зупиниться, якщо на сторінці є символ поза шрифтом).
+
 Сторінку налаштування можна перевірити в headless Chromium (Playwright) на
 макеті пристрою — сценарії неправильного й правильного пароля Wi-Fi:
 `PLAYWRIGHT_CORE=/шлях/до/playwright-core node firmware/ui/ui-check.js firmware/ui/index.html /tmp/shots`.

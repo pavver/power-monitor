@@ -20,10 +20,12 @@
   --text:#F0F6FC;--text-2:#8B949E;--text-off:#484F58;--off-surface:#10141A;--off-border:#1F252E;
   --badge-online:#3DDC84;--badge-offline:#000;--badge-alarm:#FF5C5C;--badge-activity:#3DDC84;--badge-border:#3A4656;
 }}
+/* Cascadia Code subset, renamed per its OFL licence (ui/make-font.py). */
+@font-face{font-family:"Operator Mono";src:url(/operator-mono.woff) format("woff");font-weight:400 700;font-display:swap}
 *{box-sizing:border-box;border-radius:0;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--background);color:var(--text);
-  font:400 14px/18px "Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  font:400 14px/18px "Operator Mono","Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 button,input,textarea{font-family:inherit}
 .ic{width:calc(var(--du)*4);height:calc(var(--du)*4);fill:currentColor;flex:none;display:block}
 

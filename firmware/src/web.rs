@@ -25,6 +25,8 @@ use crate::status::Status;
 use crate::telegram;
 
 const PAGE: &str = include_str!("../ui/index.html");
+/// Cascadia Code cut down to the page's characters (see ui/make-font.py).
+const FONT: &[u8] = include_bytes!("../ui/operator-mono.woff");
 const MAX_BODY: usize = 4096;
 const MAX_SESSIONS: usize = 8;
 /// Slows down password guessing.
@@ -76,6 +78,12 @@ pub fn start(
     server.fn_handler::<anyhow::Error, _>("/", Method::Get, |req| {
         req.into_response(200, None, &[("Content-Type", "text/html; charset=utf-8")])?
             .write_all(PAGE.as_bytes())?;
+        Ok(())
+    })?;
+
+    server.fn_handler::<anyhow::Error, _>("/operator-mono.woff", Method::Get, |req| {
+        let headers = [("Content-Type", "font/woff"), ("Cache-Control", "public, max-age=31536000, immutable")];
+        req.into_response(200, None, &headers)?.write_all(FONT)?;
         Ok(())
     })?;
 

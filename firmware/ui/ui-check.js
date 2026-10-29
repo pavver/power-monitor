@@ -35,6 +35,7 @@ async function run(scenario) {
     const url = new URL(route.request().url());
     const json = body => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
     if (url.pathname === "/") return route.fulfill({ status: 200, contentType: "text/html", body: PAGE });
+    if (url.pathname === "/operator-mono.woff") return route.fulfill({ status: 200, contentType: "font/woff", body: fs.readFileSync(path.join(path.dirname(process.argv[2]), "operator-mono.woff")) });
     if (url.pathname === "/api/state") return json(dev.state());
     if (url.pathname === "/api/networks") return json([{ ssid: "Home", rssi: -50, secure: true }, { ssid: "Cafe", rssi: -80, secure: false }]);
     if (url.pathname === "/api/wifi") {
@@ -68,13 +69,14 @@ async function run(scenario) {
   await page.waitForTimeout(600); await sample("+0.6s");
   await page.waitForTimeout(1200); await sample("+1.8s");
   const view = await page.$eval("section.on", s => s.id);
+  const font = await page.evaluate(() => document.fonts.check('14px "Operator Mono"') && [...document.fonts].some(f => f.family.includes("Operator Mono") && f.status === "loaded"));
   const msg = await page.$eval("#join-msg", m => m.textContent);
   await page.screenshot({ path: OUT + "/" + scenario.name + "-3-after.png" });
   await browser.close();
   const expected = scenario.expect;
-  const ok = errors.length === 0 && view === expected.view && states.join() === expected.states.join();
+  const ok = errors.length === 0 && font && view === expected.view && states.join() === expected.states.join();
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + scenario.name, JSON.stringify({ states, view, msg, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + scenario.name, JSON.stringify({ states, view, font, msg, errors }));
 }
 
 // The button waits for the device's verdict, not for the request: it stays
