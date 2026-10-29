@@ -15,11 +15,14 @@ use power_core::auth::{expired_cookie, NewPassword, PasswordHash, Sessions};
 use power_core::form;
 use power_core::message::test_text;
 use power_core::portal::redirect_target;
+use power_core::remote::RemoteSettings;
 use power_core::settings::{Battery, Bot, BotToken, Messages, WifiCredentials};
 use serde::Serialize;
 
 use crate::bms::Bms;
+use crate::random;
 use crate::network::Command;
+use crate::remote::Remote;
 use crate::ota;
 use crate::settings::Settings;
 use crate::status::Status;
@@ -66,12 +69,13 @@ pub fn start(
     status: Arc<Status>,
     network: Sender<Command>,
     bms: Bms,
+    remote: Remote,
 ) -> anyhow::Result<EspHttpServer<'static>> {
     let mut server = EspHttpServer::new(&Configuration {
         uri_match_wildcard: true,
         // Bot setup runs TLS handshakes inside handlers.
         stack_size: 14 * 1024,
-        max_uri_handlers: 24,
+        max_uri_handlers: 28,
         // Phones open several connections at once while probing the portal.
         max_open_sockets: 7,
         ..Default::default()
@@ -102,8 +106,12 @@ pub fn start(
         respond(req, Ok(Answer { body: json_text(&"bye"), cookie: Some(expired_cookie()) }))
     })?;
 
-    let (s, st) = (settings.clone(), status.clone());
-    get(&mut server, &auth, "/api/state", move || plain(st.state_json(&s)))?;
+    let (s, st, r) = (settings.clone(), status.clone(), remote.clone());
+    get(&mut server, &auth, "/api/state", move || {
+        let mut state: serde_json::Value = serde_json::from_str(&st.state_json(&s)).unwrap_or_default();
+        state["remote"] = r.view();
+        json(&state)
+    })?;
 
     let (st, net) = (status.clone(), network.clone());
     get(&mut server, &auth, "/api/networks", move || {
@@ -183,6 +191,25 @@ pub fn start(
         s.save_battery(None).map_err(|e| e.to_string())?;
         bms.forget();
         json(&"forgotten")
+    })?;
+
+    let (s, r) = (settings.clone(), remote.clone());
+    post(&mut server, &auth, "/api/remote", move |body| {
+        let settings = RemoteSettings::from_form(body).map_err(|e| e.to_string())?;
+        s.save_remote(settings).map_err(|e| e.to_string())?;
+        r.reconfigure();
+        json(&"saved")
+    })?;
+
+    let r = remote.clone();
+    post(&mut server, &auth, "/api/remote/connect", move |_| {
+        r.connect_now();
+        json(&"connecting")
+    })?;
+
+    post(&mut server, &auth, "/api/remote/end", move |_| {
+        remote.end();
+        json(&"ended")
     })?;
 
     let a = auth.clone();
@@ -316,14 +343,6 @@ fn read_body(req: &mut Req) -> Result<String, String> {
     let mut body = vec![0; len];
     req.read_exact(&mut body).map_err(|e| format!("{e:?}"))?;
     Ok(String::from_utf8_lossy(&body).into_owned())
-}
-
-/// Hardware random bytes (the RF subsystem is running, so they are true random).
-fn random() -> [u8; 16] {
-    let mut bytes = [0u8; 16];
-    // SAFETY: writes exactly `bytes.len()` bytes into the buffer.
-    unsafe { esp_idf_svc::sys::esp_fill_random(bytes.as_mut_ptr().cast(), bytes.len()) };
-    bytes
 }
 
 /// Lets the response reach the browser before the reboot.

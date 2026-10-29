@@ -8,6 +8,7 @@ mod bms;
 mod network;
 mod notifier;
 mod ota;
+mod remote;
 mod sensor;
 mod settings;
 mod status;
@@ -45,7 +46,8 @@ fn main() -> anyhow::Result<()> {
     sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone())?;
     notifier::spawn(inbox, settings.clone(), status.clone(), bms.clone())?;
     let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone(), notices)?;
-    let _server = web::start(settings, status, network, bms)?;
+    let remote = remote::Remote::start(settings.clone(), status.clone())?;
+    let _server = web::start(settings, status, network, bms, remote)?;
     // Up far enough to take another update: keep this image.
     ota::confirm_running();
 
@@ -53,6 +55,14 @@ fn main() -> anyhow::Result<()> {
     loop {
         thread::park();
     }
+}
+
+/// Hardware random bytes; true random once the radio is running.
+pub fn random<const N: usize>() -> [u8; N] {
+    let mut bytes = [0u8; N];
+    // SAFETY: writes exactly `bytes.len()` bytes into the buffer.
+    unsafe { esp_idf_svc::sys::esp_fill_random(bytes.as_mut_ptr().cast(), bytes.len()) };
+    bytes
 }
 
 /// Five power cycles in a row, each within 10 s of start-up, wipe the

@@ -1,12 +1,14 @@
 //! Saved settings: NVS plus an in-memory copy. Each part has one writer —
 //! Wi-Fi and last address: the network thread; bot, messages and the page
-//! password, BMS: the web server.
+//! password, BMS, remote support: the web server; the remote identity: the
+//! remote thread, once.
 
 use std::sync::{Mutex, RwLock};
 
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
+use power_core::remote::{Identity, RemoteSettings, Server};
 use power_core::settings::{Battery, Bot, Messages, WifiCredentials};
 
 const NAMESPACE: &str = "monitor";
@@ -17,6 +19,11 @@ const PASSWORD: &str = "password";
 const LAST_IP: &str = "last_ip";
 const QUICK_BOOTS: &str = "quick_boots";
 const BATTERY: &str = "bms";
+const REMOTE: &str = "remote";
+const IDENTITY: &str = "remote_id";
+/// Built in with `REMOTE_SERVER=https://… cargo build`: remote support then
+/// starts switched on, pointed there; the client can switch it off.
+const BUILT_IN_SERVER: Option<&str> = option_env!("REMOTE_SERVER");
 
 pub struct Settings {
     nvs: Mutex<EspNvs<NvsDefault>>,
@@ -26,6 +33,7 @@ pub struct Settings {
     password: RwLock<Option<PasswordHash>>,
     last_ip: RwLock<Option<String>>,
     battery: RwLock<Option<Battery>>,
+    remote: RwLock<RemoteSettings>,
 }
 
 impl Settings {
@@ -38,6 +46,7 @@ impl Settings {
         let password = read(&nvs, PASSWORD, |s| PasswordHash::from_stored(s).ok_or(()));
         let last_ip = read(&nvs, LAST_IP, |s| Ok::<_, ()>(s.to_string()));
         let battery = read(&nvs, BATTERY, Battery::from_form);
+        let remote = read(&nvs, REMOTE, RemoteSettings::from_form).unwrap_or_else(built_in_remote);
         Ok(Self {
             nvs: Mutex::new(nvs),
             wifi: RwLock::new(wifi),
@@ -46,6 +55,7 @@ impl Settings {
             password: RwLock::new(password),
             last_ip: RwLock::new(last_ip),
             battery: RwLock::new(battery),
+            remote: RwLock::new(remote),
         })
     }
 
@@ -126,6 +136,28 @@ impl Settings {
         Ok(())
     }
 
+    pub fn remote(&self) -> RemoteSettings {
+        self.remote.read().unwrap().clone()
+    }
+
+    pub fn save_remote(&self, remote: RemoteSettings) -> anyhow::Result<()> {
+        self.write(REMOTE, &remote.to_form())?;
+        *self.remote.write().unwrap() = remote;
+        Ok(())
+    }
+
+    /// Who this device is to the remote server: made on first use and kept,
+    /// so the server keeps recognising it (a factory reset makes a new one).
+    pub fn identity(&self) -> anyhow::Result<Identity> {
+        let stored = read(&self.nvs.lock().unwrap(), IDENTITY, |s| Identity::from_form(s).ok_or(()));
+        if let Some(identity) = stored {
+            return Ok(identity);
+        }
+        let identity = Identity::from_random(&crate::random());
+        self.write(IDENTITY, &identity.to_form())?;
+        Ok(identity)
+    }
+
     /// Quick start-ups in a row before this one (see power_core::reset).
     pub fn quick_boots(&self) -> u32 {
         self.nvs.lock().unwrap().get_u32(QUICK_BOOTS).ok().flatten().unwrap_or(0)
@@ -152,4 +184,9 @@ fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, 
     let mut buf = vec![0u8; 4096];
     let stored = nvs.get_str(key, &mut buf).ok().flatten()?;
     parse(stored).ok()
+}
+
+fn built_in_remote() -> RemoteSettings {
+    let server = BUILT_IN_SERVER.and_then(|text| Server::parse(text).ok());
+    RemoteSettings { enabled: server.is_some(), server }
 }
