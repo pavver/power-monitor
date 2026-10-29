@@ -1,6 +1,7 @@
-# Only power-core and server go into the server image.
+# Only power-core, server and the panel font go into the server image.
 **/target
 .git
 firmware
+!firmware/ui/operator-mono.woff
 server/data
 server/.env

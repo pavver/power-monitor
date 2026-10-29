@@ -8,6 +8,8 @@ FROM rust:1.98.1-slim-bookworm AS build
 WORKDIR /src
 COPY power-core power-core
 COPY server server
+# The admin pages share the panel's font.
+COPY firmware/ui/operator-mono.woff firmware/ui/
 RUN cd server && cargo build --release --locked
 
 FROM cloudflare/cloudflared:2026.9.3 AS cloudflared

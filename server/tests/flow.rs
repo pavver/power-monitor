@@ -221,3 +221,14 @@ async fn ending_the_session_tells_the_device() {
     call(&app, browser("POST", &format!("/admin/devices/{ID}/end"), &cookies, "")).await;
     assert_eq!(waiting.await.unwrap(), StatusCode::GONE);
 }
+
+#[tokio::test]
+async fn pages_use_the_operator_font() {
+    let app = app();
+    let (_, _, page) = call(&app, Request::get("/admin").body(Body::empty()).unwrap()).await;
+    assert!(String::from_utf8(page).unwrap().contains("url(/admin/operator-mono.woff)"));
+    let (status, headers, font) = call(&app, Request::get("/admin/operator-mono.woff").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "font/woff");
+    assert!(font.starts_with(b"wOFF"));
+}

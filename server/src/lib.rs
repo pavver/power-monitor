@@ -134,6 +134,7 @@ impl App {
             .route("/admin", get(admin_page))
             .route("/admin/login", post(login))
             .route("/admin/captcha/{id}", get(captcha_image))
+            .route("/admin/operator-mono.woff", get(font))
             .route("/admin/devices/{id}/waiting", post(set_waiting))
             .route("/admin/devices/{id}/open", get(open_panel))
             .route("/admin/devices/{id}/end", post(end_session))
@@ -426,15 +427,11 @@ async fn open_panel(State(app): State<App>, headers: HeaderMap, Path(id): Path<S
     if app.link(&id).online() {
         return ([(header::SET_COOKIE, pick)], Redirect::to("/")).into_response();
     }
-    let page = format!(
-        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>\
-         <meta http-equiv=refresh content=5><title>Очікую пристрій</title>{STYLE}\
-         <h1>Очікую «{}»</h1><p>Сесію запитано. Пристрій відкриє її на найближчій перевірці: \
-         за кілька хвилин, якщо увімкнено «Чекаю пристрій», інакше до години. \
-         Сторінка оновлюється сама й відкриє панель, щойно пристрій з'явиться.</p><p><a href=/admin>← до списку</a></p>",
-        escape(&name)
-    );
-    ([(header::SET_COOKIE, pick)], Html(page)).into_response()
+    let body = "<div class=card><div class=waitrow><span class=spin></span><span>Сесію запитано.</span></div>\
+        <p class=muted style=margin-top:12px>Пристрій відкриє її на найближчій перевірці: за кілька хвилин, якщо \
+        увімкнено «Чекаю пристрій», інакше до години. Сторінка оновлюється сама й відкриє панель, щойно пристрій з'явиться.</p></div>";
+    let title = format!("Очікую «{}»", escape(&name));
+    ([(header::SET_COOKIE, pick)], page(&title, "Оновлюється кожні 5 с", true, Some(5), body)).into_response()
 }
 
 async fn end_session(State(app): State<App>, headers: HeaderMap, Path(id): Path<String>) -> Response {
@@ -461,9 +458,25 @@ async fn forget(State(app): State<App>, headers: HeaderMap, Path(id): Path<Strin
     Redirect::to("/admin").into_response()
 }
 
-const STYLE: &str = "<style>body{font:15px/1.4 system-ui,sans-serif;max-width:900px;margin:24px auto;padding:0 16px}\
-table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:8px;text-align:left;vertical-align:top}\
-form{display:inline}button{margin:2px 4px 2px 0}small{color:#666}.on{color:#1a7f37;font-weight:600}</style>";
+const CSS: &str = include_str!("admin.css");
+const FONT: &[u8] = include_bytes!("../../firmware/ui/operator-mono.woff");
+const BACK: &str = "<a class=back href=/admin aria-label='До списку'><svg class=ic viewBox='0 0 24 24'>\
+    <path d='M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'/></svg></a>";
+
+/// An admin page: the Operator header over `body`; `refresh` reloads it every so many seconds.
+fn page(title: &str, sub: &str, back: bool, refresh: Option<u32>, body: &str) -> Html<String> {
+    Html(format!(
+        "<!doctype html><html lang=uk><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>\
+         {refresh}<title>{title}</title><style>{CSS}</style>\
+         <header>{back}<div class=head><h1>{title}</h1><div class=sub>{sub}</div></div></header><main>{body}</main>",
+        refresh = refresh.map(|s| format!("<meta http-equiv=refresh content={s}>")).unwrap_or_default(),
+        back = if back { BACK } else { "" },
+    ))
+}
+
+async fn font() -> Response {
+    ([(header::CONTENT_TYPE, "font/woff"), (header::CACHE_CONTROL, "public, max-age=86400")], FONT).into_response()
+}
 
 async fn captcha_image(State(app): State<App>, Path(id): Path<String>) -> Response {
     match app.0.captchas.lock().unwrap().image(&id) {
@@ -475,63 +488,70 @@ async fn captcha_image(State(app): State<App>, Path(id): Path<String>) -> Respon
 async fn admin_page(State(app): State<App>, headers: HeaderMap, request: Request) -> Response {
     if !app.is_admin(&headers) {
         let problem = match request.uri().query() {
-            Some("wrong") => "<p style=color:#cf222e>Невірний пароль.</p>",
-            Some("captcha") => "<p style=color:#cf222e>Невірні цифри з картинки.</p>",
+            Some("wrong") => "<p class=err>Невірний пароль.</p>",
+            Some("captcha") => "<p class=err>Цифри з картинки не збіглися, спробуйте нові.</p>",
             _ => "",
         };
         let id = app.0.captchas.lock().unwrap().issue(&mut rand::rng(), Instant::now());
-        return Html(format!(
-            "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>Вхід</title>{STYLE}\
-             <h1>Віддалена підтримка</h1>{problem}<form method=post action=/admin/login>\
-             <input type=password name=password autofocus placeholder=Пароль> \
-             <img src=/admin/captcha/{id} alt=Капча width=200 height=64> \
-             <input type=hidden name=captcha_id value={id}><input name=captcha inputmode=numeric autocomplete=off placeholder=Цифри> \
-             <button>Увійти</button></form>"
-        ))
-        .into_response();
+        let body = format!(
+            "<form class=card method=post action=/admin/login><h2>Вхід</h2>{problem}\
+             <label class=cap for=password>Пароль</label>\
+             <input class=field id=password type=password name=password autocomplete=current-password autofocus required>\
+             <label class=cap for=captcha>Цифри з картинки</label>\
+             <img class=captcha src=/admin/captcha/{id} alt='Цифри для перевірки' width=200 height=64>\
+             <input type=hidden name=captcha_id value={id}>\
+             <input class=field id=captcha name=captcha inputmode=numeric autocomplete=off maxlength=5 required style=margin-top:4px>\
+             <div class=actions><button class='btn wide'>Увійти</button></div></form>"
+        );
+        return page("Віддалена підтримка", "Вхід адміністратора", false, None, &body).into_response();
     }
     let mut devices: Vec<(String, Device)> = app.0.devices.lock().unwrap().clone().into_iter().collect();
     devices.sort_by_key(|(_, d)| std::cmp::Reverse(d.last_seen));
     let now = unix_now();
-    let rows: String = devices
-        .iter()
-        .map(|(id, d)| {
-            let online = app.link(id).online();
-            let state = if online {
-                "<span class=on>сесія відкрита</span>".to_string()
-            } else if d.want_session {
-                "сесію запитано".to_string()
-            } else {
-                "—".to_string()
-            };
-            let toggle = if d.waiting { ("", "Не чекати") } else { ("1", "Чекаю пристрій") };
-            format!(
-                "<tr><td><b>{name}</b><br><small>{id} · {version}</small></td><td>{seen}</td><td>{state}{waiting}</td><td>\
-                 <a href=/admin/devices/{id}/open><button>Відкрити панель</button></a>\
-                 <form method=post action=/admin/devices/{id}/waiting><input type=hidden name=on value='{on}'><button>{label}</button></form>\
-                 {end}<form method=post action=/admin/devices/{id}/forget onsubmit=\"return confirm('Забути пристрій?')\"><button>Забути</button></form></td></tr>",
-                name = escape(if d.name.is_empty() { "без назви" } else { &d.name }),
-                version = escape(&d.version),
-                seen = ago(now.saturating_sub(d.last_seen)),
-                waiting = if d.waiting { "<br><small>чекаю: перевірка кожні 2 хв</small>" } else { "" },
-                on = toggle.0,
-                label = toggle.1,
-                end = if online {
-                    format!("<form method=post action=/admin/devices/{id}/end><button>Завершити сесію</button></form>")
-                } else {
-                    String::new()
-                },
-            )
-        })
-        .collect();
-    Html(format!(
-        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>\
-         <meta http-equiv=refresh content=15><title>Віддалена підтримка</title>{STYLE}\
-         <h1>Пристрої</h1><table><tr><th>Пристрій</th><th>На зв'язку</th><th>Стан</th><th></th></tr>{rows}</table>\
-         <p><small>Пристрій перевіряє сервер раз на годину, а з «Чекаю пристрій» — кожні 2 хв. \
-         «Відкрити панель» запитує сесію й відкриває панель пристрою, щойно він з'явиться.</small></p>"
-    ))
-    .into_response()
+    let cards: String = devices.iter().map(|(id, d)| device_card(id, d, app.link(id).online(), now)).collect();
+    let cards = if cards.is_empty() {
+        "<div class=card><p class=muted>Пристроїв ще немає. Кожен з'явиться тут після першої перевірки сервера.</p></div>".to_string()
+    } else {
+        cards
+    };
+    let body = format!(
+        "{cards}<div class='card alt'><p class='muted small'>Пристрій перевіряє сервер раз на годину, а з «Чекаю пристрій» \
+         кожні 2 хв. «Відкрити панель» запитує сесію й відкриває панель пристрою, щойно він з'явиться.</p></div>"
+    );
+    page("Пристрої", "Віддалена підтримка · оновлюється кожні 15 с", false, Some(15), &body).into_response()
+}
+
+fn device_card(id: &str, d: &Device, online: bool, now: u64) -> String {
+    let (state, tone) = if online {
+        ("відкрита", " ok")
+    } else if d.want_session {
+        ("запитано", " pending")
+    } else {
+        ("немає", "")
+    };
+    let end = if online {
+        format!("<form method=post action=/admin/devices/{id}/end><button class=btn>Завершити сесію</button></form>")
+    } else {
+        String::new()
+    };
+    format!(
+        "<div class=card><div class=devhead><span class='badge{badge}'></span><div class=txt>\
+         <span class=t>{name}</span><span class=s>{id}{version}</span></div></div>\
+         <div class=list><div class=item><span class=k>На зв'язку</span><span class=v>{seen}</span></div>\
+         <div class=item><span class=k>Сесія</span><span class='v{tone}'>{state}</span></div>\
+         <form class=item method=post action=/admin/devices/{id}/waiting><input type=hidden name=on value='{on}'>\
+         <span class=txt><span class=t>Чекаю пристрій</span><span class=s>перевірка кожні 2 хв замість щогодини</span></span>\
+         <button class=switch role=switch aria-checked={waiting} aria-label='Чекаю пристрій'><i></i></button></form></div>\
+         <div class=actions><a class=btn href=/admin/devices/{id}/open>Відкрити панель</a>{end}\
+         <form method=post action=/admin/devices/{id}/forget onsubmit=\"return confirm('Забути пристрій?')\">\
+         <button class='btn danger'>Забути</button></form></div></div>",
+        badge = if online { " online" } else { "" },
+        name = escape(if d.name.is_empty() { "без назви" } else { &d.name }),
+        version = if d.version.is_empty() { String::new() } else { format!(" · v{}", escape(&d.version)) },
+        seen = ago(now.saturating_sub(d.last_seen)),
+        on = if d.waiting { "" } else { "1" },
+        waiting = d.waiting,
+    )
 }
 
 fn ago(seconds: u64) -> String {
