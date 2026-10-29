@@ -325,7 +325,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <h2>Повідомлення</h2>
     <p class="small muted">Змінні: <code>{device}</code> — назва пристрою, <code>{duration}</code> — скільки тривав попередній стан.
       Якщо повідомлення про зникнення чи появу світла доставлено із запізненням, пристрій сам допише, коли це сталося.
-      Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома, тож рядки з <code>{duration}</code> тоді пропускаються.</p>
+      Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
     <label class="cap" for="m-device_name">Назва пристрою</label>
     <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
     <div id="templates"></div>
@@ -672,8 +672,7 @@ function renderDashboard() {
   const p = state.power;
   $("power-badge").className = "badge big " + (p ? (p.present ? "online" : "alarm") : "pending");
   $("power-text").textContent = p ? (p.present ? "СВІТЛО Є" : "СВІТЛА НЕМАЄ") : "ВИЗНАЧАЄТЬСЯ…";
-  // Unknown when the state was already there at start-up.
-  $("power-for").textContent = p && p.lasted ? "вже " + p.lasted : "";
+  $("power-for").textContent = p ? "вже " + p.lasted : "";
   $("d-wifi").textContent = linkText(state.link);
   $("d-ap").textContent = state.setup_ap ? "«" + state.setup_ap.ssid + "» увімкнена" : "вимкнена";
   $("d-telegram").textContent = state.telegram;

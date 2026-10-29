@@ -10,6 +10,9 @@ use crate::template;
 /// the time of any event.
 const LATE_AFTER_MS: u64 = 60_000;
 
+/// Stands for a length nobody measured, e.g. of the state found at start-up.
+pub const UNKNOWN_DURATION: &str = "🤷‍♂️";
+
 /// Human-readable duration in Ukrainian, at most two units: "2 год 15 хв".
 pub fn format_duration(ms: u64) -> String {
     const UNITS: [(u64, &str); 4] =
@@ -35,26 +38,16 @@ pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64) -> Strin
         (PowerState::Present, false) => Text::Returned,
         (PowerState::Absent, false) => Text::Lost,
     };
-    let mut out = match event.before {
-        Before::Lasted(ms) => template::render(messages.template(text), messages.device_name(), &format_duration(ms)),
-        _ => without_duration(messages.template(text), messages.device_name()),
+    let duration = match event.before {
+        Before::Lasted(ms) => format_duration(ms),
+        _ => UNKNOWN_DURATION.to_string(),
     };
+    let mut out = template::render(messages.template(text), messages.device_name(), &duration);
     let delay = now_ms.saturating_sub(event.at_ms);
     if !start_up && delay >= LATE_AFTER_MS {
         out += &format!("\n(сталося {} тому)", format_duration(delay));
     }
     out
-}
-
-/// A length nobody measured is never shown: lines naming `{duration}` are
-/// left out, and if that leaves nothing, the duration is called unknown.
-fn without_duration(template: &str, device: &str) -> String {
-    let kept: Vec<&str> = template.lines().filter(|line| !line.contains(template::DURATION)).collect();
-    if kept.iter().any(|line| !line.trim().is_empty()) {
-        template::render(&kept.join("\n"), device, "")
-    } else {
-        template::render(template, device, "невідомо скільки")
-    }
 }
 
 /// Something to tell the chat.
@@ -190,17 +183,20 @@ mod tests {
     }
 
     #[test]
-    fn unknown_length_leaves_out_the_duration_line() {
+    fn unknown_length_is_a_shrug() {
         // Power may have been off long before the device was switched on.
         assert_eq!(
             event_text(&Messages::default(), &change_after_start_up(Present), 10 * SEC),
-            "🟢 Дім: світло з'явилось."
+            "🟢 Дім: світло з'явилось.\nНе було 🤷‍♂️."
         );
-        assert_eq!(event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC), "🔴 Дім: світло зникло.");
+        assert_eq!(
+            event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC),
+            "🔴 Дім: світло зникло.\nБуло 🤷‍♂️."
+        );
     }
 
     #[test]
-    fn unknown_length_in_a_one_line_template_is_not_made_up() {
+    fn unknown_length_in_a_user_template_is_a_shrug_too() {
         let body = form::encode(&[
             ("device_name", "Дача"),
             ("start_present", "a"),
@@ -211,7 +207,7 @@ mod tests {
         let messages = Messages::from_form(&body).unwrap();
         assert_eq!(
             event_text(&messages, &change_after_start_up(Absent), 10 * SEC),
-            "Нема світла на Дача після невідомо скільки"
+            "Нема світла на Дача після 🤷‍♂️"
         );
     }
 
@@ -219,7 +215,7 @@ mod tests {
     fn late_change_after_start_up_still_says_when_it_happened() {
         // The moment of the change is measured; only the length before it is not.
         let text = event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC + 12 * MIN);
-        assert_eq!(text, "🔴 Дім: світло зникло.\n(сталося 12 хв тому)");
+        assert_eq!(text, "🔴 Дім: світло зникло.\nБуло 🤷‍♂️.\n(сталося 12 хв тому)");
     }
 
     #[test]

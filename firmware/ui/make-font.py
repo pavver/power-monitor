@@ -31,9 +31,16 @@ CHARS = (
 )
 
 
+# Emoji are drawn by the system's emoji font (design_system/typography.md
+# allows it as the fallback), so they are not part of the subset:
+# pictographs, zero-width joiner, variation selector, gender signs.
+EMOJI = set(range(0x1F000, 0x1FB00)) | {0x200D, 0xFE0F, 0x2640, 0x2642}
+
+
 def page_chars():
     """Characters of index.html outside the page's own markup-only ASCII."""
-    return {ord(c) for c in (HERE / "index.html").read_text(encoding="utf-8") if ord(c) > 0x7E and c not in "\n"}
+    text = (HERE / "index.html").read_text(encoding="utf-8")
+    return {ord(c) for c in text if ord(c) > 0x7E} - EMOJI
 
 
 def main():

@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-use crate::message::format_duration;
+use crate::message::{format_duration, UNKNOWN_DURATION};
 use crate::power::PowerState;
 use crate::settings::Messages;
 
@@ -80,14 +80,15 @@ pub fn tidy_networks(mut networks: Vec<Network>) -> Vec<Network> {
 pub struct Power {
     pub present: bool,
     /// How long the current state has lasted, formatted here so the page
-    /// does not repeat the duration rules; `None` when it began before
+    /// does not repeat the duration rules; a shrug when it began before
     /// start-up and its length is unknown.
-    pub lasted: Option<String>,
+    pub lasted: String,
 }
 
 impl Power {
     pub fn new(state: PowerState, lasted_ms: Option<u64>) -> Self {
-        Self { present: state == PowerState::Present, lasted: lasted_ms.map(format_duration) }
+        let lasted = lasted_ms.map_or_else(|| UNKNOWN_DURATION.to_string(), format_duration);
+        Self { present: state == PowerState::Present, lasted }
     }
 }
 
@@ -154,7 +155,7 @@ mod tests {
     #[test]
     fn power_found_at_start_up_has_no_length() {
         let value = serde_json::to_value(Power::new(PowerState::Absent, None)).unwrap();
-        assert_eq!(value, json!({"present": false, "lasted": null}));
+        assert_eq!(value, json!({"present": false, "lasted": "🤷‍♂️"}));
     }
 
     #[test]
