@@ -1,11 +1,13 @@
-//! What the web page shows. Each field has exactly one writer thread:
-//! power — sensor, network — Wi-Fi supervisor, telegram and pending — notifier.
+//! Live values shown on the page. Each field has exactly one writer thread:
+//! power — sensor; link, setup_ap, networks — network; telegram, pending — notifier.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use power_core::html;
+use power_core::api::{self, Link, Network, Power};
 use power_core::power::PowerState;
+
+use crate::settings::Settings;
 
 /// Milliseconds since boot.
 pub fn now_ms() -> u64 {
@@ -17,7 +19,9 @@ pub fn now_ms() -> u64 {
 #[derive(Default)]
 pub struct Status {
     power: Mutex<Option<(PowerState, u64)>>,
-    network: Mutex<String>,
+    link: Mutex<Link>,
+    setup_ap: Mutex<Option<&'static str>>,
+    networks: Mutex<Vec<Network>>,
     telegram: Mutex<String>,
     pending: AtomicUsize,
 }
@@ -27,8 +31,24 @@ impl Status {
         *self.power.lock().unwrap() = Some((state, since_ms));
     }
 
-    pub fn set_network(&self, text: impl Into<String>) {
-        *self.network.lock().unwrap() = text.into();
+    pub fn set_link(&self, link: Link) {
+        *self.link.lock().unwrap() = link;
+    }
+
+    pub fn link(&self) -> Link {
+        self.link.lock().unwrap().clone()
+    }
+
+    pub fn set_setup_ap(&self, ssid: &'static str) {
+        *self.setup_ap.lock().unwrap() = Some(ssid);
+    }
+
+    pub fn set_networks(&self, networks: Vec<Network>) {
+        *self.networks.lock().unwrap() = networks;
+    }
+
+    pub fn networks(&self) -> Vec<Network> {
+        self.networks.lock().unwrap().clone()
     }
 
     pub fn set_telegram(&self, text: impl Into<String>) {
@@ -39,21 +59,27 @@ impl Status {
         self.pending.store(count, Ordering::Relaxed);
     }
 
-    /// Renders the page with the current values.
-    pub fn page(&self, config: Option<&power_core::config::Config>, notice: Option<&str>) -> String {
+    /// The page state as JSON.
+    pub fn state_json(&self, settings: &Settings) -> String {
+        let bot = settings.bot();
+        let messages = settings.messages();
+        let link = self.link();
+        let telegram = self.telegram.lock().unwrap().clone();
         let power = self
             .power
             .lock()
             .unwrap()
-            .map(|(state, since)| (state, now_ms().saturating_sub(since)));
-        let network = self.network.lock().unwrap().clone();
-        let telegram = self.telegram.lock().unwrap().clone();
-        let status = html::Status {
+            .map(|(state, since)| Power::new(state, now_ms().saturating_sub(since)));
+        let state = api::State {
+            stage: api::stage(settings.wifi().is_some(), bot.is_some()),
             power,
-            network: &network,
+            link: &link,
+            setup_ap: *self.setup_ap.lock().unwrap(),
             telegram: &telegram,
             pending: self.pending.load(Ordering::Relaxed),
+            chat_id: bot.map(|b| b.chat_id()),
+            messages: &messages,
         };
-        html::page(&status, config, notice)
+        serde_json::to_string(&state).unwrap_or_default()
     }
 }

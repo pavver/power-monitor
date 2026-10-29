@@ -19,6 +19,8 @@ opt-level = "z"
 anyhow = "1"
 log = "0.4"
 embedded-svc = "0.29"
+serde = "1"
+serde_json = "1"
 esp-idf-svc = "0.53"
 power-core = { path = "../power-core" }
 

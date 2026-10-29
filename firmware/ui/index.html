@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Монітор світла</title>
+<style>
+/* Operator UI: 1 DU = 4px, sharp corners, monospace, state borders. */
+:root{
+  --du:4px;
+  --background:#F6F8FA;--surface:#FFFFFF;--surface-alt:#F0F2F5;--border:#B2C0CE;--border-strong:#57606A;
+  --accent:#0969DA;--pending:#9A6700;--success:#1A7F37;--error:#CF222E;
+  --text:#24292F;--text-2:#57606A;--text-off:#8C959F;--off-surface:#F3F4F6;--off-border:#D9E0E7;
+  --badge-on:#15803D;--badge-alarm:#C62828;--badge-border:#9EADBC;
+}
+@media (prefers-color-scheme:dark){:root{
+  --background:#0D1117;--surface:#161B22;--surface-alt:#0F141C;--border:#3E4A5C;--border-strong:#8B949E;
+  --accent:#58A6FF;--pending:#E3B341;--success:#39D353;--error:#FF7B72;
+  --text:#F0F6FC;--text-2:#8B949E;--text-off:#484F58;--off-surface:#10141A;--off-border:#1F252E;
+  --badge-on:#3DDC84;--badge-alarm:#FF5C5C;--badge-border:#3A4656;
+}}
+*{box-sizing:border-box;border-radius:0}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--background);color:var(--text);
+  font:400 14px/18px "Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:calc(var(--du)*.25) solid var(--border);
+  min-height:calc(var(--du)*13.5);padding:calc(var(--du)*1.5) calc(var(--du)*4);display:flex;align-items:center;gap:calc(var(--du)*2)}
+header h1{font-size:20px;line-height:26px;font-weight:700;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+header .sub{font-size:11px;line-height:14px;color:var(--text-2)}
+main{max-width:calc(var(--du)*120);margin:0 auto;padding:calc(var(--du)*4)}
+section{display:none}
+section.on{display:block}
+.card{background:var(--surface);border:calc(var(--du)*.25) solid var(--border);padding:calc(var(--du)*3);margin-bottom:calc(var(--du)*4)}
+.card.alt{background:var(--surface-alt)}
+h2{font-size:15px;line-height:20px;font-weight:700;margin:0 0 calc(var(--du)*2)}
+p{margin:0 0 calc(var(--du)*2)}
+.muted{color:var(--text-2)}
+.small{font-size:11px;line-height:14px}
+.steps{counter-reset:s;list-style:none;margin:0;padding:0}
+.steps>li{counter-increment:s;display:flex;gap:calc(var(--du)*2);padding:calc(var(--du)*2) 0;border-bottom:calc(var(--du)*.25) solid var(--border)}
+.steps>li:last-child{border-bottom:0}
+.steps>li::before{content:counter(s);flex:none;width:calc(var(--du)*6);height:calc(var(--du)*6);display:flex;align-items:center;justify-content:center;
+  border:calc(var(--du)*.25) solid var(--border-strong);font-weight:700}
+.steps>li.done::before{content:"✓";color:var(--success);border-color:var(--success)}
+.steps>li.wait{color:var(--text-off)}
+.steps>li>div{flex:1;min-width:0}
+code{background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--border);padding:0 calc(var(--du)*1)}
+a{color:var(--accent)}
+/* Rows */
+.list{border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
+.row{display:flex;align-items:center;gap:calc(var(--du)*2);min-height:calc(var(--du)*10);padding:calc(var(--du)*2) calc(var(--du)*3);
+  border-bottom:calc(var(--du)*.25) solid var(--border);width:100%;background:none;color:inherit;font:inherit;text-align:left;border-left:0;border-right:0;border-top:0}
+.row:last-child{border-bottom:0}
+button.row{cursor:pointer}
+button.row:active{background:var(--surface-alt)}
+.row.pending{pointer-events:none;color:var(--pending)}
+.row.ok{color:var(--success)}.row.err{color:var(--error)}
+.row.sel{background:var(--surface-alt);box-shadow:inset calc(var(--du)*.5) 0 0 var(--accent)}
+.row .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .k{color:var(--text-2);flex:none}
+.row .v{flex:1;min-width:0;text-align:right;overflow-wrap:anywhere}
+.bars{display:inline-flex;align-items:flex-end;gap:1px;height:calc(var(--du)*3.5);flex:none}
+.bars i{width:calc(var(--du)*.75);background:var(--off-border)}
+.bars i:nth-child(1){height:25%}.bars i:nth-child(2){height:50%}.bars i:nth-child(3){height:75%}.bars i:nth-child(4){height:100%}
+.bars i.lit{background:var(--text)}
+.empty{padding:calc(var(--du)*3);color:var(--text-2)}
+/* Status badge */
+.badge{width:calc(var(--du)*3);height:calc(var(--du)*3);border-radius:50%;border:calc(var(--du)*.25) solid var(--badge-border);flex:none;background:#000}
+.badge.on{background:var(--badge-on)}
+.badge.off{background:var(--badge-alarm);animation:blink .5s infinite alternate}
+.badge.wait{background:transparent;border-color:var(--pending);border-top-color:transparent;animation:spin .8s linear infinite}
+@keyframes blink{to{opacity:.35}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.power{display:flex;align-items:center;gap:calc(var(--du)*3);min-height:calc(var(--du)*14)}
+.power b{font-size:20px;line-height:26px;display:block}
+/* Inputs */
+label{display:block;font-size:11px;line-height:14px;color:var(--text-2);margin:calc(var(--du)*3) 0 calc(var(--du)*1)}
+.field{display:flex;border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
+.field:focus-within{border-color:var(--border-strong)}
+.field input,textarea{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font:500 14px/18px inherit;font-family:inherit;padding:0 calc(var(--du)*3);outline:0}
+textarea{display:block;width:100%;height:auto;min-height:calc(var(--du)*16);padding:calc(var(--du)*2) calc(var(--du)*3);resize:vertical;
+  border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
+textarea:focus{border-color:var(--border-strong)}
+.field button{border:0;border-left:calc(var(--du)*.25) solid var(--border);height:calc(var(--du)*10)}
+.chips{display:flex;flex-wrap:wrap;gap:calc(var(--du)*1);margin-top:calc(var(--du)*1)}
+.chip{min-height:calc(var(--du)*6);padding:calc(var(--du)*.75) calc(var(--du)*1.5);border:calc(var(--du)*.25) solid var(--border);background:var(--surface-alt);
+  color:var(--accent);font:700 11px/14px inherit;font-family:inherit;cursor:pointer}
+/* Action button with ControlState */
+.btn{position:relative;min-height:calc(var(--du)*10);padding:0 calc(var(--du)*4);background:var(--surface);color:var(--text);
+  border:calc(var(--du)*.25) solid var(--border);font:500 14px/18px inherit;font-family:inherit;cursor:pointer;text-align:center}
+.btn:active{border-color:var(--border-strong);background:var(--surface-alt)}
+.btn.primary{border-color:var(--accent);color:var(--accent)}
+.btn:disabled{background:var(--off-surface);color:var(--text-off);border-color:var(--off-border);cursor:default}
+.btn.pending{color:transparent;pointer-events:none;border-color:var(--border)}
+.btn.pending::after{content:"";position:absolute;left:50%;top:50%;width:calc(var(--du)*4);height:calc(var(--du)*4);margin:calc(var(--du)*-2);
+  border-radius:50%;border:calc(var(--du)*.375) solid var(--pending);border-top-color:transparent;animation:spin .8s linear infinite}
+.btn.ok{color:var(--success);border:calc(var(--du)*.5) solid var(--success);background:color-mix(in srgb,var(--success) 15%,var(--surface));animation:pulse .4s infinite alternate}
+.btn.err{color:var(--error);border:calc(var(--du)*.5) solid var(--error);background:color-mix(in srgb,var(--error) 15%,var(--surface));animation:pulse .4s infinite alternate}
+@keyframes pulse{from{border-color:color-mix(in srgb,currentColor 55%,transparent)}}
+.btn.wide{width:100%}
+.actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
+.actions .btn{flex:1 1 calc(var(--du)*40)}
+.msg{margin-top:calc(var(--du)*2);min-height:18px;overflow-wrap:anywhere}
+.msg.err{color:var(--error)}.msg.ok{color:var(--success)}.msg.wait{color:var(--pending)}
+.progress{display:flex;gap:calc(var(--du)*1);flex:none}
+.progress i{width:calc(var(--du)*5);height:calc(var(--du)*1);background:var(--off-border)}
+.progress i.lit{background:var(--accent)}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div style="flex:1;min-width:0">
+    <h1 id="title">МОНІТОР СВІТЛА</h1>
+    <div class="sub" id="subtitle">підключення…</div>
+  </div>
+  <div class="progress" id="progress"><i></i><i></i><i></i></div>
+</header>
+<main>
+
+<!-- Step 1: Wi-Fi -->
+<section id="s-wifi">
+  <div class="card">
+    <h2>Крок 1 · Wi-Fi</h2>
+    <p class="muted">Оберіть мережу, до якої підключатиметься пристрій, і введіть пароль.
+      Точка доступу налаштування працюватиме до перезавантаження, тож ця сторінка не зникне.</p>
+  </div>
+  <div class="card alt hidden" id="link-card">
+    <div class="row" style="padding:0;min-height:0;border:0"><span class="badge" id="link-badge"></span><span class="grow" id="link-text"></span></div>
+  </div>
+  <div class="row" style="padding:0 0 calc(var(--du)*2);min-height:0;border:0">
+    <span class="grow small muted" id="scan-note">Пошук мереж…</span>
+    <span class="badge wait" id="scan-badge"></span>
+  </div>
+  <div class="list" id="networks"><div class="empty">Пошук мереж…</div></div>
+  <div class="card hidden" id="join" style="margin-top:calc(var(--du)*4)">
+    <h2 id="join-title"></h2>
+    <form id="join-form">
+      <label for="join-pass">Пароль</label>
+      <div class="field"><input id="join-pass" type="password" autocomplete="current-password" maxlength="63"></div>
+      <div class="actions">
+        <button class="btn" type="button" id="join-cancel">Скасувати</button>
+        <button class="btn primary" id="join-btn">Підключити</button>
+      </div>
+      <div class="msg" id="join-msg"></div>
+    </form>
+  </div>
+  <div class="actions hidden" id="wifi-back"><button class="btn wide" type="button" data-go="dashboard">← До панелі</button></div>
+</section>
+
+<!-- Step 2: Telegram bot -->
+<section id="s-bot">
+  <div class="card">
+    <h2>Крок 2 · Telegram-бот</h2>
+    <p class="muted">Пристрій надсилатиме повідомлення через вашого власного бота. Створення займає хвилину.</p>
+    <p class="small muted hidden" id="bot-offline">Якщо в телефона зараз немає інтернету, перейдіть у свою домашню мережу й відкрийте
+      <a id="sta-link" href="#"></a> — це та сама сторінка.</p>
+  </div>
+  <ol class="steps card">
+    <li><div>Відкрийте <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> у Telegram і надішліть <code>/newbot</code>.
+      Придумайте назву, потім ім'я користувача, що закінчується на <code>bot</code>.</div></li>
+    <li id="st-token"><div>Скопіюйте токен, який надішле BotFather, і вставте сюди:
+      <div class="field" style="margin-top:calc(var(--du)*2)">
+        <input id="token" placeholder="123456789:AAH…" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button class="btn" id="token-btn" type="button">Перевірити</button>
+      </div>
+      <div class="msg" id="token-msg"></div></div></li>
+    <li id="st-write" class="wait"><div>Напишіть своєму боту будь-яке повідомлення
+      <span id="bot-link-wrap" class="hidden">— <a id="bot-link" target="_blank" rel="noopener"></a></span>.
+      Щоб отримувати повідомлення в групі, додайте бота в групу й напишіть там.</div></li>
+    <li id="st-chat" class="wait"><div>Оберіть чат, куди надсилати повідомлення:
+      <div class="list" id="chats" style="margin-top:calc(var(--du)*2)"><div class="empty">Чекаю на повідомлення боту…</div></div>
+      <div class="msg" id="chat-msg"></div></div></li>
+  </ol>
+  <div class="actions hidden" id="bot-back"><button class="btn wide" type="button" data-go="dashboard">← До панелі</button></div>
+</section>
+
+<!-- Step 3: dashboard -->
+<section id="s-dashboard">
+  <div class="card">
+    <div class="power"><span class="badge wait" id="power-badge"></span>
+      <div><b id="power-text">ВИЗНАЧАЄТЬСЯ…</b><span class="muted small" id="power-for"></span></div></div>
+  </div>
+  <div class="list" style="margin-bottom:calc(var(--du)*4)">
+    <div class="row"><span class="k">Wi-Fi</span><span class="v" id="d-wifi"></span></div>
+    <div class="row"><span class="k">Точка доступу</span><span class="v" id="d-ap"></span></div>
+    <div class="row"><span class="k">Telegram</span><span class="v" id="d-telegram"></span></div>
+    <div class="row"><span class="k">Чат</span><span class="v" id="d-chat"></span></div>
+    <div class="row"><span class="k">У черзі</span><span class="v" id="d-pending"></span></div>
+  </div>
+  <div class="actions" style="margin:0 0 calc(var(--du)*4)">
+    <button class="btn" type="button" id="test-btn">Тестове повідомлення</button>
+    <button class="btn" type="button" data-go="wifi">Змінити Wi-Fi</button>
+    <button class="btn" type="button" data-go="bot">Змінити бота</button>
+  </div>
+  <div class="msg" id="test-msg"></div>
+  <form class="card" id="messages-form">
+    <h2>Повідомлення</h2>
+    <p class="small muted">Змінні: <code>{device}</code> — назва пристрою, <code>{duration}</code> — скільки тривав попередній стан.
+      Якщо повідомлення доставлено із запізненням, пристрій сам допише, коли це сталося.</p>
+    <label for="m-device_name">Назва пристрою</label>
+    <div class="field"><input id="m-device_name" name="device_name" maxlength="32" required></div>
+    <div id="templates"></div>
+    <div class="actions"><button class="btn primary" id="messages-btn">Зберегти</button></div>
+    <div class="msg" id="messages-msg"></div>
+  </form>
+</section>
+
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const TEXTS = [
+  ["start_present", "Запуск, світло є", false],
+  ["start_absent", "Запуск, світла немає", false],
+  ["lost", "Світло зникло", true],
+  ["returned", "Світло з'явилось", true],
+];
+let state = null, view = null, picked = null, verifiedToken = null, messagesFilled = false;
+
+async function api(path, fields) {
+  const init = fields ? {method: "POST", body: new URLSearchParams(fields)} : {};
+  const response = await fetch(path, init);
+  const data = await response.json().catch(() => ({error: "Пристрій не відповів"}));
+  if (!response.ok) throw new Error(data.error || "Помилка " + response.status);
+  return data;
+}
+
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => k === "class" ? node.className = v : node.setAttribute(k, v));
+  children.forEach(c => node.append(c));
+  return node;
+}
+
+function say(id, text, kind) {
+  const node = $(id);
+  node.textContent = text || "";
+  node.className = "msg" + (kind ? " " + kind : "");
+}
+
+/* ControlState: pending → ok/err pulse for 800 ms → idle. */
+async function act(button, work) {
+  button.classList.remove("ok", "err");
+  button.classList.add("pending");
+  let ok = false;
+  try { await work(); ok = true; } finally {
+    button.classList.remove("pending");
+    button.classList.add(ok ? "ok" : "err");
+    setTimeout(() => button.classList.remove("ok", "err"), 800);
+  }
+}
+
+/* ---------- screens ---------- */
+function show(name) {
+  view = name;
+  ["wifi", "bot", "dashboard"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
+  const step = {wifi: 1, bot: 2, dashboard: 3}[name];
+  [...$("progress").children].forEach((bar, i) => bar.classList.toggle("lit", i < step));
+  const configured = state && state.stage === "dashboard";
+  $("wifi-back").classList.toggle("hidden", !configured);
+  $("bot-back").classList.toggle("hidden", !configured);
+}
+
+document.addEventListener("click", e => {
+  const go = e.target.closest("[data-go]");
+  if (go) { show(go.dataset.go); window.scrollTo(0, 0); refreshNetworks(); }
+});
+
+/* ---------- state ---------- */
+async function refreshState() {
+  try { state = await api("/api/state"); } catch (e) { $("subtitle").textContent = "немає зв'язку з пристроєм"; return; }
+  // Follow the setup forward only while the user is still on the step just finished.
+  const advanced = stageBefore !== null && stageBefore !== state.stage && view === stageBefore;
+  if (!view || advanced) show(state.stage);
+  stageBefore = state.stage;
+  renderHeader(); renderLink(); renderDashboard();
+}
+let stageBefore = null;
+
+function linkText(link) {
+  switch (link.state) {
+    case "connecting": return "Підключення до «" + link.ssid + "»…";
+    case "connected": return "«" + link.ssid + "», " + link.ip;
+    case "failed": return "«" + link.ssid + "»: " + link.reason;
+    default: return "не підключено";
+  }
+}
+
+function renderHeader() {
+  $("title").textContent = "МОНІТОР СВІТЛА · " + state.messages.device_name;
+  $("subtitle").textContent = "Wi-Fi: " + linkText(state.link);
+}
+
+function renderLink() {
+  const link = state.link;
+  $("link-card").classList.toggle("hidden", link.state === "idle");
+  $("link-badge").className = "badge " + {connecting: "wait", connected: "on", failed: "off"}[link.state];
+  $("link-text").textContent = linkText(link);
+  const connected = link.state === "connected";
+  $("bot-offline").classList.toggle("hidden", !(connected && state.setup_ap));
+  if (connected) { $("sta-link").textContent = "http://" + link.ip + "/"; $("sta-link").href = "http://" + link.ip + "/"; }
+  if (link.state === "failed" && picked === link.ssid) say("join-msg", link.reason, "err");
+  if (link.state === "connected" && picked === link.ssid) say("join-msg", "Підключено. IP " + link.ip, "ok");
+}
+
+function renderDashboard() {
+  const p = state.power;
+  $("power-badge").className = "badge " + (p ? (p.present ? "on" : "off") : "wait");
+  $("power-text").textContent = p ? (p.present ? "СВІТЛО Є" : "СВІТЛА НЕМАЄ") : "ВИЗНАЧАЄТЬСЯ…";
+  $("power-for").textContent = p ? "вже " + p.lasted : "";
+  $("d-wifi").textContent = linkText(state.link);
+  $("d-ap").textContent = state.setup_ap ? "«" + state.setup_ap + "» до перезапуску" : "вимкнена";
+  $("d-telegram").textContent = state.telegram;
+  $("d-chat").textContent = state.chat_id === null ? "—" : state.chat_id;
+  $("d-pending").textContent = state.pending;
+  if (!messagesFilled) fillMessages(state.messages);
+}
+
+/* ---------- Wi-Fi ---------- */
+async function refreshNetworks() {
+  if (view !== "wifi") return;
+  let networks;
+  try { networks = await api("/api/networks"); } catch (e) { $("scan-note").textContent = e.message; return; }
+  $("scan-note").textContent = "Знайдено мереж: " + networks.length + " · оновлюється автоматично";
+  const list = $("networks");
+  list.replaceChildren(...(networks.length ? networks.map(networkRow) : [el("div", {class: "empty"}, "Мереж не знайдено, шукаю далі…")]));
+}
+
+function networkRow(n) {
+  const level = n.rssi >= -55 ? 4 : n.rssi >= -67 ? 3 : n.rssi >= -78 ? 2 : 1;
+  const bars = el("span", {class: "bars", title: n.rssi + " dBm"}, ...[1, 2, 3, 4].map(i => el("i", {class: i <= level ? "lit" : ""})));
+  const row = el("button", {type: "button", class: "row" + (picked === n.ssid ? " sel" : "")},
+    bars, el("span", {class: "grow"}, n.ssid), el("span", {class: "k small"}, n.secure ? "🔒" : "відкрита"));
+  row.onclick = () => pick(n);
+  return row;
+}
+
+function pick(n) {
+  picked = n.ssid;
+  $("join").classList.remove("hidden");
+  $("join-title").textContent = "Мережа «" + n.ssid + "»";
+  $("join-pass").value = "";
+  $("join-pass").closest(".field").classList.toggle("hidden", !n.secure);
+  $("join-pass").previousElementSibling.classList.toggle("hidden", !n.secure);
+  say("join-msg", "");
+  refreshNetworks();
+  $("join").scrollIntoView({behavior: "smooth"});
+  if (n.secure) $("join-pass").focus();
+}
+
+$("join-cancel").onclick = () => { picked = null; $("join").classList.add("hidden"); refreshNetworks(); };
+$("join-form").onsubmit = e => {
+  e.preventDefault();
+  act($("join-btn"), async () => {
+    await api("/api/wifi", {ssid: picked, password: $("join-pass").value});
+    say("join-msg", "Підключаюся… Телефон може на мить втратити зв'язок із точкою доступу.", "wait");
+  }).catch(err => say("join-msg", err.message, "err"));
+};
+
+/* ---------- bot ---------- */
+$("token-btn").onclick = () => {
+  const token = $("token").value.trim();
+  act($("token-btn"), async () => {
+    const bot = await api("/api/bot/check", {token});
+    verifiedToken = token;
+    say("token-msg", "Бот @" + bot.username + " знайдено.", "ok");
+    $("bot-link").textContent = "@" + bot.username;
+    $("bot-link").href = "https://t.me/" + bot.username;
+    $("bot-link-wrap").classList.remove("hidden");
+    $("st-token").classList.add("done");
+    $("st-write").classList.remove("wait");
+    $("st-chat").classList.remove("wait");
+    refreshChats();
+  }).catch(err => { verifiedToken = null; say("token-msg", err.message, "err"); });
+};
+
+async function refreshChats() {
+  if (view !== "bot" || !verifiedToken) return;
+  let chats;
+  try { chats = await api("/api/bot/chats", {token: verifiedToken}); } catch (e) { say("chat-msg", e.message, "err"); return; }
+  if (chats.length) $("st-write").classList.add("done");
+  $("chats").replaceChildren(...(chats.length ? chats.map(chatRow) : [el("div", {class: "empty"}, "Чекаю на повідомлення боту…")]));
+}
+
+function chatRow(chat) {
+  const row = el("button", {type: "button", class: "row"},
+    el("span", {class: "grow"}, chat.title), el("span", {class: "k small"}, chat.id < 0 ? "група" : "особистий"));
+  row.onclick = () => act(row, async () => {
+    say("chat-msg", "Надсилаю тестове повідомлення…", "wait");
+    await api("/api/bot", {token: verifiedToken, chat_id: chat.id});
+    say("chat-msg", "Готово! Перевірте Telegram.", "ok");
+    $("st-chat").classList.add("done");
+    await refreshState();
+    setTimeout(() => show("dashboard"), 900);
+  }).catch(err => say("chat-msg", err.message, "err"));
+  return row;
+}
+
+/* ---------- dashboard ---------- */
+$("test-btn").onclick = () => act($("test-btn"), async () => {
+  await api("/api/test", {});
+  say("test-msg", "Тестове повідомлення надіслано.", "ok");
+}).catch(err => say("test-msg", err.message, "err"));
+
+function fillMessages(messages) {
+  messagesFilled = true;
+  $("m-device_name").value = messages.device_name;
+  $("templates").replaceChildren(...TEXTS.map(([key, title, withDuration]) => {
+    const area = el("textarea", {id: "m-" + key, name: key, maxlength: "500", rows: "3"});
+    area.value = messages[key];
+    const vars = withDuration ? ["{device}", "{duration}"] : ["{device}"];
+    const chips = el("div", {class: "chips"}, ...vars.map(v => {
+      const chip = el("button", {type: "button", class: "chip"}, v);
+      chip.onclick = () => { area.setRangeText(v, area.selectionStart, area.selectionEnd, "end"); area.focus(); };
+      return chip;
+    }));
+    return el("div", {}, el("label", {for: "m-" + key}, title), area, chips);
+  }));
+}
+
+$("messages-form").onsubmit = e => {
+  e.preventDefault();
+  const fields = Object.fromEntries(new FormData(e.target));
+  act($("messages-btn"), async () => {
+    await api("/api/messages", fields);
+    say("messages-msg", "Збережено.", "ok");
+  }).catch(err => say("messages-msg", err.message, "err"));
+};
+
+refreshState();
+setInterval(refreshState, 3000);
+setInterval(refreshNetworks, 5000);
+setInterval(refreshChats, 4000);
+setTimeout(refreshNetworks, 300);
+</script>
+</body>
+</html>
