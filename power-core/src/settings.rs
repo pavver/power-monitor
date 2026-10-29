@@ -17,6 +17,7 @@ pub enum SettingsError {
     ThreadId,
     DeviceName,
     Text(Text, TemplateError),
+    BmsAddress,
 }
 
 impl fmt::Display for SettingsError {
@@ -33,6 +34,7 @@ impl fmt::Display for SettingsError {
             SettingsError::ThreadId => f.write_str("Номер гілки форуму має бути додатним цілим числом."),
             SettingsError::DeviceName => f.write_str("Назва пристрою має бути від 1 до 32 символів."),
             SettingsError::Text(text, error) => write!(f, "{}: {error}.", text.label()),
+            SettingsError::BmsAddress => f.write_str("Адреса BMS має вигляд AA:BB:CC:DD:EE:FF."),
         }
     }
 }
@@ -71,6 +73,49 @@ impl WifiCredentials {
 
     pub fn password(&self) -> &str {
         &self.password
+    }
+}
+
+/// The JK BMS to read over Bluetooth.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Battery {
+    /// Most significant byte first, as printed.
+    pub address: [u8; 6],
+    /// Random (not public) Bluetooth address.
+    pub random: bool,
+    /// As advertised, for the page.
+    pub name: String,
+}
+
+impl Battery {
+    /// Reads `address` (`AA:BB:CC:DD:EE:FF`), `random` (`1` when set) and `name`.
+    pub fn from_form(body: &str) -> Result<Self, SettingsError> {
+        let fields = form::parse(body);
+        let parts: Vec<&str> = form::field(&fields, "address").split(':').collect();
+        let mut address = [0; 6];
+        if parts.len() != address.len() {
+            return Err(SettingsError::BmsAddress);
+        }
+        for (byte, part) in address.iter_mut().zip(parts) {
+            if part.len() != 2 {
+                return Err(SettingsError::BmsAddress);
+            }
+            *byte = u8::from_str_radix(part, 16).map_err(|_| SettingsError::BmsAddress)?;
+        }
+        Ok(Self {
+            address,
+            random: form::field(&fields, "random") == "1",
+            name: form::field(&fields, "name").chars().take(32).collect(),
+        })
+    }
+
+    pub fn to_form(&self) -> String {
+        let random = if self.random { "1" } else { "" };
+        form::encode(&[("address", &self.address_text()), ("random", random), ("name", &self.name)])
+    }
+
+    pub fn address_text(&self) -> String {
+        self.address.map(|b| format!("{b:02X}")).join(":")
     }
 }
 
@@ -380,5 +425,24 @@ mod tests {
     fn errors_explain_which_text_is_wrong() {
         let error = SettingsError::Text(Text::Lost, TemplateError::Empty);
         assert_eq!(error.to_string(), "Світло зникло: текст не може бути порожнім.");
+    }
+
+    #[test]
+    fn battery_round_trips_through_its_form() {
+        let battery = Battery::from_form("address=c8%3A47%3A8C%3Af2%3A7E%3A03&random=1&name=JK-B2A24S").unwrap();
+        assert_eq!(battery.address, [0xC8, 0x47, 0x8C, 0xF2, 0x7E, 0x03]);
+        assert!(battery.random);
+        assert_eq!(battery.name, "JK-B2A24S");
+        assert_eq!(battery.address_text(), "C8:47:8C:F2:7E:03");
+        assert_eq!(Battery::from_form(&battery.to_form()), Ok(battery));
+        assert!(!Battery::from_form("address=C8:47:8C:F2:7E:03").unwrap().random);
+    }
+
+    #[test]
+    fn battery_address_must_be_six_hex_bytes() {
+        for address in ["", "C8:47:8C:F2:7E", "C8:47:8C:F2:7E:03:01", "C8:47:8C:F2:7E:G3", "C847:8C:F2:7E:03:"] {
+            let body = form::encode(&[("address", address)]);
+            assert_eq!(Battery::from_form(&body), Err(SettingsError::BmsAddress), "{address}");
+        }
     }
 }

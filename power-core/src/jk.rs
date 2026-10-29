@@ -14,6 +14,39 @@ const HEADER: [u8; 4] = [0x55, 0xAA, 0xEB, 0x90];
 /// Longer than any frame: something got lost, start over.
 const MAX_BUFFER: usize = 400;
 
+/// A Bluetooth device heard while looking for the BMS.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Found {
+    pub name: String,
+    /// `AA:BB:CC:DD:EE:FF`.
+    pub address: String,
+    pub random: bool,
+    pub rssi: i8,
+    /// Advertises the BMS service.
+    pub service: bool,
+}
+
+impl Found {
+    /// Looks like a JK BMS: offers its service or carries its name.
+    pub fn likely(&self) -> bool {
+        self.service || self.name.get(..2).is_some_and(|start| start.eq_ignore_ascii_case("jk"))
+    }
+}
+
+/// The list the page shows: named devices once each (strongest signal),
+/// likely BMS first, then by signal.
+pub fn candidates(mut found: Vec<Found>) -> Vec<Found> {
+    found.retain(|f| !f.name.is_empty());
+    found.sort_by_key(|f| (!f.likely(), std::cmp::Reverse(f.rssi)));
+    let mut seen = Vec::new();
+    found.retain(|f| {
+        let first = !seen.contains(&f.address);
+        seen.push(f.address.clone());
+        first
+    });
+    found
+}
+
 /// What to ask the BMS for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Request {
@@ -329,6 +362,31 @@ mod tests {
         assert_eq!(value(&discharging, "bms_current"), "-1.6");
         assert_eq!(value(&discharging, "bms_power"), "-19");
         assert_eq!(value(&discharging, "bms_mosfet"), "-0.4");
+    }
+
+    fn found(name: &str, address: &str, rssi: i8, service: bool) -> Found {
+        Found { name: name.into(), address: address.into(), random: false, rssi, service }
+    }
+
+    #[test]
+    fn candidates_put_likely_bms_first() {
+        let list = candidates(vec![
+            found("Phone", "01", -40, false),
+            found("", "02", -30, true),
+            found("JK-B2A24S", "03", -80, false),
+            found("Battery", "04", -70, true),
+            found("JK-B2A24S", "03", -60, false),
+            found("TV", "05", -50, false),
+        ]);
+        let shown: Vec<_> = list.iter().map(|f| (f.address.as_str(), f.rssi)).collect();
+        assert_eq!(shown, [("03", -60), ("04", -70), ("01", -40), ("05", -50)]);
+        assert!(list[0].likely() && list[1].likely() && !list[2].likely());
+    }
+
+    #[test]
+    fn jk_names_count_in_any_case() {
+        assert!(found("jk_PB2A16S15P", "1", 0, false).likely());
+        assert!(!found("Ajk", "1", 0, false).likely());
     }
 
     #[test]
