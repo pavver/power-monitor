@@ -12,6 +12,11 @@ pub fn parse(body: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The value of the first `name` field, or `""` when absent.
+pub fn field<'a>(pairs: &'a [(String, String)], name: &str) -> &'a str {
+    pairs.iter().find(|(key, _)| key == name).map_or("", |(_, value)| value)
+}
+
 /// Joins pairs into an encoded body.
 pub fn encode(pairs: &[(&str, &str)]) -> String {
     pairs
@@ -73,6 +78,13 @@ mod tests {
 
     fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
         list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn field_finds_the_first_value_or_nothing() {
+        let fields = parse("a=1&b=2&a=3");
+        assert_eq!(field(&fields, "a"), "1");
+        assert_eq!(field(&fields, "c"), "");
     }
 
     #[test]

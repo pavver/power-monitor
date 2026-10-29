@@ -4,9 +4,8 @@
 pub mod power;
 pub mod message;
 pub mod form;
-pub mod config;
 pub mod dns;
 pub mod outbox;
 pub mod telegram;
-pub mod html;
 pub mod template;
+pub mod settings;

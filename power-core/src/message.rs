@@ -1,6 +1,8 @@
 //! Telegram message texts.
 
 use crate::power::{PowerEvent, PowerState};
+use crate::settings::{Messages, Text};
+use crate::template;
 
 /// Events delivered later than this get a note saying when they happened,
 /// since Wi-Fi is often down together with the power.
@@ -23,22 +25,20 @@ pub fn format_duration(ms: u64) -> String {
 }
 
 /// The message for `event`, written at monotonic time `now_ms`.
-pub fn event_text(device: &str, event: &PowerEvent, now_ms: u64) -> String {
-    let mut text = match (event.state, event.previous_lasted_ms) {
-        (PowerState::Present, None) => format!("🟢 {device}: монітор запущено, світло є."),
-        (PowerState::Absent, None) => format!("🔴 {device}: монітор запущено, світла немає."),
-        (PowerState::Present, Some(ms)) => {
-            format!("🟢 {device}: світло з'явилось.\nНе було {}.", format_duration(ms))
-        }
-        (PowerState::Absent, Some(ms)) => {
-            format!("🔴 {device}: світло зникло.\nБуло {}.", format_duration(ms))
-        }
+pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64) -> String {
+    let text = match (event.state, event.previous_lasted_ms) {
+        (PowerState::Present, None) => Text::StartPresent,
+        (PowerState::Absent, None) => Text::StartAbsent,
+        (PowerState::Present, Some(_)) => Text::Returned,
+        (PowerState::Absent, Some(_)) => Text::Lost,
     };
+    let duration = format_duration(event.previous_lasted_ms.unwrap_or(0));
+    let mut out = template::render(messages.template(text), messages.device_name(), &duration);
     let delay = now_ms.saturating_sub(event.at_ms);
     if delay >= LATE_AFTER_MS {
-        text += &format!("\n(сталося {} тому)", format_duration(delay));
+        out += &format!("\n(сталося {} тому)", format_duration(delay));
     }
-    text
+    out
 }
 
 /// Sent from the web page to check the bot settings.
@@ -49,6 +49,7 @@ pub fn test_text(device: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::form;
     use PowerState::*;
 
     const SEC: u64 = 1_000;
@@ -80,7 +81,7 @@ mod tests {
     #[test]
     fn start_up_with_power() {
         assert_eq!(
-            event_text("Дім", &event(Present, None), 10 * SEC),
+            event_text(&Messages::default(), &event(Present, None), 10 * SEC),
             "🟢 Дім: монітор запущено, світло є."
         );
     }
@@ -88,7 +89,7 @@ mod tests {
     #[test]
     fn start_up_without_power() {
         assert_eq!(
-            event_text("Дім", &event(Absent, None), 10 * SEC),
+            event_text(&Messages::default(), &event(Absent, None), 10 * SEC),
             "🔴 Дім: монітор запущено, світла немає."
         );
     }
@@ -96,30 +97,46 @@ mod tests {
     #[test]
     fn power_returned_says_how_long_it_was_out() {
         assert_eq!(
-            event_text("Дача", &event(Present, Some(2 * HOUR + 15 * MIN)), 10 * SEC),
-            "🟢 Дача: світло з'явилось.\nНе було 2 год 15 хв."
+            event_text(&Messages::default(), &event(Present, Some(2 * HOUR + 15 * MIN)), 10 * SEC),
+            "🟢 Дім: світло з'явилось.\nНе було 2 год 15 хв."
         );
     }
 
     #[test]
     fn power_lost_says_how_long_it_was_on() {
         assert_eq!(
-            event_text("Дім", &event(Absent, Some(5 * MIN)), 10 * SEC),
+            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC),
             "🔴 Дім: світло зникло.\nБуло 5 хв."
+        );
+    }
+
+    #[test]
+    fn uses_the_users_templates() {
+        let body = form::encode(&[
+            ("device_name", "Дача"),
+            ("start_present", "a"),
+            ("start_absent", "b"),
+            ("lost", "Нема світла на {device} після {duration}"),
+            ("returned", "d"),
+        ]);
+        let messages = Messages::from_form(&body).unwrap();
+        assert_eq!(
+            event_text(&messages, &event(Absent, Some(3 * MIN)), 10 * SEC),
+            "Нема світла на Дача після 3 хв"
         );
     }
 
     #[test]
     fn late_delivery_says_when_it_happened() {
         assert_eq!(
-            event_text("Дім", &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN),
+            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN),
             "🔴 Дім: світло зникло.\nБуло 5 хв.\n(сталося 12 хв тому)"
         );
     }
 
     #[test]
     fn delivery_within_a_minute_is_not_late() {
-        let text = event_text("Дім", &event(Present, None), 10 * SEC + LATE_AFTER_MS - 1);
+        let text = event_text(&Messages::default(), &event(Present, None), 10 * SEC + LATE_AFTER_MS - 1);
         assert!(!text.contains("тому"), "{text}");
     }
 }
