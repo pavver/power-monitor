@@ -45,7 +45,7 @@ pub struct Network {
 /// Drops hidden networks and repeats of the same name, strongest first.
 pub fn tidy_networks(mut networks: Vec<Network>) -> Vec<Network> {
     networks.retain(|n| !n.ssid.is_empty());
-    networks.sort_by(|a, b| b.rssi.cmp(&a.rssi));
+    networks.sort_by_key(|n| std::cmp::Reverse(n.rssi));
     let mut seen = Vec::new();
     networks.retain(|n| {
         let first = !seen.contains(&n.ssid);
