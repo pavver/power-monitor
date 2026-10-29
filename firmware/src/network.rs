@@ -3,6 +3,10 @@
 //! Without saved credentials (or when the saved network is unreachable at
 //! start-up) the setup access point runs alongside the station, with a DNS
 //! responder for the captive portal, until the next restart.
+//!
+//! Once the setup access point runs, only the station's configuration is
+//! touched: re-applying the access point's restarts it and drops every phone,
+//! closing the portal before it can show a failed connection.
 
 use std::ffi::CString;
 use std::net::UdpSocket;
@@ -20,15 +24,18 @@ use esp_idf_svc::netif::{EspNetif, NetifConfiguration, NetifStack};
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sys::{
     esp, esp_netif_dhcp_option_id_t_ESP_NETIF_CAPTIVEPORTAL_URI, esp_netif_dhcp_option_mode_t_ESP_NETIF_OP_SET,
-    esp_netif_dhcps_option, esp_netif_dhcps_start, esp_netif_dhcps_stop, ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED,
+    esp_netif_dhcps_option, esp_netif_dhcps_start, esp_netif_dhcps_stop, esp_wifi_get_config, esp_wifi_set_config,
+    wifi_auth_mode_t_WIFI_AUTH_OPEN, wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK, wifi_config_t, wifi_interface_t_WIFI_IF_STA,
+    ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED,
 };
 use esp_idf_svc::wifi::{
     AccessPointConfiguration, AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiDriver,
 };
-use power_core::api::{tidy_networks, Link, Network};
+use power_core::api::Link;
 use power_core::dns;
-use power_core::portal::{portal_url, SETUP_IP};
 use power_core::message::Notice;
+use power_core::portal::{portal_url, SETUP_IP};
+use power_core::radio::{self, Seen};
 use power_core::settings::WifiCredentials;
 
 use crate::settings::Settings;
@@ -50,6 +57,8 @@ struct Radio {
     wifi: Wifi,
     setup_ap: bool,
     last_scan: Option<Instant>,
+    /// Access points heard in the last scan.
+    seen: Vec<Seen>,
     settings: Arc<Settings>,
     status: Arc<Status>,
     notices: Sender<Notice>,
@@ -66,7 +75,7 @@ pub fn start(
     let driver = WifiDriver::new(modem, sys_loop.clone(), Some(nvs))?;
     let esp_wifi = EspWifi::wrap_all(driver, EspNetif::new(NetifStack::Sta)?, setup_ap_netif()?)?;
     let wifi = BlockingWifi::wrap(esp_wifi, sys_loop)?;
-    let mut network = Radio { wifi, setup_ap: false, last_scan: None, settings, status, notices };
+    let mut network = Radio { wifi, setup_ap: false, last_scan: None, seen: Vec::new(), settings, status, notices };
     network.boot()?;
     let (commands, inbox) = mpsc::channel();
     thread::Builder::new().stack_size(8 * 1024).spawn(move || network.run(inbox))?;
@@ -75,16 +84,16 @@ pub fn start(
 
 impl Radio {
     fn boot(&mut self) -> anyhow::Result<()> {
-        let Some(saved) = self.settings.wifi() else {
-            return self.start_setup_ap(ClientConfiguration::default());
-        };
-        self.wifi.set_configuration(&Configuration::Client(client(&saved)?))?;
+        let saved = self.settings.wifi();
+        let station = saved.as_ref().map(client).transpose()?.unwrap_or_default();
+        self.wifi.set_configuration(&Configuration::Client(station.clone()))?;
         self.wifi.start()?;
-        if self.connect(&saved).is_err() {
-            self.wifi.stop()?;
-            self.start_setup_ap(client(&saved)?)?;
+        if let Some(saved) = &saved {
+            if self.connect(saved).is_ok() {
+                return Ok(());
+            }
         }
-        Ok(())
+        self.start_setup_ap(station)
     }
 
     fn run(mut self, inbox: Receiver<Command>) {
@@ -104,16 +113,19 @@ impl Radio {
         }
         self.last_scan = Some(Instant::now());
         match self.wifi.scan() {
-            Ok(found) => self.status.set_networks(tidy_networks(
-                found
+            Ok(found) => {
+                self.seen = found
                     .into_iter()
-                    .map(|ap| Network {
+                    .map(|ap| Seen {
                         ssid: ap.ssid.to_string(),
                         rssi: ap.signal_strength,
+                        channel: ap.channel,
+                        bssid: ap.bssid,
                         secure: !matches!(ap.auth_method, None | Some(AuthMethod::None)),
                     })
-                    .collect(),
-            )),
+                    .collect();
+                self.status.set_networks(radio::networks(&self.seen));
+            }
             Err(error) => log::warn!("wifi scan: {error}"),
         }
     }
@@ -121,8 +133,7 @@ impl Radio {
     /// Joins a network chosen on the page; it is saved only once it works.
     fn switch_to(&mut self, credentials: WifiCredentials) {
         let _ = self.wifi.disconnect();
-        let applied = client(&credentials).and_then(|c| Ok(self.wifi.set_configuration(&self.configuration(c))?));
-        if let Err(error) = applied {
+        if let Err(error) = self.aim_station(&credentials) {
             self.fail(&credentials, &error.to_string());
             return;
         }
@@ -133,16 +144,45 @@ impl Radio {
         }
     }
 
-    /// Reconnects to the saved network after a drop.
+    /// Reconnects to the saved network after a drop. While phones may be on
+    /// the setup network, only when the saved network was heard, so the radio
+    /// does not sweep every channel each time.
     fn keep_connected(&mut self) {
         let Some(saved) = self.settings.wifi() else { return };
         if self.wifi.is_connected().unwrap_or(false) {
             return;
         }
-        let applied = client(&saved).and_then(|c| Ok(self.wifi.set_configuration(&self.configuration(c))?));
-        if applied.is_ok() {
+        if self.setup_ap && radio::strongest(&self.seen, saved.ssid()).is_none() {
+            return;
+        }
+        if self.aim_station(&saved).is_ok() {
             let _ = self.connect(&saved);
         }
+    }
+
+    /// Points the station at `credentials`, on the channel and access point
+    /// heard in the last scan when there is one. Leaves the access point alone.
+    fn aim_station(&self, credentials: &WifiCredentials) -> anyhow::Result<()> {
+        let target = radio::strongest(&self.seen, credentials.ssid());
+        let mut conf = wifi_config_t::default();
+        // SAFETY: the driver is initialised; the station view of the union is
+        // the one read and written for WIFI_IF_STA.
+        unsafe {
+            esp!(esp_wifi_get_config(wifi_interface_t_WIFI_IF_STA, &mut conf))?;
+            let sta = &mut conf.sta;
+            sta.ssid = padded(credentials.ssid()).ok_or_else(|| anyhow::anyhow!("ssid too long"))?;
+            sta.password = padded(credentials.password()).ok_or_else(|| anyhow::anyhow!("password too long"))?;
+            sta.threshold.authmode = if credentials.password().is_empty() {
+                wifi_auth_mode_t_WIFI_AUTH_OPEN
+            } else {
+                wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK
+            };
+            sta.channel = target.map_or(0, |t| t.channel);
+            sta.bssid_set = target.is_some();
+            sta.bssid = target.map_or([0; 6], |t| t.bssid);
+            esp!(esp_wifi_set_config(wifi_interface_t_WIFI_IF_STA, &mut conf))?;
+        }
+        Ok(())
     }
 
     fn connect(&mut self, credentials: &WifiCredentials) -> anyhow::Result<()> {
@@ -151,7 +191,12 @@ impl Radio {
         let result = self.wifi.connect().and_then(|()| self.wifi.wait_netif_up());
         if let Err(error) = result {
             log::warn!("wifi connect {ssid}: {error}");
-            self.fail(credentials, "не вдалося підключитися — перевірте пароль і сигнал");
+            let reason = if radio::strongest(&self.seen, &ssid).is_some() || self.seen.is_empty() {
+                "не вдалося підключитися — неправильний пароль або мережа відхилила підключення"
+            } else {
+                "мережу не знайдено поруч"
+            };
+            self.fail(credentials, reason);
             anyhow::bail!(error);
         }
         let ip = self.wifi.wifi().sta_netif().get_ip_info()?.ip.to_string();
@@ -179,20 +224,19 @@ impl Radio {
         });
     }
 
-    fn configuration(&self, client: ClientConfiguration) -> Configuration {
-        if self.setup_ap {
-            Configuration::Mixed(client, setup_ap())
-        } else {
-            Configuration::Client(client)
-        }
-    }
-
-    fn start_setup_ap(&mut self, client: ClientConfiguration) -> anyhow::Result<()> {
+    /// Starts the setup network on the channel the station is most likely to
+    /// join, so that joining it later does not move the phones' channel.
+    /// Expects the station to be started (it scans first).
+    fn start_setup_ap(&mut self, station: ClientConfiguration) -> anyhow::Result<()> {
+        self.scan();
+        let preferred = self.settings.wifi();
+        let channel = radio::setup_channel(&self.seen, preferred.as_ref().map(|w| w.ssid()));
+        self.wifi.stop()?;
         self.setup_ap = true;
-        self.wifi.set_configuration(&Configuration::Mixed(client, setup_ap()))?;
+        self.wifi.set_configuration(&Configuration::Mixed(station, setup_ap(channel)))?;
         self.wifi.start()?;
         offer_portal_uri(self.wifi.wifi().ap_netif())?;
-        log::info!("setup access point {SETUP_SSID} at {}", portal_url());
+        log::info!("setup access point {SETUP_SSID} on channel {channel} at {}", portal_url());
         self.status.set_setup_ap(SETUP_SSID);
         spawn_dns(SETUP_IP)
     }
@@ -254,9 +298,10 @@ fn spawn_dns(ip: [u8; 4]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn setup_ap() -> AccessPointConfiguration {
+fn setup_ap(channel: u8) -> AccessPointConfiguration {
     AccessPointConfiguration {
         ssid: SETUP_SSID.try_into().unwrap(),
+        channel,
         auth_method: AuthMethod::None,
         max_connections: 4,
         ..Default::default()
@@ -275,4 +320,11 @@ fn client(credentials: &WifiCredentials) -> anyhow::Result<ClientConfiguration> 
         auth_method,
         ..Default::default()
     })
+}
+
+/// `text` in a zero-padded driver field, or `None` when it does not fit.
+fn padded<const N: usize>(text: &str) -> Option<[u8; N]> {
+    let mut field = [0u8; N];
+    field.get_mut(..text.len())?.copy_from_slice(text.as_bytes());
+    Some(field)
 }
