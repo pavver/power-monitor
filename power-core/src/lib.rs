@@ -16,5 +16,6 @@ pub mod reset;
 pub mod portal;
 pub mod radio;
 pub mod jk;
+pub mod remote;
 #[cfg(test)]
 mod jk_frames;
