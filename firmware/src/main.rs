@@ -15,10 +15,13 @@ mod web;
 
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
+use power_core::reset::{self, BootAction, QUICK_BOOT_MS};
 
 use crate::settings::Settings;
 use crate::status::Status;
@@ -31,19 +34,44 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
     let settings = Arc::new(Settings::load(nvs.clone())?);
+    count_quick_boot(&settings)?;
     let status = Arc::new(Status::new(ota::running()));
     status.set_telegram(if settings.bot().is_some() { "очікує подій" } else { "бот не налаштовано" });
 
-    let (events_tx, events_rx) = mpsc::channel();
-    sensor::spawn(peripherals.pins.gpio4, events_tx, status.clone())?;
-    notifier::spawn(events_rx, settings.clone(), status.clone())?;
-    let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone())?;
+    let (notices, inbox) = mpsc::channel();
+    sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone())?;
+    notifier::spawn(inbox, settings.clone(), status.clone())?;
+    let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone(), notices)?;
     let _server = web::start(settings, status, network)?;
     // Up far enough to take another update: keep this image.
     ota::confirm_running();
 
     // The work happens in other threads; this one keeps the server alive.
     loop {
-        std::thread::park();
+        thread::park();
     }
+}
+
+/// Five power cycles in a row, each within 10 s of start-up, wipe the
+/// settings: the way back in for someone who forgot the page password.
+fn count_quick_boot(settings: &Arc<Settings>) -> anyhow::Result<()> {
+    match reset::on_boot(settings.quick_boots()) {
+        BootAction::FactoryReset => {
+            log::warn!("factory reset: {} quick start-ups in a row", reset::QUICK_BOOTS_FOR_RESET);
+            settings.factory_reset()?;
+            esp_idf_svc::hal::reset::restart();
+        }
+        BootAction::Count(count) => {
+            log::info!("quick start-up {count} of {}", reset::QUICK_BOOTS_FOR_RESET);
+            settings.set_quick_boots(count)?;
+            let settings = settings.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(QUICK_BOOT_MS));
+                if let Err(error) = settings.set_quick_boots(0) {
+                    log::error!("clearing quick start-ups: {error}");
+                }
+            });
+        }
+    }
+    Ok(())
 }

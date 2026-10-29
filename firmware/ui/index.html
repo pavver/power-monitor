@@ -98,6 +98,7 @@ textarea:focus{border-color:var(--border-strong)}
 .btn.err{color:var(--error);border:calc(var(--du)*.5) solid var(--error);background:color-mix(in srgb,var(--error) 15%,var(--surface));animation:pulse .4s infinite alternate}
 @keyframes pulse{from{border-color:color-mix(in srgb,currentColor 55%,transparent)}}
 .btn.wide{width:100%}
+.btn.danger{color:var(--error);border-color:var(--error);background:color-mix(in srgb,var(--error) 15%,var(--surface))}
 .actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
 .actions .btn{flex:1 1 calc(var(--du)*40)}
 .msg{margin-top:calc(var(--du)*2);min-height:18px;overflow-wrap:anywhere}
@@ -119,6 +120,24 @@ textarea:focus{border-color:var(--border-strong)}
   <div class="progress" id="progress"><i></i><i></i><i></i></div>
 </header>
 <main>
+
+<!-- Login -->
+<section id="s-login">
+  <form class="card" id="login-form">
+    <h2>Вхід</h2>
+    <p class="muted">Панель захищено паролем.</p>
+    <label for="login-pass">Пароль</label>
+    <div class="field"><input id="login-pass" type="password" autocomplete="current-password" required></div>
+    <div class="actions"><button class="btn primary" id="login-btn">Увійти</button></div>
+    <div class="msg" id="login-msg"></div>
+  </form>
+  <div class="card alt">
+    <h2>Забули пароль?</h2>
+    <p class="small muted">Скиньте пристрій до заводських налаштувань: 5 разів поспіль увімкніть живлення
+      і через 2–3 секунди знову вимкніть (кожне вмикання коротше за 10 секунд). Після п'ятого вмикання пристрій зітре всі налаштування
+      (Wi-Fi, бота, тексти, пароль) і знову створить точку доступу «PowerMonitor-Setup».</p>
+  </div>
+</section>
 
 <!-- Step 1: Wi-Fi -->
 <section id="s-wifi">
@@ -206,6 +225,22 @@ textarea:focus{border-color:var(--border-strong)}
     <div class="actions"><button class="btn primary" id="messages-btn">Зберегти</button></div>
     <div class="msg" id="messages-msg"></div>
   </form>
+  <div class="card">
+    <h2>Доступ до панелі</h2>
+    <p class="small muted" id="access-state"></p>
+    <form id="password-form">
+      <label for="pw-new">Новий пароль</label>
+      <div class="field"><input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="4" maxlength="64" required></div>
+      <label for="pw-confirm">Повторіть пароль</label>
+      <div class="field"><input id="pw-confirm" name="confirm" type="password" autocomplete="new-password" minlength="4" maxlength="64" required></div>
+      <div class="actions"><button class="btn primary" id="pw-btn">Зберегти пароль</button></div>
+    </form>
+    <div class="actions" id="access-actions">
+      <button class="btn" type="button" id="pw-off-btn">Вимкнути пароль</button>
+      <button class="btn" type="button" id="logout-btn">Вийти</button>
+    </div>
+    <div class="msg" id="pw-msg"></div>
+  </div>
   <div class="card" id="ota-card">
     <h2>Прошивка</h2>
     <div class="list" style="margin-bottom:calc(var(--du)*3)">
@@ -220,6 +255,14 @@ textarea:focus{border-color:var(--border-strong)}
     <div class="meter hidden" id="ota-meter"><i id="ota-bar"></i></div>
     <div class="actions"><button class="btn primary" type="button" id="ota-btn" disabled>Оновити</button></div>
     <div class="msg" id="ota-msg"></div>
+  </div>
+  <div class="card">
+    <h2>Заводські налаштування</h2>
+    <p class="small muted">Стирає Wi-Fi, бота, тексти й пароль. Пристрій перезапуститься з точкою доступу
+      «PowerMonitor-Setup». Без доступу до панелі те саме робиться так: 5 разів поспіль увімкніть живлення
+      і через 2–3 секунди знову вимкніть (кожне вмикання має бути коротшим за 10 секунд).</p>
+    <div class="actions"><button class="btn danger" type="button" id="reset-btn">Скинути все</button></div>
+    <div class="msg" id="reset-msg"></div>
   </div>
 </section>
 
@@ -239,6 +282,7 @@ async function api(path, fields) {
   const init = fields ? {method: "POST", body: new URLSearchParams(fields)} : {};
   const response = await fetch(path, init);
   const data = await response.json().catch(() => ({error: "Пристрій не відповів"}));
+  if (response.status === 401 && data.login) { show("login"); throw new Error(data.error); }
   if (!response.ok) throw new Error(data.error || "Помилка " + response.status);
   return data;
 }
@@ -271,8 +315,8 @@ async function act(button, work) {
 /* ---------- screens ---------- */
 function show(name) {
   view = name;
-  ["wifi", "bot", "dashboard"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
-  const step = {wifi: 1, bot: 2, dashboard: 3}[name];
+  ["login", "wifi", "bot", "dashboard"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
+  const step = {login: 0, wifi: 1, bot: 2, dashboard: 3}[name];
   [...$("progress").children].forEach((bar, i) => bar.classList.toggle("lit", i < step));
   const configured = state && state.stage === "dashboard";
   $("wifi-back").classList.toggle("hidden", !configured);
@@ -286,7 +330,11 @@ document.addEventListener("click", e => {
 
 /* ---------- state ---------- */
 async function refreshState() {
-  try { state = await api("/api/state"); } catch (e) { $("subtitle").textContent = "немає зв'язку з пристроєм"; return; }
+  try { state = await api("/api/state"); } catch (e) {
+    $("subtitle").textContent = view === "login" ? "потрібен пароль" : "немає зв'язку з пристроєм";
+    return;
+  }
+  if (view === "login") view = null;
   // Follow the setup forward only while the user is still on the step just finished.
   const advanced = stageBefore !== null && stageBefore !== state.stage && view === stageBefore;
   if (!view || advanced) show(state.stage);
@@ -335,6 +383,10 @@ function renderDashboard() {
   $("fw-version").textContent = state.firmware.version || "—";
   $("fw-built").textContent = state.firmware.built || "—";
   $("fw-slot").textContent = state.firmware.slot || "—";
+  $("access-state").textContent = state.password_set
+    ? "Пароль увімкнено. Можна змінити його або вимкнути."
+    : "Пароль вимкнено: панель відкрита всім у мережі. Задайте пароль, щоб захистити її.";
+  $("access-actions").classList.toggle("hidden", !state.password_set);
 }
 
 /* ---------- Wi-Fi ---------- */
@@ -448,6 +500,46 @@ $("messages-form").onsubmit = e => {
   }).catch(err => say("messages-msg", err.message, "err"));
 };
 
+/* ---------- access ---------- */
+$("login-form").onsubmit = e => {
+  e.preventDefault();
+  act($("login-btn"), async () => {
+    await api("/api/login", {password: $("login-pass").value});
+    $("login-pass").value = "";
+    say("login-msg", "");
+    await refreshState();
+  }).catch(err => say("login-msg", err.message, "err"));
+};
+
+$("password-form").onsubmit = e => {
+  e.preventDefault();
+  act($("pw-btn"), async () => {
+    await api("/api/password", {password: $("pw-new").value, confirm: $("pw-confirm").value});
+    e.target.reset();
+    say("pw-msg", "Пароль збережено. Інші пристрої мають увійти заново.", "ok");
+    await refreshState();
+  }).catch(err => say("pw-msg", err.message, "err"));
+};
+
+$("pw-off-btn").onclick = () => act($("pw-off-btn"), async () => {
+  await api("/api/password/off", {});
+  say("pw-msg", "Пароль вимкнено.", "ok");
+  await refreshState();
+}).catch(err => say("pw-msg", err.message, "err"));
+
+$("logout-btn").onclick = () => act($("logout-btn"), async () => {
+  await api("/api/logout", {});
+  show("login");
+}).catch(err => say("pw-msg", err.message, "err"));
+
+$("reset-btn").onclick = () => {
+  if (!confirm("Стерти всі налаштування й перезапустити пристрій?")) return;
+  act($("reset-btn"), async () => {
+    await api("/api/factory-reset", {});
+    say("reset-msg", "Налаштування стерто. Підключіться до Wi-Fi «PowerMonitor-Setup».", "ok");
+  }).catch(err => say("reset-msg", err.message, "err"));
+};
+
 /* ---------- firmware update ---------- */
 $("ota-file").onchange = () => { $("ota-btn").disabled = !$("ota-file").files.length; say("ota-msg", ""); };
 
@@ -466,6 +558,7 @@ function upload(file) {
     xhr.onload = () => {
       let data = {};
       try { data = JSON.parse(xhr.responseText); } catch (e) {}
+      if (xhr.status === 401 && data.login) show("login");
       xhr.status === 200 ? resolve(data) : reject(new Error(data.error || "Помилка " + xhr.status));
     };
     xhr.onerror = () => reject(new Error("Зв'язок із пристроєм перервався"));

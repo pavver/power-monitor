@@ -86,6 +86,7 @@ impl Status {
             chat_id: bot.map(|b| b.chat_id()),
             messages: &messages,
             firmware: &self.firmware,
+            password_set: settings.password().is_some(),
         };
         serde_json::to_string(&state).unwrap_or_default()
     }

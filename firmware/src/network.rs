@@ -18,6 +18,7 @@ use esp_idf_svc::wifi::{
 };
 use power_core::api::{tidy_networks, Link, Network};
 use power_core::dns;
+use power_core::message::Notice;
 use power_core::settings::WifiCredentials;
 
 use crate::settings::Settings;
@@ -41,6 +42,7 @@ struct Radio {
     last_scan: Option<Instant>,
     settings: Arc<Settings>,
     status: Arc<Status>,
+    notices: Sender<Notice>,
 }
 
 pub fn start(
@@ -49,9 +51,10 @@ pub fn start(
     nvs: EspDefaultNvsPartition,
     settings: Arc<Settings>,
     status: Arc<Status>,
+    notices: Sender<Notice>,
 ) -> anyhow::Result<Sender<Command>> {
     let wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
-    let mut network = Radio { wifi, setup_ap: false, last_scan: None, settings, status };
+    let mut network = Radio { wifi, setup_ap: false, last_scan: None, settings, status, notices };
     network.boot()?;
     let (commands, inbox) = mpsc::channel();
     thread::Builder::new().stack_size(8 * 1024).spawn(move || network.run(inbox))?;
@@ -141,8 +144,20 @@ impl Radio {
         }
         let ip = self.wifi.wifi().sta_netif().get_ip_info()?.ip.to_string();
         log::info!("wifi connected to {ssid}, ip {ip}");
+        self.report_if_new(&ip);
         self.status.set_link(Link::Connected { ssid, ip });
         Ok(())
+    }
+
+    /// Remembers the address and tells the chat when it differs from the last one.
+    fn report_if_new(&self, ip: &str) {
+        if self.settings.last_ip().as_deref() == Some(ip) {
+            return;
+        }
+        if let Err(error) = self.settings.save_last_ip(ip) {
+            log::error!("saving address: {error}");
+        }
+        let _ = self.notices.send(Notice::Address(ip.to_string()));
     }
 
     fn fail(&self, credentials: &WifiCredentials, reason: &str) {

@@ -6,7 +6,8 @@ use std::thread;
 
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::gpio::{Input, InputPin, PinDriver, Pull};
-use power_core::power::{classify_window, Detector, PowerEvent};
+use power_core::message::Notice;
+use power_core::power::{classify_window, Detector};
 
 use crate::status::{now_ms, Status};
 
@@ -17,7 +18,7 @@ const CONFIRM_WINDOWS: u32 = 10;
 
 pub fn spawn(
     pin: impl InputPin + 'static,
-    events: Sender<PowerEvent>,
+    notices: Sender<Notice>,
     status: Arc<Status>,
 ) -> anyhow::Result<()> {
     let input = PinDriver::input(pin, Pull::Up)?;
@@ -30,7 +31,7 @@ pub fn spawn(
                 log::info!("power {:?}", event.state);
                 status.set_power(event.state, event.at_ms);
                 // Nobody listens until the bot is configured; that is fine.
-                let _ = events.send(event);
+                let _ = notices.send(Notice::Power(event));
             }
         }
     })?;
