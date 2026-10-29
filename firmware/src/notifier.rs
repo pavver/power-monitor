@@ -46,7 +46,7 @@ fn deliver_next(outbox: &mut Outbox<Notice>, settings: &Settings, status: &Statu
         status.set_telegram("бот не налаштовано, повідомлення чекають");
         return false;
     };
-    let text = notice_text(&settings.messages(), notice, now_ms());
+    let text = notice_text(&settings.messages(), notice, now_ms(), None);
     match telegram::send(&bot, &text) {
         Ok(()) => {
             outbox.delivered();

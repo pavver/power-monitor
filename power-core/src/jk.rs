@@ -127,6 +127,51 @@ pub struct Reading {
     pub discharging: bool,
 }
 
+/// Template variables for a reading, in the order the page lists them.
+pub const VARIABLES: [&str; 15] = [
+    "bms_soc", "bms_voltage", "bms_current", "bms_power", "bms_remaining", "bms_capacity",
+    "bms_cycles", "bms_cell_min", "bms_cell_max", "bms_cell_delta", "bms_temp1", "bms_temp2",
+    "bms_mosfet", "bms_charging", "bms_discharging",
+];
+
+impl Reading {
+    /// Each of `VARIABLES` with its value as people read it, without units.
+    pub fn values(&self) -> [(&'static str, String); 15] {
+        let cell_min = self.cells_mv.iter().copied().min().unwrap_or(0);
+        let cell_max = self.cells_mv.iter().copied().max().unwrap_or(0);
+        let watts = f64::from(self.voltage_mv) * f64::from(self.current_ma) / 1e6;
+        let yes = |on: bool| if on { "так" } else { "ні" }.to_string();
+        let values = [
+            self.soc.to_string(),
+            milli(self.voltage_mv.into(), 2),
+            milli(self.current_ma.into(), 1),
+            format!("{watts:.0}"),
+            milli(self.remaining_mah.into(), 1),
+            milli(self.capacity_mah.into(), 1),
+            self.cycles.to_string(),
+            milli(cell_min.into(), 3),
+            milli(cell_max.into(), 3),
+            milli((cell_max - cell_min).into(), 3),
+            tenths(self.temp1_dc),
+            tenths(self.temp2_dc),
+            tenths(self.mosfet_dc),
+            yes(self.charging),
+            yes(self.discharging),
+        ];
+        let mut values = values.into_iter();
+        VARIABLES.map(|name| (name, values.next().unwrap_or_default()))
+    }
+}
+
+/// Thousandths shown with `decimals` places: `milli(53_224, 2)` is "53.22".
+fn milli(value: i64, decimals: usize) -> String {
+    format!("{:.decimals$}", value as f64 / 1000.0)
+}
+
+fn tenths(value: i16) -> String {
+    format!("{:.1}", f64::from(value) / 10.0)
+}
+
 /// Reads a cell info frame laid out as `layout`.
 pub fn reading(frame: &[u8], layout: Layout) -> Reading {
     let (cells, shift) = match layout {
@@ -256,6 +301,34 @@ mod tests {
         assert_eq!((r.voltage_mv, r.current_ma, r.soc, r.cycles), (53_224, 31_881, 25, 9));
         assert_eq!((r.remaining_mah, r.capacity_mah), (49_286, 200_000));
         assert_eq!((r.temp1_dc, r.temp2_dc, r.mosfet_dc), (134, 128, 129));
+    }
+
+    fn value(r: &Reading, name: &str) -> String {
+        r.values().into_iter().find(|(n, _)| *n == name).unwrap().1
+    }
+
+    #[test]
+    fn values_read_like_a_dashboard() {
+        let r = measured(&DEVICE_INFO_JK02_32S_V15, &CELL_INFO_JK02_32S_V15);
+        let all: Vec<_> = r.values().into_iter().map(|(_, v)| v).collect();
+        assert_eq!(
+            all,
+            [
+                "25", "53.22", "31.9", "1697", "49.3", "200.0", "9", "3.320", "3.337", "0.017", "13.4",
+                "12.8", "12.9", "так", "так"
+            ]
+        );
+    }
+
+    #[test]
+    fn values_keep_their_sign() {
+        let r = measured(&DEVICE_INFO_JK02_24S_V10, &CELL_INFO_JK02_24S_V10_NEG_TEMPS);
+        assert_eq!(value(&r, "bms_temp1"), "-3.1");
+        assert_eq!(value(&r, "bms_charging"), "ні");
+        let discharging = Reading { current_ma: -1_550, voltage_mv: 12_000, mosfet_dc: -4, ..r };
+        assert_eq!(value(&discharging, "bms_current"), "-1.6");
+        assert_eq!(value(&discharging, "bms_power"), "-19");
+        assert_eq!(value(&discharging, "bms_mosfet"), "-0.4");
     }
 
     #[test]

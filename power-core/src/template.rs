@@ -1,9 +1,9 @@
-//! User-editable message templates with `{device}` and `{duration}` placeholders.
+//! User-editable message templates with `{device}`, `{duration}` and battery
+//! (`{bms_soc}`, … see `jk::VARIABLES`) placeholders.
 
 use std::fmt;
 
-/// The placeholder for how long the previous state lasted.
-pub const DURATION: &str = "{duration}";
+use crate::jk;
 
 const MAX_CHARS: usize = 500;
 
@@ -22,7 +22,7 @@ impl fmt::Display for TemplateError {
             TemplateError::Empty => "текст не може бути порожнім",
             TemplateError::TooLong => "текст довший за 500 символів",
             TemplateError::NoDuration => "{duration} тут недоступний — при запуску тривалості ще немає",
-            TemplateError::Unknown => "дозволені лише змінні {device} та {duration}",
+            TemplateError::Unknown => "невідома змінна — дозволені {device}, {duration} і {bms_…} зі списку",
         })
     }
 }
@@ -39,14 +39,40 @@ pub fn validate(template: &str, with_duration: bool) -> Result<(), TemplateError
         "device" => Ok(()),
         "duration" if with_duration => Ok(()),
         "duration" => Err(TemplateError::NoDuration),
+        name if jk::VARIABLES.contains(&name) => Ok(()),
         _ => Err(TemplateError::Unknown),
     })
 }
 
-/// Fills the placeholders. Unknown ones cannot occur after `validate`.
-pub fn render(template: &str, device: &str, duration: &str) -> String {
-    // Duration first: a device name may itself contain "{duration}".
-    template.replace(DURATION, duration).replace("{device}", device)
+/// Fills the placeholders named in `values`; anything else stays as written.
+pub fn render(template: &str, values: &[(&str, &str)]) -> String {
+    // One pass, so an inserted value is never read as a placeholder.
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let filled = after.split_once('}').and_then(|(name, tail)| {
+            values.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value, tail))
+        });
+        match filled {
+            Some((value, tail)) => {
+                out.push_str(value);
+                rest = tail;
+            }
+            None => {
+                out.push('{');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Whether `template` shows any battery value.
+pub fn uses_bms(template: &str) -> bool {
+    placeholders(template).any(|name| jk::VARIABLES.contains(&name))
 }
 
 /// Names written as `{name}`, where a name is ASCII letters and underscores.
@@ -62,19 +88,35 @@ fn placeholders(template: &str) -> impl Iterator<Item = &str> {
 mod tests {
     use super::*;
 
+    const VALUES: [(&str, &str); 3] = [("device", "Дім"), ("duration", "5 хв"), ("bms_soc", "84")];
+
     #[test]
     fn fills_placeholders() {
-        assert_eq!(render("{device}: {duration}, {device}", "Дім", "5 хв"), "Дім: 5 хв, Дім");
+        assert_eq!(render("{device}: {duration}, {device}", &VALUES), "Дім: 5 хв, Дім");
+        assert_eq!(render("🔋 {bms_soc}%", &VALUES), "🔋 84%");
     }
 
     #[test]
     fn inserted_values_are_not_expanded_again() {
-        assert_eq!(render("{device}", "{duration}", "5 хв"), "{duration}");
+        assert_eq!(render("{device}", &[("device", "{duration}"), ("duration", "5 хв")]), "{duration}");
     }
 
     #[test]
-    fn leaves_plain_text_and_lone_braces_alone() {
-        assert_eq!(render("a { b } {", "x", "y"), "a { b } {");
+    fn leaves_plain_text_lone_braces_and_unknown_names_alone() {
+        assert_eq!(render("a { b } { {x} {", &VALUES), "a { b } { {x} {");
+    }
+
+    #[test]
+    fn accepts_battery_values_in_every_message() {
+        assert_eq!(validate("{bms_soc}% {bms_voltage} В {bms_cell_delta}", false), Ok(()));
+        assert_eq!(validate("{bms_nonsense}", false), Err(TemplateError::Unknown));
+    }
+
+    #[test]
+    fn knows_when_the_battery_is_needed() {
+        assert!(uses_bms("Заряд {bms_soc}%"));
+        assert!(!uses_bms("{device}: {duration}"));
+        assert!(!uses_bms("bms_soc без дужок"));
     }
 
     #[test]

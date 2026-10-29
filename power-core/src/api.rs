@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-use crate::message::{format_duration, UNKNOWN_DURATION};
+use crate::message::{format_duration, UNKNOWN};
 use crate::power::PowerState;
 use crate::settings::Messages;
 
@@ -87,7 +87,7 @@ pub struct Power {
 
 impl Power {
     pub fn new(state: PowerState, lasted_ms: Option<u64>) -> Self {
-        let lasted = lasted_ms.map_or_else(|| UNKNOWN_DURATION.to_string(), format_duration);
+        let lasted = lasted_ms.map_or_else(|| UNKNOWN.to_string(), format_duration);
         Self { present: state == PowerState::Present, lasted }
     }
 }

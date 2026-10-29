@@ -1,5 +1,6 @@
 //! Telegram message texts.
 
+use crate::jk::{self, Reading};
 use crate::power::{Before, PowerEvent, PowerState};
 use crate::settings::{Messages, Text};
 use crate::template;
@@ -10,8 +11,9 @@ use crate::template;
 /// the time of any event.
 const LATE_AFTER_MS: u64 = 60_000;
 
-/// Stands for a length nobody measured, e.g. of the state found at start-up.
-pub const UNKNOWN_DURATION: &str = "🤷‍♂️";
+/// Stands for a length nobody measured, e.g. of the state found at start-up,
+/// and for battery values when the BMS could not be read.
+pub const UNKNOWN: &str = "🤷‍♂️";
 
 /// Human-readable duration in Ukrainian, at most two units: "2 год 15 хв".
 pub fn format_duration(ms: u64) -> String {
@@ -29,25 +31,44 @@ pub fn format_duration(ms: u64) -> String {
     }
 }
 
-/// The message for `event`, written at monotonic time `now_ms`.
-pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64) -> String {
+/// The message for `event`, written at monotonic time `now_ms`; `bms` fills
+/// the battery values (a shrug for each when there is no reading).
+pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64, bms: Option<&Reading>) -> String {
     let start_up = event.before == Before::StartUp;
-    let text = match (event.state, start_up) {
-        (PowerState::Present, true) => Text::StartPresent,
-        (PowerState::Absent, true) => Text::StartAbsent,
-        (PowerState::Present, false) => Text::Returned,
-        (PowerState::Absent, false) => Text::Lost,
-    };
+    let text = text_for(event);
     let duration = match event.before {
         Before::Lasted(ms) => format_duration(ms),
-        _ => UNKNOWN_DURATION.to_string(),
+        _ => UNKNOWN.to_string(),
     };
-    let mut out = template::render(messages.template(text), messages.device_name(), &duration);
+    let battery = bms.map(Reading::values);
+    let mut values = vec![("device", messages.device_name()), ("duration", duration.as_str())];
+    match &battery {
+        Some(battery) => values.extend(battery.iter().map(|(name, value)| (*name, value.as_str()))),
+        None => values.extend(jk::VARIABLES.map(|name| (name, UNKNOWN))),
+    }
+    let mut out = template::render(messages.template(text), &values);
     let delay = now_ms.saturating_sub(event.at_ms);
     if !start_up && delay >= LATE_AFTER_MS {
         out += &format!("\n(сталося {} тому)", format_duration(delay));
     }
     out
+}
+
+fn text_for(event: &PowerEvent) -> Text {
+    match (event.state, event.before == Before::StartUp) {
+        (PowerState::Present, true) => Text::StartPresent,
+        (PowerState::Absent, true) => Text::StartAbsent,
+        (PowerState::Present, false) => Text::Returned,
+        (PowerState::Absent, false) => Text::Lost,
+    }
+}
+
+/// Whether the text for `notice` shows battery values, so the BMS has to be read first.
+pub fn needs_bms(messages: &Messages, notice: &Notice) -> bool {
+    match notice {
+        Notice::Power(event) => template::uses_bms(messages.template(text_for(event))),
+        Notice::Address(_) => false,
+    }
 }
 
 /// Something to tell the chat.
@@ -58,9 +79,9 @@ pub enum Notice {
     Address(String),
 }
 
-pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64) -> String {
+pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64, bms: Option<&Reading>) -> String {
     match notice {
-        Notice::Power(event) => event_text(messages, event, now_ms),
+        Notice::Power(event) => event_text(messages, event, now_ms, bms),
         Notice::Address(ip) => format!("🌐 {}: нова адреса панелі http://{ip}/", messages.device_name()),
     }
 }
@@ -107,7 +128,7 @@ mod tests {
     fn new_address_is_sent_as_a_link() {
         let notice = Notice::Address("192.168.1.50".to_string());
         assert_eq!(
-            notice_text(&Messages::default(), &notice, 0),
+            notice_text(&Messages::default(), &notice, 0, None),
             "🌐 Дім: нова адреса панелі http://192.168.1.50/"
         );
     }
@@ -116,8 +137,8 @@ mod tests {
     fn power_notice_uses_the_event_text() {
         let e = event(Absent, Some(5 * MIN));
         assert_eq!(
-            notice_text(&Messages::default(), &Notice::Power(e), 10 * SEC),
-            event_text(&Messages::default(), &e, 10 * SEC)
+            notice_text(&Messages::default(), &Notice::Power(e), 10 * SEC, None),
+            event_text(&Messages::default(), &e, 10 * SEC, None)
         );
     }
 
@@ -129,7 +150,7 @@ mod tests {
     #[test]
     fn start_up_with_power() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Present, None), 10 * SEC),
+            event_text(&Messages::default(), &event(Present, None), 10 * SEC, None),
             "🟢 Дім: монітор запущено, світло є."
         );
     }
@@ -137,7 +158,7 @@ mod tests {
     #[test]
     fn start_up_without_power() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Absent, None), 10 * SEC),
+            event_text(&Messages::default(), &event(Absent, None), 10 * SEC, None),
             "🔴 Дім: монітор запущено, світла немає."
         );
     }
@@ -145,7 +166,7 @@ mod tests {
     #[test]
     fn power_returned_says_how_long_it_was_out() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Present, Some(2 * HOUR + 15 * MIN)), 10 * SEC),
+            event_text(&Messages::default(), &event(Present, Some(2 * HOUR + 15 * MIN)), 10 * SEC, None),
             "🟢 Дім: світло з'явилось.\nНе було 2 год 15 хв."
         );
     }
@@ -153,7 +174,7 @@ mod tests {
     #[test]
     fn power_lost_says_how_long_it_was_on() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC),
+            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC, None),
             "🔴 Дім: світло зникло.\nБуло 5 хв."
         );
     }
@@ -169,7 +190,7 @@ mod tests {
         ]);
         let messages = Messages::from_form(&body).unwrap();
         assert_eq!(
-            event_text(&messages, &event(Absent, Some(3 * MIN)), 10 * SEC),
+            event_text(&messages, &event(Absent, Some(3 * MIN)), 10 * SEC, None),
             "Нема світла на Дача після 3 хв"
         );
     }
@@ -177,7 +198,7 @@ mod tests {
     #[test]
     fn late_delivery_says_when_it_happened() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN),
+            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN, None),
             "🔴 Дім: світло зникло.\nБуло 5 хв.\n(сталося 12 хв тому)"
         );
     }
@@ -186,11 +207,11 @@ mod tests {
     fn unknown_length_is_a_shrug() {
         // Power may have been off long before the device was switched on.
         assert_eq!(
-            event_text(&Messages::default(), &change_after_start_up(Present), 10 * SEC),
+            event_text(&Messages::default(), &change_after_start_up(Present), 10 * SEC, None),
             "🟢 Дім: світло з'явилось.\nНе було 🤷‍♂️."
         );
         assert_eq!(
-            event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC),
+            event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC, None),
             "🔴 Дім: світло зникло.\nБуло 🤷‍♂️."
         );
     }
@@ -206,7 +227,7 @@ mod tests {
         ]);
         let messages = Messages::from_form(&body).unwrap();
         assert_eq!(
-            event_text(&messages, &change_after_start_up(Absent), 10 * SEC),
+            event_text(&messages, &change_after_start_up(Absent), 10 * SEC, None),
             "Нема світла на Дача після 🤷‍♂️"
         );
     }
@@ -214,7 +235,7 @@ mod tests {
     #[test]
     fn late_change_after_start_up_still_says_when_it_happened() {
         // The moment of the change is measured; only the length before it is not.
-        let text = event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC + 12 * MIN);
+        let text = event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC + 12 * MIN, None);
         assert_eq!(text, "🔴 Дім: світло зникло.\nБуло 🤷‍♂️.\n(сталося 12 хв тому)");
     }
 
@@ -223,14 +244,64 @@ mod tests {
         // The start is reported once Wi-Fi and the bot work, often long after
         // boot; the delay says nothing about when anything happened.
         for state in [Present, Absent] {
-            let text = event_text(&Messages::default(), &event(state, None), 10 * SEC + 30 * MIN);
+            let text = event_text(&Messages::default(), &event(state, None), 10 * SEC + 30 * MIN, None);
             assert!(!text.contains("тому"), "{text}");
         }
     }
 
+    fn battery_messages() -> Messages {
+        let body = form::encode(&[
+            ("device_name", "Дача"),
+            ("start_present", "a"),
+            ("start_absent", "b"),
+            ("lost", "{device}: батарея {bms_soc}%, {bms_voltage} В"),
+            ("returned", "d"),
+        ]);
+        Messages::from_form(&body).unwrap()
+    }
+
+    fn reading() -> Reading {
+        Reading {
+            voltage_mv: 13_280,
+            current_ma: -2_000,
+            soc: 84,
+            remaining_mah: 84_000,
+            capacity_mah: 100_000,
+            cycles: 3,
+            cells_mv: vec![3_320; 4],
+            temp1_dc: 210,
+            temp2_dc: 205,
+            mosfet_dc: 250,
+            charging: true,
+            discharging: true,
+        }
+    }
+
+    #[test]
+    fn battery_values_come_from_the_reading() {
+        let text = event_text(&battery_messages(), &event(Absent, Some(MIN)), 10 * SEC, Some(&reading()));
+        assert_eq!(text, "Дача: батарея 84%, 13.28 В");
+    }
+
+    #[test]
+    fn missing_battery_reading_is_a_shrug() {
+        let text = event_text(&battery_messages(), &event(Absent, Some(MIN)), 10 * SEC, None);
+        assert_eq!(text, "Дача: батарея 🤷‍♂️%, 🤷‍♂️ В");
+    }
+
+    #[test]
+    fn the_battery_is_read_only_for_texts_that_show_it() {
+        let lost = Notice::Power(event(Absent, Some(MIN)));
+        let returned = Notice::Power(event(Present, Some(MIN)));
+        assert!(needs_bms(&battery_messages(), &lost));
+        assert!(!needs_bms(&battery_messages(), &returned));
+        assert!(!needs_bms(&battery_messages(), &Notice::Address("10.0.0.2".into())));
+        assert!(!needs_bms(&Messages::default(), &lost));
+    }
+
     #[test]
     fn delivery_within_a_minute_is_not_late() {
-        let text = event_text(&Messages::default(), &event(Present, None), 10 * SEC + LATE_AFTER_MS - 1);
+        let text = event_text(&Messages::default(), &event(Present, None), 10 * SEC + LATE_AFTER_MS - 1, None);
         assert!(!text.contains("тому"), "{text}");
     }
 }
