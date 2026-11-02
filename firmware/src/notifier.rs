@@ -7,13 +7,14 @@ use std::thread;
 use std::time::Duration;
 
 use power_core::api::Link;
-use power_core::message::{needs_bms, notice_text, Notice};
+use power_core::message::{needs_bms, notice_text, Notice, Readings};
 use power_core::outbox::Outbox;
 
 use crate::bms::Bms;
 use crate::settings::Settings;
 use crate::status::{now_ms, Status};
 use crate::telegram;
+use crate::voltmeter::Voltmeter;
 
 const RETRY: Duration = Duration::from_secs(15);
 /// How often to look whether Wi-Fi is back, so a message goes out right after.
@@ -27,6 +28,7 @@ pub fn spawn(
     settings: Arc<Settings>,
     status: Arc<Status>,
     bms: Bms,
+    voltmeter: Voltmeter,
 ) -> anyhow::Result<()> {
     // TLS handshakes need a large stack.
     thread::Builder::new().stack_size(12 * 1024).spawn(move || {
@@ -38,7 +40,7 @@ pub fn spawn(
             }
             notices.try_iter().for_each(|notice| outbox.push(notice));
             status.set_pending(outbox.len());
-            match deliver_next(&mut outbox, &settings, &status, &bms) {
+            match deliver_next(&mut outbox, &settings, &status, &bms, &voltmeter) {
                 Delivery::Done => {}
                 Delivery::Offline => thread::sleep(LINK_CHECK),
                 Delivery::Failed => thread::sleep(RETRY),
@@ -58,7 +60,13 @@ enum Delivery {
 }
 
 /// Sends the oldest pending notice.
-fn deliver_next(outbox: &mut Outbox<Notice>, settings: &Settings, status: &Status, bms: &Bms) -> Delivery {
+fn deliver_next(
+    outbox: &mut Outbox<Notice>,
+    settings: &Settings,
+    status: &Status,
+    bms: &Bms,
+    voltmeter: &Voltmeter,
+) -> Delivery {
     let Some(notice) = outbox.next() else { return Delivery::Done };
     let Some(bot) = settings.bot() else {
         status.set_telegram("бот не налаштовано, повідомлення чекають");
@@ -75,7 +83,8 @@ fn deliver_next(outbox: &mut Outbox<Notice>, settings: &Settings, status: &Statu
     } else {
         None
     };
-    let Some(text) = notice_text(&messages, notice, now_ms(), battery.as_ref()) else {
+    let readings = Readings { bms: battery.as_ref(), voltage_mv: voltmeter.battery_mv() };
+    let Some(text) = notice_text(&messages, notice, now_ms(), readings) else {
         // Its text is empty: the user turned this message off.
         outbox.delivered();
         status.set_pending(outbox.len());

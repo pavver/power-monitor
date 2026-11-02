@@ -31,17 +31,33 @@ pub fn format_duration(ms: u64) -> String {
     }
 }
 
-/// The message for `event`, written at monotonic time `now_ms`; `bms` fills
-/// the battery values (a shrug for each when there is no reading).
-pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64, bms: Option<&Reading>) -> String {
+/// What was measured for a message; a value that is missing shows as a shrug.
+#[derive(Debug, Clone, Copy)]
+pub struct Readings<'a> {
+    pub bms: Option<&'a Reading>,
+    /// Battery voltage through the divider.
+    pub voltage_mv: Option<u32>,
+}
+
+impl Readings<'_> {
+    pub const NONE: Self = Readings { bms: None, voltage_mv: None };
+}
+
+/// The message for `event`, written at monotonic time `now_ms`.
+pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64, readings: Readings) -> String {
     let start_up = event.before == Before::StartUp;
     let text = text_for(event);
     let duration = match event.before {
         Before::Lasted(ms) => format_duration(ms),
         _ => UNKNOWN.to_string(),
     };
-    let battery = bms.map(Reading::values);
-    let mut values = vec![("device", messages.device_name()), ("duration", duration.as_str())];
+    let voltage = readings.voltage_mv.map_or(UNKNOWN.to_string(), |mv| format!("{:.2}", f64::from(mv) / 1e3));
+    let battery = readings.bms.map(Reading::values);
+    let mut values = vec![
+        ("device", messages.device_name()),
+        ("duration", duration.as_str()),
+        (template::BATTERY_VOLTAGE, voltage.as_str()),
+    ];
     match &battery {
         Some(battery) => values.extend(battery.iter().map(|(name, value)| (*name, value.as_str()))),
         None => values.extend(jk::VARIABLES.map(|name| (name, UNKNOWN))),
@@ -80,10 +96,10 @@ pub enum Notice {
 }
 
 /// What to send for `notice`; `None` when the user left its text empty.
-pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64, bms: Option<&Reading>) -> Option<String> {
+pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64, readings: Readings) -> Option<String> {
     match notice {
         Notice::Power(event) if messages.template(text_for(event)).is_empty() => None,
-        Notice::Power(event) => Some(event_text(messages, event, now_ms, bms)),
+        Notice::Power(event) => Some(event_text(messages, event, now_ms, readings)),
         Notice::Address(ip) => Some(format!("🌐 {}: нова адреса панелі http://{ip}/", messages.device_name())),
     }
 }
@@ -130,7 +146,7 @@ mod tests {
     fn new_address_is_sent_as_a_link() {
         let notice = Notice::Address("192.168.1.50".to_string());
         assert_eq!(
-            notice_text(&Messages::default(), &notice, 0, None).as_deref(),
+            notice_text(&Messages::default(), &notice, 0, Readings::NONE).as_deref(),
             Some("🌐 Дім: нова адреса панелі http://192.168.1.50/")
         );
     }
@@ -140,7 +156,7 @@ mod tests {
         let body = form::encode(&[("device_name", "Дім"), ("start_present", "Є"), ("start_absent", " "), ("lost", ""), ("returned", "Є {duration}")]);
         let messages = Messages::from_form(&body).unwrap();
         let late = 10 * SEC + 30 * MIN;
-        let send = |e: PowerEvent| notice_text(&messages, &Notice::Power(e), late, None);
+        let send = |e: PowerEvent| notice_text(&messages, &Notice::Power(e), late, Readings::NONE);
         assert_eq!(send(event(Absent, Some(5 * MIN))), None);
         assert_eq!(send(event(Absent, None)), None);
         assert_eq!(send(event(Present, None)).as_deref(), Some("Є"));
@@ -151,8 +167,8 @@ mod tests {
     fn power_notice_uses_the_event_text() {
         let e = event(Absent, Some(5 * MIN));
         assert_eq!(
-            notice_text(&Messages::default(), &Notice::Power(e), 10 * SEC, None),
-            Some(event_text(&Messages::default(), &e, 10 * SEC, None))
+            notice_text(&Messages::default(), &Notice::Power(e), 10 * SEC, Readings::NONE),
+            Some(event_text(&Messages::default(), &e, 10 * SEC, Readings::NONE))
         );
     }
 
@@ -164,7 +180,7 @@ mod tests {
     #[test]
     fn start_up_with_power() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Present, None), 10 * SEC, None),
+            event_text(&Messages::default(), &event(Present, None), 10 * SEC, Readings::NONE),
             "🟢 Дім: монітор запущено, світло є."
         );
     }
@@ -172,7 +188,7 @@ mod tests {
     #[test]
     fn start_up_without_power() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Absent, None), 10 * SEC, None),
+            event_text(&Messages::default(), &event(Absent, None), 10 * SEC, Readings::NONE),
             "🔴 Дім: монітор запущено, світла немає."
         );
     }
@@ -180,7 +196,7 @@ mod tests {
     #[test]
     fn power_returned_says_how_long_it_was_out() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Present, Some(2 * HOUR + 15 * MIN)), 10 * SEC, None),
+            event_text(&Messages::default(), &event(Present, Some(2 * HOUR + 15 * MIN)), 10 * SEC, Readings::NONE),
             "🟢 Дім: світло з'явилось.\nНе було 2 год 15 хв."
         );
     }
@@ -188,7 +204,7 @@ mod tests {
     #[test]
     fn power_lost_says_how_long_it_was_on() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC, None),
+            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC, Readings::NONE),
             "🔴 Дім: світло зникло.\nБуло 5 хв."
         );
     }
@@ -204,7 +220,7 @@ mod tests {
         ]);
         let messages = Messages::from_form(&body).unwrap();
         assert_eq!(
-            event_text(&messages, &event(Absent, Some(3 * MIN)), 10 * SEC, None),
+            event_text(&messages, &event(Absent, Some(3 * MIN)), 10 * SEC, Readings::NONE),
             "Нема світла на Дача після 3 хв"
         );
     }
@@ -212,7 +228,7 @@ mod tests {
     #[test]
     fn late_delivery_says_when_it_happened() {
         assert_eq!(
-            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN, None),
+            event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN, Readings::NONE),
             "🔴 Дім: світло зникло.\nБуло 5 хв.\n(сталося 12 хв тому)"
         );
     }
@@ -221,11 +237,11 @@ mod tests {
     fn unknown_length_is_a_shrug() {
         // Power may have been off long before the device was switched on.
         assert_eq!(
-            event_text(&Messages::default(), &change_after_start_up(Present), 10 * SEC, None),
+            event_text(&Messages::default(), &change_after_start_up(Present), 10 * SEC, Readings::NONE),
             "🟢 Дім: світло з'явилось.\nНе було 🤷‍♂️."
         );
         assert_eq!(
-            event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC, None),
+            event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC, Readings::NONE),
             "🔴 Дім: світло зникло.\nБуло 🤷‍♂️."
         );
     }
@@ -241,7 +257,7 @@ mod tests {
         ]);
         let messages = Messages::from_form(&body).unwrap();
         assert_eq!(
-            event_text(&messages, &change_after_start_up(Absent), 10 * SEC, None),
+            event_text(&messages, &change_after_start_up(Absent), 10 * SEC, Readings::NONE),
             "Нема світла на Дача після 🤷‍♂️"
         );
     }
@@ -249,7 +265,7 @@ mod tests {
     #[test]
     fn late_change_after_start_up_still_says_when_it_happened() {
         // The moment of the change is measured; only the length before it is not.
-        let text = event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC + 12 * MIN, None);
+        let text = event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC + 12 * MIN, Readings::NONE);
         assert_eq!(text, "🔴 Дім: світло зникло.\nБуло 🤷‍♂️.\n(сталося 12 хв тому)");
     }
 
@@ -258,7 +274,7 @@ mod tests {
         // The start is reported once Wi-Fi and the bot work, often long after
         // boot; the delay says nothing about when anything happened.
         for state in [Present, Absent] {
-            let text = event_text(&Messages::default(), &event(state, None), 10 * SEC + 30 * MIN, None);
+            let text = event_text(&Messages::default(), &event(state, None), 10 * SEC + 30 * MIN, Readings::NONE);
             assert!(!text.contains("тому"), "{text}");
         }
     }
@@ -280,13 +296,23 @@ mod tests {
 
     #[test]
     fn battery_values_come_from_the_reading() {
-        let text = event_text(&battery_messages(), &event(Absent, Some(MIN)), 10 * SEC, Some(&reading()));
+        let text = event_text(&battery_messages(), &event(Absent, Some(MIN)), 10 * SEC, Readings { bms: Some(&reading()), ..Readings::NONE });
         assert_eq!(text, "Дача: батарея 84%, 13.28 В");
     }
 
     #[test]
+    fn battery_voltage_comes_from_the_divider() {
+        let body = form::encode(&[("device_name", "Дача"), ("lost", "{device}: акумулятор {battery_voltage} В")]);
+        let messages = Messages::from_form(&body).unwrap();
+        let lost = event(Absent, Some(MIN));
+        let measured = Readings { voltage_mv: Some(52_020), ..Readings::NONE };
+        assert_eq!(event_text(&messages, &lost, 10 * SEC, measured), "Дача: акумулятор 52.02 В");
+        assert_eq!(event_text(&messages, &lost, 10 * SEC, Readings::NONE), "Дача: акумулятор 🤷‍♂️ В");
+    }
+
+    #[test]
     fn missing_battery_reading_is_a_shrug() {
-        let text = event_text(&battery_messages(), &event(Absent, Some(MIN)), 10 * SEC, None);
+        let text = event_text(&battery_messages(), &event(Absent, Some(MIN)), 10 * SEC, Readings::NONE);
         assert_eq!(text, "Дача: батарея 🤷‍♂️%, 🤷‍♂️ В");
     }
 
@@ -302,7 +328,7 @@ mod tests {
 
     #[test]
     fn delivery_within_a_minute_is_not_late() {
-        let text = event_text(&Messages::default(), &event(Present, None), 10 * SEC + LATE_AFTER_MS - 1, None);
+        let text = event_text(&Messages::default(), &event(Present, None), 10 * SEC + LATE_AFTER_MS - 1, Readings::NONE);
         assert!(!text.contains("тому"), "{text}");
     }
 }

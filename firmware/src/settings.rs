@@ -1,7 +1,7 @@
 //! Saved settings: NVS plus an in-memory copy. Each part has one writer —
 //! Wi-Fi and last address: the network thread; bot, messages and the page
-//! password, BMS, remote support: the web server; the remote identity: the
-//! remote thread, once.
+//! password, BMS, divider, remote support: the web server; the remote
+//! identity: the remote thread, once.
 
 use std::sync::{Mutex, RwLock};
 
@@ -9,7 +9,7 @@ use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
 use power_core::remote::{Identity, RemoteSettings};
-use power_core::settings::{Battery, Bot, Messages, WifiCredentials};
+use power_core::settings::{Battery, Bot, Divider, Messages, WifiCredentials};
 
 const NAMESPACE: &str = "monitor";
 const WIFI: &str = "wifi";
@@ -20,6 +20,7 @@ const LAST_IP: &str = "last_ip";
 const QUICK_BOOTS: &str = "quick_boots";
 const BLUETOOTH_ONCE: &str = "bt_once";
 const BATTERY: &str = "bms";
+const DIVIDER: &str = "divider";
 const REMOTE: &str = "remote";
 const IDENTITY: &str = "remote_id";
 /// `REMOTE_SERVER=https://… cargo build` points new devices at another
@@ -34,6 +35,7 @@ pub struct Settings {
     password: RwLock<Option<PasswordHash>>,
     last_ip: RwLock<Option<String>>,
     battery: RwLock<Option<Battery>>,
+    divider: RwLock<Option<Divider>>,
     remote: RwLock<RemoteSettings>,
 }
 
@@ -47,6 +49,7 @@ impl Settings {
         let password = read(&nvs, PASSWORD, |s| PasswordHash::from_stored(s).ok_or(()));
         let last_ip = read(&nvs, LAST_IP, |s| Ok::<_, ()>(s.to_string()));
         let battery = read(&nvs, BATTERY, Battery::from_form);
+        let divider = read(&nvs, DIVIDER, Divider::from_form);
         let remote = read(&nvs, REMOTE, RemoteSettings::from_form).unwrap_or_else(built_in_remote);
         Ok(Self {
             nvs: Mutex::new(nvs),
@@ -56,6 +59,7 @@ impl Settings {
             password: RwLock::new(password),
             last_ip: RwLock::new(last_ip),
             battery: RwLock::new(battery),
+            divider: RwLock::new(divider),
             remote: RwLock::new(remote),
         })
     }
@@ -134,6 +138,22 @@ impl Settings {
             }
         }
         *self.battery.write().unwrap() = battery;
+        Ok(())
+    }
+
+    pub fn divider(&self) -> Option<Divider> {
+        *self.divider.read().unwrap()
+    }
+
+    /// `None`: no divider fitted, the battery voltage is not read.
+    pub fn save_divider(&self, divider: Option<Divider>) -> anyhow::Result<()> {
+        match &divider {
+            Some(divider) => self.write(DIVIDER, &divider.to_form())?,
+            None => {
+                self.nvs.lock().unwrap().remove(DIVIDER)?;
+            }
+        }
+        *self.divider.write().unwrap() = divider;
         Ok(())
     }
 

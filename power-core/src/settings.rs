@@ -18,6 +18,7 @@ pub enum SettingsError {
     DeviceName,
     Text(Text, TemplateError),
     BmsAddress,
+    Divider,
 }
 
 impl fmt::Display for SettingsError {
@@ -35,6 +36,9 @@ impl fmt::Display for SettingsError {
             SettingsError::DeviceName => f.write_str("Назва пристрою має бути від 1 до 32 символів."),
             SettingsError::Text(text, error) => write!(f, "{}: {error}.", text.label()),
             SettingsError::BmsAddress => f.write_str("Адреса BMS має вигляд AA:BB:CC:DD:EE:FF."),
+            SettingsError::Divider => {
+                f.write_str("Опір резисторів — ціле число ом від 1 до 100 000 000, наприклад 330000 і 10000.")
+            }
         }
     }
 }
@@ -116,6 +120,39 @@ impl Battery {
 
     pub fn address_text(&self) -> String {
         self.address.map(|b| format!("{b:02X}")).join(":")
+    }
+}
+
+/// The resistors that bring the battery voltage down to the ADC pin:
+/// battery → `top` → pin → `bottom` → GND.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Divider {
+    top_ohm: u32,
+    bottom_ohm: u32,
+}
+
+impl Divider {
+    const MAX_OHM: u32 = 100_000_000;
+
+    /// Reads `top` and `bottom`, whole ohms.
+    pub fn from_form(body: &str) -> Result<Self, SettingsError> {
+        let fields = form::parse(body);
+        let ohm = |name| match form::field(&fields, name).trim().parse() {
+            Ok(ohm @ 1..=Self::MAX_OHM) => Ok(ohm),
+            _ => Err(SettingsError::Divider),
+        };
+        Ok(Self { top_ohm: ohm("top")?, bottom_ohm: ohm("bottom")? })
+    }
+
+    pub fn to_form(&self) -> String {
+        form::encode(&[("top", &self.top_ohm.to_string()), ("bottom", &self.bottom_ohm.to_string())])
+    }
+
+    /// The battery voltage that puts `pin_mv` on the ADC pin.
+    pub fn battery_mv(&self, pin_mv: u32) -> u32 {
+        let total = u64::from(self.top_ohm) + u64::from(self.bottom_ohm);
+        let mv = u64::from(pin_mv) * total / u64::from(self.bottom_ohm);
+        u32::try_from(mv).unwrap_or(u32::MAX)
     }
 }
 
@@ -442,6 +479,23 @@ mod tests {
         assert_eq!(battery.address_text(), "C8:47:8C:F2:7E:03");
         assert_eq!(Battery::from_form(&battery.to_form()), Ok(battery));
         assert!(!Battery::from_form("address=C8:47:8C:F2:7E:03").unwrap().random);
+    }
+
+    #[test]
+    fn divider_reads_ohms_and_scales_the_pin_voltage() {
+        let divider = Divider::from_form("top=330000&bottom=+10000+").unwrap();
+        // 1.53 V on the pin is 52.02 V at the battery.
+        assert_eq!(divider.battery_mv(1_530), 52_020);
+        assert_eq!(Divider::from_form(&divider.to_form()), Ok(divider));
+    }
+
+    #[test]
+    fn divider_needs_whole_ohms() {
+        let bad = [("", "10000"), ("330000", "0"), ("330k", "10000"), ("-1", "10000"), ("330000", "1.5"), ("100000001", "10000")];
+        for (top, bottom) in bad {
+            let body = form::encode(&[("top", top), ("bottom", bottom)]);
+            assert_eq!(Divider::from_form(&body), Err(SettingsError::Divider), "{top} / {bottom}");
+        }
     }
 
     #[test]

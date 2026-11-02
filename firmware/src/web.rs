@@ -16,7 +16,7 @@ use power_core::form;
 use power_core::message::test_text;
 use power_core::portal::redirect_target;
 use power_core::remote::RemoteSettings;
-use power_core::settings::{Battery, Bot, BotToken, Messages, WifiCredentials};
+use power_core::settings::{Battery, Bot, BotToken, Divider, Messages, WifiCredentials};
 use serde::Serialize;
 
 use crate::bms::Bms;
@@ -27,6 +27,7 @@ use crate::ota;
 use crate::settings::Settings;
 use crate::status::Status;
 use crate::telegram;
+use crate::voltmeter::Voltmeter;
 
 /// ui/index.html, gzipped at build time (see build.rs).
 const PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
@@ -69,13 +70,14 @@ pub fn start(
     status: Arc<Status>,
     network: Sender<Command>,
     bms: Bms,
+    voltmeter: Voltmeter,
     remote: Remote,
 ) -> anyhow::Result<EspHttpServer<'static>> {
     let mut server = EspHttpServer::new(&Configuration {
         uri_match_wildcard: true,
         // Bot setup runs TLS handshakes inside handlers.
         stack_size: 14 * 1024,
-        max_uri_handlers: 28,
+        max_uri_handlers: 30,
         // Phones open several connections at once while probing the portal.
         max_open_sockets: 7,
         ..Default::default()
@@ -197,6 +199,21 @@ pub fn start(
         s.save_battery(None).map_err(|e| e.to_string())?;
         bms.forget();
         json(&"forgotten")
+    })?;
+
+    let s = settings.clone();
+    get(&mut server, &auth, "/api/divider", move || {
+        json(&serde_json::json!({ "divider": s.divider(), "voltage_mv": voltmeter.battery_mv() }))
+    })?;
+
+    // Both fields empty: no divider fitted.
+    let s = settings.clone();
+    post(&mut server, &auth, "/api/divider", move |body| {
+        let fields = form::parse(body);
+        let off = ["top", "bottom"].iter().all(|name| form::field(&fields, name).trim().is_empty());
+        let divider = if off { None } else { Some(Divider::from_form(body).map_err(|e| e.to_string())?) };
+        s.save_divider(divider).map_err(|e| e.to_string())?;
+        json(&"saved")
     })?;
 
     let (s, r) = (settings.clone(), remote.clone());

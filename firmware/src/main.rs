@@ -13,6 +13,7 @@ mod sensor;
 mod settings;
 mod status;
 mod telegram;
+mod voltmeter;
 mod web;
 
 use std::sync::mpsc;
@@ -48,12 +49,13 @@ fn main() -> anyhow::Result<()> {
     status.set_telegram(if settings.bot().is_some() { "очікує подій" } else { "бот не налаштовано" });
 
     let bms = bms::Bms::start(settings.clone(), keep_bluetooth(&settings)?)?;
+    let voltmeter = voltmeter::Voltmeter::new(peripherals.adc1, peripherals.pins.gpio34, settings.clone())?;
     let (notices, inbox) = mpsc::channel();
     sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone())?;
-    notifier::spawn(inbox, settings.clone(), status.clone(), bms.clone())?;
+    notifier::spawn(inbox, settings.clone(), status.clone(), bms.clone(), voltmeter.clone())?;
     let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone(), notices)?;
     let remote = remote::Remote::start(settings.clone(), status.clone())?;
-    let _server = web::start(settings, status, network, bms, remote)?;
+    let _server = web::start(settings, status, network, bms, voltmeter, remote)?;
     // Up far enough to take another update: keep this image.
     ota::confirm_running();
 

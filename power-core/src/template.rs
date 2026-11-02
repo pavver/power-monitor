@@ -1,11 +1,14 @@
-//! User-editable message templates with `{device}`, `{duration}` and battery
-//! (`{bms_soc}`, … see `jk::VARIABLES`) placeholders.
+//! User-editable message templates with `{device}`, `{duration}`,
+//! `{battery_voltage}` and BMS (`{bms_soc}`, … see `jk::VARIABLES`) placeholders.
 
 use std::fmt;
 
 use crate::jk;
 
 const MAX_CHARS: usize = 500;
+
+/// The battery voltage measured through the divider.
+pub const BATTERY_VOLTAGE: &str = "battery_voltage";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemplateError {
@@ -20,7 +23,7 @@ impl fmt::Display for TemplateError {
         f.write_str(match self {
             TemplateError::TooLong => "текст довший за 500 символів",
             TemplateError::NoDuration => "{duration} тут недоступний — при запуску тривалості ще немає",
-            TemplateError::Unknown => "невідома змінна — дозволені {device}, {duration} і {bms_…} зі списку",
+            TemplateError::Unknown => "невідома змінна — дозволені {device}, {duration}, {battery_voltage} і {bms_…} зі списку",
         })
     }
 }
@@ -34,6 +37,7 @@ pub fn validate(template: &str, with_duration: bool) -> Result<(), TemplateError
         "device" => Ok(()),
         "duration" if with_duration => Ok(()),
         "duration" => Err(TemplateError::NoDuration),
+        BATTERY_VOLTAGE => Ok(()),
         name if jk::VARIABLES.contains(&name) => Ok(()),
         _ => Err(TemplateError::Unknown),
     })
@@ -105,6 +109,7 @@ mod tests {
     #[test]
     fn accepts_battery_values_in_every_message() {
         assert_eq!(validate("{bms_soc}% {bms_voltage} В {bms_energy}", false), Ok(()));
+        assert_eq!(validate("{battery_voltage} В", false), Ok(()));
         assert_eq!(validate("{bms_nonsense}", false), Err(TemplateError::Unknown));
         assert_eq!(validate("{bms_temp1}", false), Err(TemplateError::Unknown));
     }

@@ -337,7 +337,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <button class="btn" type="button" id="test-btn">Тестове повідомлення</button>
     <button class="btn" type="button" data-go="wifi" data-nav>Змінити Wi-Fi</button>
     <button class="btn" type="button" data-go="bot" data-nav>Змінити бота</button>
-    <button class="btn" type="button" data-go="bms" data-nav>Батарея (BMS)</button>
+    <button class="btn" type="button" data-go="bms" data-nav>Батарея</button>
   </div>
   <div class="msg" id="test-msg" style="margin:0 0 calc(var(--du)*4)"></div>
   <form class="card" id="messages-form">
@@ -345,8 +345,9 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <p class="small muted">Змінні: <code>{device}</code> — назва пристрою, <code>{duration}</code> — скільки тривав попередній стан.
       Якщо повідомлення про зникнення чи появу світла доставлено із запізненням, пристрій сам допише, коли це сталося.
       Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
-    <p class="small muted">Значення батареї, наприклад <code>{bms_soc}</code>, копіюються одним натиском на рядок
-      на екрані «Батарея (BMS)». Перед таким повідомленням пристрій зчитає BMS; якщо вона недоступна, буде 🤷‍♂️.
+    <p class="small muted">Значення батареї — <code>{battery_voltage}</code> (напруга через дільник) і значення BMS,
+      наприклад <code>{bms_soc}</code>, — копіюються одним натиском на рядок на екрані «Батарея». Перед таким
+      повідомленням пристрій зчитає їх; якщо значення недоступне, буде 🤷‍♂️.
       Залиште текст порожнім, щоб це повідомлення не надсилалось.</p>
     <label class="cap" for="m-device_name">Назва пристрою</label>
     <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
@@ -432,6 +433,18 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <div class="msg" id="bms-msg"></div>
     <div class="list hidden" id="bms-found" style="margin-top:calc(var(--du)*3)"></div>
   </div>
+  <form class="card" id="divider-form">
+    <h2>Акумулятор без BMS</h2>
+    <p class="small muted">Напруга акумулятора через дільник R1/R2 на GPIO34 (схема, аркуш 1). Впишіть опір
+      резисторів в омах; найточніше — виміряний мультиметром. Порожні поля вимикають вимір.</p>
+    <div class="list hidden" id="divider-value"></div>
+    <label class="cap" for="d-top">R1, верхній, Ом</label>
+    <div class="field" data-field><input id="d-top" name="top" inputmode="numeric" pattern="[0-9]*" placeholder="330000" autocomplete="off"></div>
+    <label class="cap" for="d-bottom">R2, нижній, Ом</label>
+    <div class="field" data-field><input id="d-bottom" name="bottom" inputmode="numeric" pattern="[0-9]*" placeholder="10000" autocomplete="off"></div>
+    <div class="actions"><button class="btn" id="divider-btn">Зберегти</button></div>
+    <div class="msg" id="divider-msg"></div>
+  </form>
 </section>
 
 </main>
@@ -970,13 +983,14 @@ function renderPreview(node, text, allowed) {
     node.textContent = "Поле порожнє: це повідомлення не надсилатиметься.";
     return;
   }
-  const known = [...allowed, ...BMS_VARS.map(([name]) => "{" + name + "}")];
+  const known = [...allowed, "{battery_voltage}", ...BMS_VARS.map(([name]) => "{" + name + "}")];
   const unknown = (text.match(/\{[A-Za-z][A-Za-z0-9_]*\}/g) || []).filter(v => !known.includes(v));
   node.classList.toggle("bad", unknown.length > 0);
   const values = {device: $("m-device_name").value, duration: SAMPLE_DURATION,
+    battery_voltage: divider && divider.voltage_mv != null ? volts(divider.voltage_mv) : "52.40",
     ...(bms && bms.reading ? bms.reading.values : BMS_SAMPLE)};
   node.textContent = unknown.length
-    ? "Невідома змінна: " + unknown[0] + ". Доступні: " + allowed.join(", ") + " і змінні батареї {bms_…}"
+    ? "Невідома змінна: " + unknown[0] + ". Доступні: " + allowed.join(", ") + ", {battery_voltage} і змінні BMS {bms_…}"
     : text.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (all, name) => name in values ? values[name] : all);
 }
 
@@ -992,10 +1006,12 @@ const BMS_VARS = [["bms_soc", "Заряд", "%"], ["bms_voltage", "Напруг�
 const BMS_SAMPLE = {bms_soc: "84", bms_voltage: "51.20", bms_energy: "4.30"};
 
 /* Only this screen asks for the values: each request keeps the link up a little longer. */
-let bms = null;
+let bms = null, divider = null;
 async function refreshBms() {
   if (view !== "bms") return;
-  try { bms = await api("/api/bms"); } catch (e) { say("bms-msg", e.message, "err"); return; }
+  try { [bms, divider] = await Promise.all([api("/api/bms"), api("/api/divider")]); }
+  catch (e) { say("bms-msg", e.message, "err"); return; }
+  fillDivider();
   renderBms();
 }
 
@@ -1011,6 +1027,7 @@ function bmsLinkText() {
 
 function renderBms() {
   const b = bms.battery, r = bms.reading;
+  renderDivider();
   $("bms-live").classList.toggle("hidden", !b);
   $("bms-chosen").textContent = b ? "Вибрано «" + b.name + "», " + b.address + "."
     : "BMS ще не вибрано. Натисніть «Шукати поруч» і оберіть свою BMS зі списку.";
@@ -1029,6 +1046,34 @@ function renderBms() {
     ? [el("div", {class: "empty"}, el("span", {class: "badge pending"}), "Шукаю пристрої Bluetooth поруч…")]
     : found.map(bmsRow)));
 }
+
+/* ---------- battery voltage through the divider ---------- */
+function volts(mv) { return (mv / 1000).toFixed(2); }
+
+/* The fields take the saved values once, so polling never overwrites typing. */
+let dividerFilled = false;
+function fillDivider() {
+  if (dividerFilled) return;
+  dividerFilled = true;
+  const d = divider.divider;
+  $("d-top").value = d ? d.top_ohm : "";
+  $("d-bottom").value = d ? d.bottom_ohm : "";
+}
+
+function renderDivider() {
+  const on = divider && divider.divider;
+  $("divider-value").classList.toggle("hidden", !on);
+  if (on) $("divider-value").replaceChildren(bmsValueRow("battery_voltage", "Напруга акумулятора", "В",
+    divider.voltage_mv == null ? "—" : volts(divider.voltage_mv)));
+}
+
+actionButton($("divider-btn"), async () => {
+  say("divider-msg", "");
+  await api("/api/divider", {top: $("d-top").value, bottom: $("d-bottom").value});
+  say("divider-msg", $("d-top").value || $("d-bottom").value ? "Збережено." : "Вимір напруги вимкнено.", "ok");
+  dividerFilled = false;
+  await refreshBms();
+}, {msg: "divider-msg"});
 
 /* A tap copies the row's template variable. */
 let copiedVar = null;
