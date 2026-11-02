@@ -18,6 +18,7 @@ const MESSAGES: &str = "messages";
 const PASSWORD: &str = "password";
 const LAST_IP: &str = "last_ip";
 const QUICK_BOOTS: &str = "quick_boots";
+const BLUETOOTH_ONCE: &str = "bt_once";
 const BATTERY: &str = "bms";
 const REMOTE: &str = "remote";
 const IDENTITY: &str = "remote_id";
@@ -166,6 +167,22 @@ impl Settings {
     pub fn set_quick_boots(&self, count: u32) -> anyhow::Result<()> {
         self.nvs.lock().unwrap().set_u32(QUICK_BOOTS, count)?;
         Ok(())
+    }
+
+    /// Keep Bluetooth at the next start even with no BMS saved, to look for one.
+    pub fn ask_bluetooth_once(&self) -> anyhow::Result<()> {
+        self.nvs.lock().unwrap().set_u8(BLUETOOTH_ONCE, 1)?;
+        Ok(())
+    }
+
+    /// Whether this start was asked to keep Bluetooth; the request is used up.
+    pub fn take_bluetooth_once(&self) -> anyhow::Result<bool> {
+        let nvs = self.nvs.lock().unwrap();
+        let asked = nvs.get_u8(BLUETOOTH_ONCE)?.is_some();
+        if asked {
+            nvs.remove(BLUETOOTH_ONCE)?;
+        }
+        Ok(asked)
     }
 
     /// Wipes everything this device stored; takes effect after a restart.

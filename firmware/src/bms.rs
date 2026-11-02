@@ -66,14 +66,19 @@ enum Job {
 pub struct Bms {
     shared: Arc<Shared>,
     settings: Arc<Settings>,
+    /// Whether this start kept Bluetooth (see main::keep_bluetooth).
+    bluetooth: bool,
 }
 
 impl Bms {
-    pub fn start(settings: Arc<Settings>) -> anyhow::Result<Self> {
+    /// Without `bluetooth` nothing is ever read: a search needs a restart.
+    pub fn start(settings: Arc<Settings>, bluetooth: bool) -> anyhow::Result<Self> {
         let shared = Arc::new(Shared { state: Mutex::new(State::default()), changed: Condvar::new() });
-        let bms = Self { shared, settings };
-        let worker = bms.clone();
-        thread::Builder::new().stack_size(8 * 1024).spawn(move || block_on(worker.run()))?;
+        let bms = Self { shared, settings, bluetooth };
+        if bluetooth {
+            let worker = bms.clone();
+            thread::Builder::new().stack_size(8 * 1024).spawn(move || block_on(worker.run()))?;
+        }
         Ok(bms)
     }
 
@@ -90,6 +95,7 @@ impl Bms {
         });
         serde_json::json!({
             "battery": battery.map(|b| serde_json::json!({ "name": b.name, "address": b.address_text() })),
+            "bluetooth": self.bluetooth,
             "link": state.link,
             "error": state.error,
             "device": state.device,
@@ -101,9 +107,13 @@ impl Bms {
         })
     }
 
-    /// Looks for devices nearby; the result shows up in `view`.
-    pub fn scan(&self) {
-        self.update(|state| state.scan_asked = true);
+    /// Looks for devices nearby; the result shows up in `view`. `false`:
+    /// Bluetooth is off until a restart.
+    pub fn scan(&self) -> bool {
+        if self.bluetooth {
+            self.update(|state| state.scan_asked = true);
+        }
+        self.bluetooth
     }
 
     /// A reading taken after this call, waiting at most `wait` for it.

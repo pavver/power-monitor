@@ -173,10 +173,15 @@ pub fn start(
     let b = bms.clone();
     get(&mut server, &auth, "/api/bms", move || json(&b.view()))?;
 
-    let b = bms.clone();
+    let (s, b) = (settings.clone(), bms.clone());
     post(&mut server, &auth, "/api/bms/scan", move |_| {
-        b.scan();
-        json(&"scanning")
+        if b.scan() {
+            return json(&"scanning");
+        }
+        // Bluetooth memory was given back at start-up: start again with it.
+        s.ask_bluetooth_once().map_err(|e| e.to_string())?;
+        restart_soon();
+        json(&"restarting")
     })?;
 
     let (s, b) = (settings.clone(), bms.clone());

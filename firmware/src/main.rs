@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     let status = Arc::new(Status::new(ota::running()));
     status.set_telegram(if settings.bot().is_some() { "очікує подій" } else { "бот не налаштовано" });
 
-    let bms = bms::Bms::start(settings.clone())?;
+    let bms = bms::Bms::start(settings.clone(), keep_bluetooth(&settings)?)?;
     let (notices, inbox) = mpsc::channel();
     sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone())?;
     notifier::spawn(inbox, settings.clone(), status.clone(), bms.clone())?;
@@ -61,6 +61,20 @@ fn main() -> anyhow::Result<()> {
     loop {
         thread::park();
     }
+}
+
+/// Bluetooth is kept only for a saved BMS or a search for one; otherwise
+/// the memory reserved for it (some 56 KB) goes back to the heap. That
+/// cannot be undone until the next start.
+fn keep_bluetooth(settings: &Settings) -> anyhow::Result<bool> {
+    let keep = settings.battery().is_some() || settings.take_bluetooth_once()?;
+    if !keep {
+        // SAFETY: called before anything starts the Bluetooth controller,
+        // which is never started afterwards (see Bms::start).
+        esp_idf_svc::sys::esp!(unsafe { esp_idf_svc::sys::esp_bt_mem_release(esp_idf_svc::sys::esp_bt_mode_t_ESP_BT_MODE_BTDM) })?;
+        log::info!("bluetooth memory released: no BMS saved");
+    }
+    Ok(keep)
 }
 
 /// Hardware random bytes; true random once the radio is running.

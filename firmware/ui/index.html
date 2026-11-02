@@ -1088,9 +1088,24 @@ function bmsRow(f) {
 
 actionButton($("bms-scan-btn"), async () => {
   say("bms-msg", "");
-  await api("/api/bms/scan", {});
+  if (await api("/api/bms/scan", {}) === "restarting") {
+    say("bms-msg", "Вмикаю Bluetooth: пристрій перезапускається…", "wait");
+    await bluetoothBack();
+    say("bms-msg", "");
+    await api("/api/bms/scan", {});
+  }
   await refreshBms();
 }, {msg: "bms-msg"});
+
+/* Bluetooth is kept only for a saved BMS; a search restarts the device
+   with it. Waits for the device to come back with Bluetooth on. */
+async function bluetoothBack() {
+  for (let i = 0; i < 30; i++) {
+    await sleep(3000);
+    try { if ((await api("/api/bms")).bluetooth) return; } catch (e) { /* still restarting */ }
+  }
+  throw new Error("Пристрій не повернувся після перезапуску. Оновіть сторінку.");
+}
 
 actionButton($("bms-forget-btn"), async () => {
   say("bms-msg", "");
