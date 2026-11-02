@@ -2,11 +2,11 @@
 
 Сервер, через який власник відкриває панель монітора світла, що стоїть у клієнта.
 Пристрій сам звертається до сервера, тож у мережі клієнта нічого відкривати не треба.
-Адреса: **https://iot.pavver.net**, адмінка: **https://iot.pavver.net/admin**.
+Нижче як приклад адреси взято `https://svitlo.example.com`: замініть її на свій домен.
 
 Один сервер обслуговує всі пристрої. Новий пристрій з'являється в адмінці після першої перевірки
-(чек-іну), а з прошивки адреса `https://iot.pavver.net` задана за замовчуванням
-(`power_core::remote::DEFAULT_SERVER`).
+(чек-іну). Щоб пристрій знав сервер одразу, зберіть прошивку з
+`REMOTE_SERVER=https://svitlo.example.com ./flash.sh`, або впишіть адресу в його панелі.
 
 ## Як це влаштовано
 
@@ -72,7 +72,7 @@ head -c 18 /dev/urandom | base64 | tr '+/' '-_'
 
 1. Cloudflare Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared. Скопіюйте токен
    (довгий рядок після `--token` у запропонованій команді).
-2. У цьому тунелі відкрийте Public Hostname → Add: Subdomain `iot`, Domain `pavver.net`, Service `HTTP`, URL `localhost:8080`.
+2. У цьому тунелі відкрийте Public Hostname → Add: Subdomain `svitlo`, Domain `example.com`, Service `HTTP`, URL `localhost:8080`.
 3. Створіть `.env`:
    ```sh
    cd server
@@ -84,7 +84,7 @@ head -c 18 /dev/urandom | base64 | tr '+/' '-_'
    ```sh
    docker compose up -d --build
    ```
-5. Перевірте: `https://iot.pavver.net/admin` показує сторінку входу.
+5. Перевірте: `https://svitlo.example.com/admin` показує сторінку входу.
 
 Якщо перед доменом стоїть Cloudflare Access, шлях `/device/*` треба пропустити без входу, бо пристрої не вміють проходити SSO.
 
@@ -121,8 +121,8 @@ docker compose restart                         # після повернення
 
 - `docker compose ps`: статус `Up`.
 - У логах є рядки `listening on 127.0.0.1:8080`, `Registered tunnel connection` (до чотирьох)
-  і `Updated to new configuration … iot.pavver.net`.
-- `curl -s -o /dev/null -w '%{http_code}\n' https://iot.pavver.net/admin` повертає `200`.
+  і `Updated to new configuration … svitlo.example.com`.
+- `curl -s -o /dev/null -w '%{http_code}\n' https://svitlo.example.com/admin` повертає `200`.
 
 ## Якщо щось не так
 
@@ -133,7 +133,7 @@ docker compose restart                         # після повернення
 | `Provided Tunnel token is not valid` | Токен скопійовано не повністю або тунель видалено. |
 | Тунель підключений, але домен зависає без відповіді, і в логах немає `Updated to new configuration` | Тунелю не додано Public Hostname або hostname прив'язаний до іншого тунелю. |
 | Cloudflare показує помилку 502 | Сервер у контейнері не працює: перегляньте логи. |
-| Пристрій не з'являється в адмінці | Пристрій перевіряє сервер за хвилину після старту, далі раз на годину. Перевірте, що в панелі пристрою підтримку ввімкнено й адреса `https://iot.pavver.net`. |
+| Пристрій не з'являється в адмінці | Пристрій перевіряє сервер за хвилину після старту, далі раз на годину. Перевірте, що в панелі пристрою підтримку ввімкнено й адреса — ваш сервер. |
 | «Відкрити панель» довго чекає | Сесія відкривається на найближчій перевірці. Увімкніть «Чекаю пристрій», щоб перевірки йшли кожні 2 хв, або попросіть клієнта натиснути «З'єднатись зараз» у його панелі. |
 
 ## Без Docker
