@@ -264,8 +264,10 @@ impl Messages {
         if !(1..=32).contains(&device_name.chars().count()) {
             return Err(SettingsError::DeviceName);
         }
+        // A blank text turns its message off.
         let text = |text: Text| {
             let value = form::field(&fields, text.key());
+            let value = if value.trim().is_empty() { "" } else { value };
             template::validate(value, text.has_duration())
                 .map(|()| value.to_string())
                 .map_err(|error| SettingsError::Text(text, error))
@@ -410,10 +412,14 @@ mod tests {
             Messages::from_form(&messages_form(&[("start_absent", "{duration}")])),
             Err(SettingsError::Text(Text::StartAbsent, TemplateError::NoDuration))
         );
-        assert_eq!(
-            Messages::from_form(&messages_form(&[("returned", "")])),
-            Err(SettingsError::Text(Text::Returned, TemplateError::Empty))
-        );
+    }
+
+    #[test]
+    fn a_blank_text_is_kept_as_empty() {
+        let m = Messages::from_form(&messages_form(&[("returned", " \n "), ("start_absent", "")])).unwrap();
+        assert_eq!(m.template(Text::Returned), "");
+        assert_eq!(m.template(Text::StartAbsent), "");
+        assert_eq!(Messages::from_form(&m.to_form()), Ok(m));
     }
 
     #[test]
@@ -423,8 +429,8 @@ mod tests {
 
     #[test]
     fn errors_explain_which_text_is_wrong() {
-        let error = SettingsError::Text(Text::Lost, TemplateError::Empty);
-        assert_eq!(error.to_string(), "Світло зникло: текст не може бути порожнім.");
+        let error = SettingsError::Text(Text::Lost, TemplateError::TooLong);
+        assert_eq!(error.to_string(), "Світло зникло: текст довший за 500 символів.");
     }
 
     #[test]

@@ -79,10 +79,12 @@ pub enum Notice {
     Address(String),
 }
 
-pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64, bms: Option<&Reading>) -> String {
+/// What to send for `notice`; `None` when the user left its text empty.
+pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64, bms: Option<&Reading>) -> Option<String> {
     match notice {
-        Notice::Power(event) => event_text(messages, event, now_ms, bms),
-        Notice::Address(ip) => format!("🌐 {}: нова адреса панелі http://{ip}/", messages.device_name()),
+        Notice::Power(event) if messages.template(text_for(event)).is_empty() => None,
+        Notice::Power(event) => Some(event_text(messages, event, now_ms, bms)),
+        Notice::Address(ip) => Some(format!("🌐 {}: нова адреса панелі http://{ip}/", messages.device_name())),
     }
 }
 
@@ -128,9 +130,21 @@ mod tests {
     fn new_address_is_sent_as_a_link() {
         let notice = Notice::Address("192.168.1.50".to_string());
         assert_eq!(
-            notice_text(&Messages::default(), &notice, 0, None),
-            "🌐 Дім: нова адреса панелі http://192.168.1.50/"
+            notice_text(&Messages::default(), &notice, 0, None).as_deref(),
+            Some("🌐 Дім: нова адреса панелі http://192.168.1.50/")
         );
+    }
+
+    #[test]
+    fn a_blank_text_sends_nothing() {
+        let body = form::encode(&[("device_name", "Дім"), ("start_present", "Є"), ("start_absent", " "), ("lost", ""), ("returned", "Є {duration}")]);
+        let messages = Messages::from_form(&body).unwrap();
+        let late = 10 * SEC + 30 * MIN;
+        let send = |e: PowerEvent| notice_text(&messages, &Notice::Power(e), late, None);
+        assert_eq!(send(event(Absent, Some(5 * MIN))), None);
+        assert_eq!(send(event(Absent, None)), None);
+        assert_eq!(send(event(Present, None)).as_deref(), Some("Є"));
+        assert!(send(event(Present, Some(5 * MIN))).is_some());
     }
 
     #[test]
@@ -138,7 +152,7 @@ mod tests {
         let e = event(Absent, Some(5 * MIN));
         assert_eq!(
             notice_text(&Messages::default(), &Notice::Power(e), 10 * SEC, None),
-            event_text(&Messages::default(), &e, 10 * SEC, None)
+            Some(event_text(&Messages::default(), &e, 10 * SEC, None))
         );
     }
 

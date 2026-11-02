@@ -9,7 +9,6 @@ const MAX_CHARS: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemplateError {
-    Empty,
     TooLong,
     /// `{duration}` used where no previous state exists (start-up messages).
     NoDuration,
@@ -19,7 +18,6 @@ pub enum TemplateError {
 impl fmt::Display for TemplateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            TemplateError::Empty => "текст не може бути порожнім",
             TemplateError::TooLong => "текст довший за 500 символів",
             TemplateError::NoDuration => "{duration} тут недоступний — при запуску тривалості ще немає",
             TemplateError::Unknown => "невідома змінна — дозволені {device}, {duration} і {bms_…} зі списку",
@@ -29,9 +27,6 @@ impl fmt::Display for TemplateError {
 
 /// Checks a template; `with_duration` says whether `{duration}` is available.
 pub fn validate(template: &str, with_duration: bool) -> Result<(), TemplateError> {
-    if template.trim().is_empty() {
-        return Err(TemplateError::Empty);
-    }
     if template.chars().count() > MAX_CHARS {
         return Err(TemplateError::TooLong);
     }
@@ -130,8 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_and_long_text() {
-        assert_eq!(validate("  \n", true), Err(TemplateError::Empty));
+    fn rejects_long_text() {
         assert_eq!(validate(&"я".repeat(501), true), Err(TemplateError::TooLong));
         assert_eq!(validate(&"я".repeat(500), true), Ok(()));
     }

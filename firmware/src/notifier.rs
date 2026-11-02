@@ -75,7 +75,13 @@ fn deliver_next(outbox: &mut Outbox<Notice>, settings: &Settings, status: &Statu
     } else {
         None
     };
-    let text = notice_text(&messages, notice, now_ms(), battery.as_ref());
+    let Some(text) = notice_text(&messages, notice, now_ms(), battery.as_ref()) else {
+        // Its text is empty: the user turned this message off.
+        outbox.delivered();
+        status.set_pending(outbox.len());
+        status.set_telegram("останнє повідомлення вимкнене (порожній текст), не надсилалось");
+        return Delivery::Done;
+    };
     match telegram::send(&bot, &text) {
         Ok(()) => {
             outbox.delivered();

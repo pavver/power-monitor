@@ -353,7 +353,8 @@ dialog .actions{margin-top:calc(var(--du)*4)}
       Якщо повідомлення про зникнення чи появу світла доставлено із запізненням, пристрій сам допише, коли це сталося.
       Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
     <p class="small muted">Значення батареї, наприклад <code>{bms_soc}</code>, копіюються одним натиском на рядок
-      на екрані «Батарея (BMS)». Перед таким повідомленням пристрій зчитає BMS; якщо вона недоступна, буде 🤷‍♂️.</p>
+      на екрані «Батарея (BMS)». Перед таким повідомленням пристрій зчитає BMS; якщо вона недоступна, буде 🤷‍♂️.
+      Залиште текст порожнім, щоб це повідомлення не надсилалось.</p>
     <label class="cap" for="m-device_name">Назва пристрою</label>
     <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
     <div id="templates"></div>
@@ -973,6 +974,11 @@ function fillMessages(messages) {
 /* Live preview with the same variables the device substitutes; battery
    values are the last ones read on the battery screen, else samples. */
 function renderPreview(node, text, allowed) {
+  if (!text.trim()) {
+    node.classList.remove("bad");
+    node.textContent = "Поле порожнє: це повідомлення не надсилатиметься.";
+    return;
+  }
   const known = [...allowed, ...BMS_VARS.map(([name]) => "{" + name + "}")];
   const unknown = (text.match(/\{[A-Za-z][A-Za-z0-9_]*\}/g) || []).filter(v => !known.includes(v));
   node.classList.toggle("bad", unknown.length > 0);
