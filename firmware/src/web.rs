@@ -110,6 +110,7 @@ pub fn start(
     get(&mut server, &auth, "/api/state", move || {
         let mut state: serde_json::Value = serde_json::from_str(&st.state_json(&s)).unwrap_or_default();
         state["remote"] = r.view();
+        state["system"] = system_view();
         json(&state)
     })?;
 
@@ -343,6 +344,25 @@ fn read_body(req: &mut Req) -> Result<String, String> {
     let mut body = vec![0; len];
     req.read_exact(&mut body).map_err(|e| format!("{e:?}"))?;
     Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// Health of a device that may be out of reach of a serial cable: memory,
+/// why it last restarted, and how long ago.
+fn system_view() -> serde_json::Value {
+    use esp_idf_svc::sys::{
+        esp_get_free_heap_size, esp_get_minimum_free_heap_size, heap_caps_get_largest_free_block, MALLOC_CAP_8BIT,
+    };
+    // SAFETY: plain reads of heap statistics.
+    let (free, min_free, largest) = unsafe {
+        (esp_get_free_heap_size(), esp_get_minimum_free_heap_size(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT))
+    };
+    serde_json::json!({
+        "heap_free": free,
+        "heap_min_free": min_free,
+        "heap_largest_block": largest,
+        "reset_reason": format!("{:?}", esp_idf_svc::hal::reset::ResetReason::get()),
+        "uptime_s": crate::status::now_ms() / 1000,
+    })
 }
 
 /// Lets the response reach the browser before the reboot.
