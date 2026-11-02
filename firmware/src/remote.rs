@@ -7,7 +7,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-use embedded_svc::http::client::Client;
+use embedded_svc::http::client::{Client, Response};
 use embedded_svc::http::Method as HttpMethod;
 use embedded_svc::io::{Read, Write};
 use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
@@ -27,6 +27,9 @@ const FAILED_POLL_RETRY_MS: u64 = 5_000;
 /// Polls failing in a row before the session is given up.
 const FAILURES_TO_END: u32 = 3;
 const MAX_ANSWER: usize = 4096;
+/// Relayed bodies pass through in pieces this big: a whole page does not
+/// fit in memory next to two HTTP clients.
+const CHUNK: usize = 4096;
 
 type HttpClient = Client<EspHttpConnection>;
 
@@ -239,39 +242,10 @@ fn poll(client: &mut HttpClient, server: &Server, identity: &Identity) -> Result
     remote::next_answer(status, &String::from_utf8_lossy(&answer)).map_err(|e| e.to_string())
 }
 
-/// Runs `request` against this panel and posts the answer back. A failure
-/// on the panel side is still answered (502), so the browser is not left hanging.
+/// Runs `request` against this panel and streams the answer back. A panel
+/// that fails before answering is still answered (502), so the browser is
+/// not left hanging.
 fn serve(client: &mut HttpClient, server: &Server, identity: &Identity, request: &TunnelRequest) -> Result<(), String> {
-    let (status, head, body) = local(client, server, identity, request).unwrap_or_else(|error| {
-        log::warn!("remote {}: {error}", request.path);
-        (502, "content-type: text/plain; charset=utf-8\n".to_string(), error.into_bytes())
-    });
-    let status = status.to_string();
-    let length = (head.len() + 1 + body.len()).to_string();
-    let mut headers = identity.headers().to_vec();
-    headers.extend([("x-status", status.as_str()), ("content-length", length.as_str())]);
-    let url = server.url(&format!("/device/reply/{}", request.rid));
-    (|| {
-        let mut post = client.post(&url, &headers)?;
-        post.write_all(head.as_bytes())?;
-        post.write_all(b"\n")?;
-        post.write_all(&body)?;
-        let mut response = post.submit()?;
-        read_all(&mut response, MAX_ANSWER)?;
-        anyhow::Ok(())
-    })()
-    .map_err(|e| format!("відповідь не надіслано ({e})"))
-}
-
-/// The panel's answer: status, browser headers, body. A request body is
-/// streamed from the server straight into the panel.
-fn local(
-    client: &mut HttpClient,
-    server: &Server,
-    identity: &Identity,
-    request: &TunnelRequest,
-) -> Result<(u16, String, Vec<u8>), String> {
-    let mut panel = new_client(false)?;
     let url = format!("http://127.0.0.1{}", request.path);
     let length = request.body_len.to_string();
     let mut headers = vec![("content-length", length.as_str())];
@@ -281,34 +255,88 @@ fn local(
     if let Some(content_type) = &request.content_type {
         headers.push(("content-type", content_type));
     }
+    let answer = new_client(false).and_then(|mut panel| {
+        let mut response = ask_panel(&mut panel, &url, &headers, client, server, identity, request)
+            .map_err(|e| format!("панель не відповіла ({e})"))?;
+        let status = response.status();
+        let head = remote::reply_headers(|name| response.header(name).map(str::to_string));
+        Ok(send_reply(client, server, identity, &request.rid, status, &head, &mut response))
+    });
+    answer.unwrap_or_else(|error| {
+        log::warn!("remote {}: {error}", request.path);
+        let head = "content-type: text/plain; charset=utf-8\n";
+        send_reply(client, server, identity, &request.rid, 502, head, &mut error.as_bytes())
+    })
+}
+
+/// Sends `request` to this panel, streaming its body from the server.
+fn ask_panel<'a>(
+    panel: &'a mut HttpClient,
+    url: &'a str,
+    headers: &'a [(&'a str, &'a str)],
+    client: &mut HttpClient,
+    server: &Server,
+    identity: &Identity,
+    request: &TunnelRequest,
+) -> anyhow::Result<Response<&'a mut EspHttpConnection>> {
     let method = match request.method {
         Method::Get => HttpMethod::Get,
         Method::Post => HttpMethod::Post,
     };
-    let body_url = server.url(&format!("/device/body/{}", request.rid));
-    let identity_headers = identity.headers();
-    (|| {
-        let mut outgoing = panel.request(method, &url, &headers)?;
-        if request.body_len > 0 {
-            let mut incoming = client.request(HttpMethod::Get, &body_url, &identity_headers)?.submit()?;
-            anyhow::ensure!(incoming.status() == 200, "тіло запиту недоступне ({})", incoming.status());
-            let mut chunk = vec![0u8; 4096];
-            let mut left = request.body_len;
-            while left > 0 {
-                let want = chunk.len().min(left);
-                let read = incoming.read(&mut chunk[..want])?;
-                anyhow::ensure!(read > 0, "тіло запиту обірвалось");
-                outgoing.write_all(&chunk[..read])?;
-                left -= read;
-            }
+    let mut outgoing = panel.request(method, url, headers)?;
+    if request.body_len > 0 {
+        let body_url = server.url(&format!("/device/body/{}", request.rid));
+        let identity_headers = identity.headers();
+        let mut incoming = client.request(HttpMethod::Get, &body_url, &identity_headers)?.submit()?;
+        anyhow::ensure!(incoming.status() == 200, "тіло запиту недоступне ({})", incoming.status());
+        let mut chunk = vec![0u8; CHUNK];
+        let mut left = request.body_len;
+        while left > 0 {
+            let want = chunk.len().min(left);
+            let read = incoming.read(&mut chunk[..want])?;
+            anyhow::ensure!(read > 0, "тіло запиту обірвалось");
+            outgoing.write_all(&chunk[..read])?;
+            left -= read;
         }
-        let mut response = outgoing.submit()?;
-        let status = response.status();
-        let head = remote::reply_headers(|name| response.header(name).map(str::to_string));
-        let body = read_all(&mut response, remote::MAX_REPLY)?;
-        anyhow::Ok((status, head, body))
+    }
+    Ok(outgoing.submit()?)
+}
+
+/// Posts the panel's answer to the server as it is read. With no length
+/// given, the body goes out in chunked encoding.
+fn send_reply<R: Read>(
+    client: &mut HttpClient,
+    server: &Server,
+    identity: &Identity,
+    rid: &str,
+    status: u16,
+    head: &str,
+    body: &mut R,
+) -> Result<(), String>
+where
+    R::Error: std::fmt::Debug,
+{
+    let status = status.to_string();
+    let mut headers = identity.headers().to_vec();
+    headers.push(("x-status", status.as_str()));
+    let url = server.url(&format!("/device/reply/{rid}"));
+    (|| {
+        let mut post = client.post(&url, &headers)?;
+        post.write_all(head.as_bytes())?;
+        post.write_all(b"\n")?;
+        let mut chunk = vec![0u8; CHUNK];
+        loop {
+            let read = body.read(&mut chunk).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            if read == 0 {
+                break;
+            }
+            post.write_all(&chunk[..read])?;
+        }
+        let mut response = post.submit()?;
+        read_all(&mut response, MAX_ANSWER)?;
+        anyhow::Ok(())
     })()
-    .map_err(|e| format!("панель не відповіла ({e})"))
+    .map_err(|e| format!("відповідь не надіслано ({e})"))
 }
 
 fn read_all(reader: &mut impl Read<Error = impl std::fmt::Debug>, limit: usize) -> anyhow::Result<Vec<u8>> {

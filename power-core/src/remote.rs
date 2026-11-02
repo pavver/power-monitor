@@ -20,9 +20,8 @@ pub const FIRST_CHECKIN_MS: u64 = 60_000;
 pub const SOON_CHECKIN_MS: u64 = 2 * 60_000;
 /// A session nobody uses closes after this.
 pub const SESSION_IDLE_MS: u64 = 15 * 60_000;
-/// Request bodies (a firmware image is the largest) and answers.
+/// Request bodies; a firmware image is the largest.
 pub const MAX_BODY: usize = 2 * 1024 * 1024;
-pub const MAX_REPLY: usize = 64 * 1024;
 /// The panel's own session cookie; the only one passed through.
 pub const PANEL_COOKIE: &str = "session";
 
