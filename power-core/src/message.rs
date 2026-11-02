@@ -275,20 +275,7 @@ mod tests {
     }
 
     fn reading() -> Reading {
-        Reading {
-            voltage_mv: 13_280,
-            current_ma: -2_000,
-            soc: 84,
-            remaining_mah: 84_000,
-            capacity_mah: 100_000,
-            cycles: 3,
-            cells_mv: vec![3_320; 4],
-            temp1_dc: 210,
-            temp2_dc: 205,
-            mosfet_dc: 250,
-            charging: true,
-            discharging: true,
-        }
+        Reading { voltage_mv: 13_280, soc: 84, remaining_mah: 84_000 }
     }
 
     #[test]

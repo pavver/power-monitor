@@ -140,100 +140,39 @@ impl DeviceInfo {
     }
 }
 
-/// One set of measurements, in the units the BMS sends.
+/// What the page and the messages show of a cell info frame, in the units
+/// the BMS sends.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Reading {
     pub voltage_mv: u32,
-    /// Positive while charging.
-    pub current_ma: i32,
     pub soc: u8,
     pub remaining_mah: u32,
-    pub capacity_mah: u32,
-    pub cycles: u32,
-    /// Connected cells in order.
-    pub cells_mv: Vec<u16>,
-    /// Tenths of a degree Celsius.
-    pub temp1_dc: i16,
-    pub temp2_dc: i16,
-    pub mosfet_dc: i16,
-    pub charging: bool,
-    pub discharging: bool,
 }
 
 /// Template variables for a reading, in the order the page lists them.
-pub const VARIABLES: [&str; 15] = [
-    "bms_soc", "bms_voltage", "bms_current", "bms_power", "bms_remaining", "bms_capacity",
-    "bms_cycles", "bms_cell_min", "bms_cell_max", "bms_cell_delta", "bms_temp1", "bms_temp2",
-    "bms_mosfet", "bms_charging", "bms_discharging",
-];
+pub const VARIABLES: [&str; 3] = ["bms_soc", "bms_voltage", "bms_energy"];
 
 impl Reading {
-    /// Each of `VARIABLES` with its value as people read it, without units.
-    pub fn values(&self) -> [(&'static str, String); 15] {
-        let cell_min = self.cells_mv.iter().copied().min().unwrap_or(0);
-        let cell_max = self.cells_mv.iter().copied().max().unwrap_or(0);
-        let watts = f64::from(self.voltage_mv) * f64::from(self.current_ma) / 1e6;
-        let yes = |on: bool| if on { "так" } else { "ні" }.to_string();
-        let values = [
-            self.soc.to_string(),
-            milli(self.voltage_mv.into(), 2),
-            milli(self.current_ma.into(), 1),
-            format!("{watts:.0}"),
-            milli(self.remaining_mah.into(), 1),
-            milli(self.capacity_mah.into(), 1),
-            self.cycles.to_string(),
-            milli(cell_min.into(), 3),
-            milli(cell_max.into(), 3),
-            milli((cell_max - cell_min).into(), 3),
-            tenths(self.temp1_dc),
-            tenths(self.temp2_dc),
-            tenths(self.mosfet_dc),
-            yes(self.charging),
-            yes(self.discharging),
-        ];
-        let mut values = values.into_iter();
-        VARIABLES.map(|name| (name, values.next().unwrap_or_default()))
+    /// Each of `VARIABLES` with its value as people read it, without units:
+    /// percent, volts, and the energy left in kilowatt-hours.
+    pub fn values(&self) -> [(&'static str, String); 3] {
+        let volts = f64::from(self.voltage_mv) / 1e3;
+        let kwh = f64::from(self.remaining_mah) * f64::from(self.voltage_mv) / 1e9;
+        let [soc, voltage, energy] = VARIABLES;
+        [(soc, self.soc.to_string()), (voltage, format!("{volts:.2}")), (energy, format!("{kwh:.2}"))]
     }
-}
-
-/// Thousandths shown with `decimals` places: `milli(53_224, 2)` is "53.22".
-fn milli(value: i64, decimals: usize) -> String {
-    format!("{:.decimals$}", value as f64 / 1000.0)
-}
-
-fn tenths(value: i16) -> String {
-    format!("{:.1}", f64::from(value) / 10.0)
 }
 
 /// Reads a cell info frame laid out as `layout`.
 pub fn reading(frame: &[u8], layout: Layout) -> Reading {
-    let (cells, shift) = match layout {
-        Layout::Cells24 => (24, 0),
-        Layout::Cells32 => (32, 32),
+    // Hardware 11 lists 32 cells instead of 24, moving every later field.
+    let shift = match layout {
+        Layout::Cells24 => 0,
+        Layout::Cells32 => 32,
     };
-    let u16_at = |i: usize| u16::from_le_bytes([frame[i], frame[i + 1]]);
-    let i16_at = |i: usize| i16::from_le_bytes([frame[i], frame[i + 1]]);
-    let u32_at = |i: usize| u32::from_le_bytes([frame[i], frame[i + 1], frame[i + 2], frame[i + 3]]);
-    // The fields past the cell list move by `shift`.
     let at = |i: usize| i + shift;
-    Reading {
-        voltage_mv: u32_at(at(118)),
-        current_ma: u32_at(at(126)) as i32,
-        soc: frame[at(141)],
-        remaining_mah: u32_at(at(142)),
-        capacity_mah: u32_at(at(146)),
-        cycles: u32_at(at(150)),
-        cells_mv: (0..cells).map(|n| u16_at(6 + 2 * n)).filter(|&mv| mv > 0).collect(),
-        temp1_dc: i16_at(at(130)),
-        temp2_dc: i16_at(at(132)),
-        // The 32-cell layout reports errors where the older one had this.
-        mosfet_dc: i16_at(match layout {
-            Layout::Cells24 => 134,
-            Layout::Cells32 => at(112),
-        }),
-        charging: frame[at(166)] != 0,
-        discharging: frame[at(167)] != 0,
-    }
+    let u32_at = |i: usize| u32::from_le_bytes([frame[i], frame[i + 1], frame[i + 2], frame[i + 3]]);
+    Reading { voltage_mv: u32_at(at(118)), soc: frame[at(141)], remaining_mah: u32_at(at(142)) }
 }
 
 /// A zero-padded ASCII field.
@@ -301,67 +240,26 @@ mod tests {
     #[test]
     fn reads_a_24_cell_unit() {
         let r = measured(&DEVICE_INFO_JK02_24S_V10, &CELL_INFO_JK02_24S_V10);
-        assert_eq!(r.cells_mv.len(), 24);
-        assert_eq!((r.cells_mv[2], r.cells_mv[22]), (3279, 3285));
-        assert_eq!((r.voltage_mv, r.current_ma, r.soc), (78_735, 0, 85));
-        assert_eq!((r.remaining_mah, r.capacity_mah, r.cycles), (42_804, 50_000, 0));
-        assert_eq!((r.temp1_dc, r.temp2_dc, r.mosfet_dc), (207, 207, 234));
-        assert_eq!((r.charging, r.discharging), (true, false));
-    }
-
-    #[test]
-    fn reads_temperatures_below_zero_and_unused_cells() {
-        let r = measured(&DEVICE_INFO_JK02_24S_V10, &CELL_INFO_JK02_24S_V10_NEG_TEMPS);
-        assert_eq!(r.cells_mv.len(), 13);
-        assert_eq!((r.temp1_dc, r.temp2_dc, r.mosfet_dc), (-31, -29, 5));
-        assert_eq!((r.soc, r.cycles, r.charging, r.discharging), (47, 56, false, false));
+        assert_eq!(r, Reading { voltage_mv: 78_735, soc: 85, remaining_mah: 42_804 });
     }
 
     #[test]
     fn reads_a_32_cell_unit() {
-        let r = measured(&DEVICE_INFO_JK02_32S_V11, &CELL_INFO_JK02_32S_V11);
-        assert_eq!(r.cells_mv.len(), 16);
-        assert_eq!((r.cells_mv[0], r.cells_mv[10], r.cells_mv[15]), (3246, 3216, 3242));
-        assert_eq!((r.voltage_mv, r.current_ma, r.soc), (51_689, 0, 52));
-        assert_eq!((r.remaining_mah, r.capacity_mah), (1_043, 2_000));
-        assert_eq!((r.temp1_dc, r.temp2_dc, r.mosfet_dc), (177, 177, 173));
-        assert_eq!((r.charging, r.discharging), (true, true));
-    }
-
-    #[test]
-    fn reads_charging_current_and_cycles() {
-        let r = measured(&DEVICE_INFO_JK02_32S_V15, &CELL_INFO_JK02_32S_V15);
-        assert_eq!((r.voltage_mv, r.current_ma, r.soc, r.cycles), (53_224, 31_881, 25, 9));
-        assert_eq!((r.remaining_mah, r.capacity_mah), (49_286, 200_000));
-        assert_eq!((r.temp1_dc, r.temp2_dc, r.mosfet_dc), (134, 128, 129));
-    }
-
-    fn value(r: &Reading, name: &str) -> String {
-        r.values().into_iter().find(|(n, _)| *n == name).unwrap().1
+        assert_eq!(
+            measured(&DEVICE_INFO_JK02_32S_V11, &CELL_INFO_JK02_32S_V11),
+            Reading { voltage_mv: 51_689, soc: 52, remaining_mah: 1_043 }
+        );
+        assert_eq!(
+            measured(&DEVICE_INFO_JK02_32S_V15, &CELL_INFO_JK02_32S_V15),
+            Reading { voltage_mv: 53_224, soc: 25, remaining_mah: 49_286 }
+        );
     }
 
     #[test]
     fn values_read_like_a_dashboard() {
         let r = measured(&DEVICE_INFO_JK02_32S_V15, &CELL_INFO_JK02_32S_V15);
-        let all: Vec<_> = r.values().into_iter().map(|(_, v)| v).collect();
-        assert_eq!(
-            all,
-            [
-                "25", "53.22", "31.9", "1697", "49.3", "200.0", "9", "3.320", "3.337", "0.017", "13.4",
-                "12.8", "12.9", "так", "так"
-            ]
-        );
-    }
-
-    #[test]
-    fn values_keep_their_sign() {
-        let r = measured(&DEVICE_INFO_JK02_24S_V10, &CELL_INFO_JK02_24S_V10_NEG_TEMPS);
-        assert_eq!(value(&r, "bms_temp1"), "-3.1");
-        assert_eq!(value(&r, "bms_charging"), "ні");
-        let discharging = Reading { current_ma: -1_550, voltage_mv: 12_000, mosfet_dc: -4, ..r };
-        assert_eq!(value(&discharging, "bms_current"), "-1.6");
-        assert_eq!(value(&discharging, "bms_power"), "-19");
-        assert_eq!(value(&discharging, "bms_mosfet"), "-0.4");
+        // 49.286 Ah at 53.224 V is 2.623 kWh.
+        assert_eq!(r.values(), [("bms_soc", "25".into()), ("bms_voltage", "53.22".into()), ("bms_energy", "2.62".into())]);
     }
 
     fn found(name: &str, address: &str, rssi: i8, service: bool) -> Found {

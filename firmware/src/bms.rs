@@ -89,7 +89,6 @@ impl Bms {
         let reading = state.reading.as_ref().map(|(at, reading)| {
             serde_json::json!({
                 "age_s": at.elapsed().as_secs(),
-                "cells_mv": reading.cells_mv,
                 "values": reading.values().into_iter().collect::<std::collections::BTreeMap<_, _>>(),
             })
         });

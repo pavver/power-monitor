@@ -104,9 +104,9 @@ mod tests {
 
     #[test]
     fn accepts_battery_values_in_every_message() {
-        assert_eq!(validate("{bms_soc}% {bms_voltage} В {bms_cell_delta}", false), Ok(()));
+        assert_eq!(validate("{bms_soc}% {bms_voltage} В {bms_energy}", false), Ok(()));
         assert_eq!(validate("{bms_nonsense}", false), Err(TemplateError::Unknown));
-        assert_eq!(validate("{bms_temp3}", false), Err(TemplateError::Unknown));
+        assert_eq!(validate("{bms_temp1}", false), Err(TemplateError::Unknown));
     }
 
     #[test]
@@ -114,7 +114,7 @@ mod tests {
         assert!(uses_bms("Заряд {bms_soc}%"));
         assert!(!uses_bms("{device}: {duration}"));
         assert!(!uses_bms("bms_soc без дужок"));
-        assert!(uses_bms("Датчик {bms_temp1}°"));
+        assert!(uses_bms("Енергія {bms_energy} кВт·год"));
     }
 
     #[test]
