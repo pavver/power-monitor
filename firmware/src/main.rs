@@ -29,6 +29,12 @@ use power_core::reset::{self, BootAction, Start, QUICK_BOOT_MS};
 use crate::settings::Settings;
 use crate::status::Status;
 
+// The image header: version from build.rs, date and time of this build.
+// ESP-IDF's own stamp is only refreshed when ESP-IDF itself is rebuilt.
+// `true`: date and time each in their own field (the macro cannot tell
+// `()` from `{}`, so only the explicit argument picks the fixed layout).
+esp_idf_svc::sys::esp_app_desc!(true);
+
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
