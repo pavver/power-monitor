@@ -71,9 +71,6 @@ impl Server {
     }
 }
 
-/// The remote support server a new device calls.
-pub const DEFAULT_SERVER: &str = "https://iot.pavver.net";
-
 /// What the panel saves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteSettings {
@@ -82,10 +79,10 @@ pub struct RemoteSettings {
 }
 
 impl RemoteSettings {
-    /// Before the client saves anything: on, calling `built_in` (the address
-    /// given at build time) or else [`DEFAULT_SERVER`]. The client can switch it off.
+    /// Before the client saves anything: on when the device was built for a
+    /// server (`built_in`), else off. The client can switch it either way.
     pub fn factory(built_in: Option<&str>) -> Self {
-        let server = Server::parse(built_in.unwrap_or(DEFAULT_SERVER)).ok();
+        let server = built_in.and_then(|text| Server::parse(text).ok());
         Self { enabled: server.is_some(), server }
     }
 
@@ -349,12 +346,10 @@ mod tests {
     const HOUR: u64 = 60 * MIN;
 
     #[test]
-    fn a_new_device_has_remote_support_on_with_our_server() {
-        let fresh = RemoteSettings::factory(None);
-        assert!(fresh.enabled);
-        assert_eq!(fresh.active_server().unwrap().as_str(), "https://iot.pavver.net");
-        let other = RemoteSettings::factory(Some("https://svitlo.example.com"));
-        assert_eq!(other.active_server().unwrap().as_str(), "https://svitlo.example.com");
+    fn a_new_device_calls_only_the_server_it_was_built_for() {
+        assert_eq!(RemoteSettings::factory(None), RemoteSettings { enabled: false, server: None });
+        let built = RemoteSettings::factory(Some("https://svitlo.example.com"));
+        assert_eq!(built.active_server().unwrap().as_str(), "https://svitlo.example.com");
         // A bad address given at build time leaves it off rather than calling somewhere unexpected.
         assert_eq!(RemoteSettings::factory(Some("http://plain.example.com")), RemoteSettings { enabled: false, server: None });
     }

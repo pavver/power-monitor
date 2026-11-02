@@ -23,8 +23,8 @@ const BATTERY: &str = "bms";
 const DIVIDER: &str = "divider";
 const REMOTE: &str = "remote";
 const IDENTITY: &str = "remote_id";
-/// `REMOTE_SERVER=https://… cargo build` points new devices at another
-/// server than `remote::DEFAULT_SERVER`.
+/// `REMOTE_SERVER=https://… cargo build` makes new devices call that
+/// server for remote support; without it support starts switched off.
 const BUILT_IN_SERVER: Option<&str> = option_env!("REMOTE_SERVER");
 
 pub struct Settings {
