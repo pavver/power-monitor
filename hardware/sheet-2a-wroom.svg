@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 620" width="1160" height="620" role="img" aria-label="Аркуш 2а: модуль ESP32-WROOM-32 знизу, як на фото. AMS1117 робить 3.3 вольта з 5 вольт. Пад 2 3V3 з конденсаторами C2 і C3, пад 3 EN з підтяжкою R3, конденсатором C4 і кнопкою SW1. Пад 6 IO34 від дільника, пад 26 IO4 від оптопари. Земля на падах 1, 15 і 38.">
+<style>
+text{font-family:'DejaVu Sans Mono',Consolas,Menlo,monospace;font-size:13px;fill:#1d2326}
+.ref{font-weight:600}
+.pin{font-size:11px;fill:#5b666b}
+.set{fill:#0a5fa8;font-weight:600}
+.warn{fill:#b3261e;font-weight:600}
+.w{stroke:#1d2326;stroke-width:1.6;fill:none}
+.b{fill:#fff;stroke:#1d2326;stroke-width:1.6}
+.dash{fill:none;stroke:#5b666b;stroke-width:1.2;stroke-dasharray:5 4}
+.solid{fill:#1d2326;stroke:none}
+.zone{fill:rgba(179,38,30,.07);stroke:#b3261e;stroke-width:1.2;stroke-dasharray:6 4}
+.iso{stroke:#b3261e;stroke-width:1.4;stroke-dasharray:4 4;fill:none}
+</style>
+<rect width="1160" height="620" fill="#fff"/>
+<rect class="b" x="300" y="40" width="240" height="520" rx="4"/>
+<rect x="300" y="40" width="240" height="70" fill="rgba(179,38,30,.07)"/>
+<text x="420" y="66" class="ref" text-anchor="middle">U3 ESP32-WROOM-32</text>
+<text x="420" y="86" class="pin" text-anchor="middle">вид знизу, з боку падів</text>
+<rect x="385" y="300" width="70" height="70" class="dash"/>
+<text x="420" y="331" class="pin" text-anchor="middle">39 GND</text>
+<text x="420" y="346" class="pin" text-anchor="middle">центр. пад</text>
+<path class="w" d="M300 150 L290 150"/>
+<text x="308" y="154" class="pin">38 GND</text>
+<path class="w" d="M300 176 L290 176"/>
+<text x="308" y="180" class="pin">37 IO23</text>
+<path class="w" d="M300 202 L290 202"/>
+<text x="308" y="206" class="pin">36 IO22</text>
+<path class="w" d="M300 228 L290 228"/>
+<text x="308" y="232" class="pin">35 TXD0</text>
+<path class="w" d="M300 254 L290 254"/>
+<text x="308" y="258" class="pin">34 RXD0</text>
+<path class="w" d="M300 280 L290 280"/>
+<text x="308" y="284" class="pin">33 IO21</text>
+<path class="w" d="M300 306 L290 306"/>
+<text x="308" y="310" class="pin">32 NC</text>
+<path class="w" d="M300 332 L290 332"/>
+<text x="308" y="336" class="pin">31 IO19</text>
+<path class="w" d="M300 358 L290 358"/>
+<text x="308" y="362" class="pin">30 IO18</text>
+<path class="w" d="M300 384 L290 384"/>
+<text x="308" y="388" class="pin">29 IO5</text>
+<path class="w" d="M300 410 L290 410"/>
+<text x="308" y="414" class="pin">28 IO17</text>
+<path class="w" d="M300 436 L290 436"/>
+<text x="308" y="440" class="pin">27 IO16</text>
+<path class="w" d="M300 462 L290 462"/>
+<text x="308" y="466" class="pin">26 IO4</text>
+<path class="w" d="M300 488 L290 488"/>
+<text x="308" y="492" class="pin">25 IO0</text>
+<path class="w" d="M540 150 L550 150"/>
+<text x="532" y="154" class="pin" text-anchor="end">GND 1</text>
+<path class="w" d="M540 176 L550 176"/>
+<text x="532" y="180" class="pin" text-anchor="end">3V3 2</text>
+<path class="w" d="M540 202 L550 202"/>
+<text x="532" y="206" class="pin" text-anchor="end">EN 3</text>
+<path class="w" d="M540 228 L550 228"/>
+<text x="532" y="232" class="pin" text-anchor="end">SENSOR_VP 4</text>
+<path class="w" d="M540 254 L550 254"/>
+<text x="532" y="258" class="pin" text-anchor="end">SENSOR_VN 5</text>
+<path class="w" d="M540 280 L550 280"/>
+<text x="532" y="284" class="pin" text-anchor="end">IO34 6</text>
+<path class="w" d="M540 306 L550 306"/>
+<text x="532" y="310" class="pin" text-anchor="end">IO35 7</text>
+<path class="w" d="M540 332 L550 332"/>
+<text x="532" y="336" class="pin" text-anchor="end">IO32 8</text>
+<path class="w" d="M540 358 L550 358"/>
+<text x="532" y="362" class="pin" text-anchor="end">IO33 9</text>
+<path class="w" d="M540 384 L550 384"/>
+<text x="532" y="388" class="pin" text-anchor="end">IO25 10</text>
+<path class="w" d="M540 410 L550 410"/>
+<text x="532" y="414" class="pin" text-anchor="end">IO26 11</text>
+<path class="w" d="M540 436 L550 436"/>
+<text x="532" y="440" class="pin" text-anchor="end">IO27 12</text>
+<path class="w" d="M540 462 L550 462"/>
+<text x="532" y="466" class="pin" text-anchor="end">IO14 13</text>
+<path class="w" d="M540 488 L550 488"/>
+<text x="532" y="492" class="pin" text-anchor="end">IO12 14</text>
+<path class="w" d="M510 560 L510 570"/>
+<text class="pin" transform="translate(514 552) rotate(-90)">15 GND</text>
+<path class="w" d="M490 560 L490 570"/>
+<text class="pin" transform="translate(494 552) rotate(-90)">16 IO13</text>
+<path class="w" d="M470 560 L470 570"/>
+<text class="pin" transform="translate(474 552) rotate(-90)">17 SD2</text>
+<path class="w" d="M450 560 L450 570"/>
+<text class="pin" transform="translate(454 552) rotate(-90)">18 SD3</text>
+<path class="w" d="M430 560 L430 570"/>
+<text class="pin" transform="translate(434 552) rotate(-90)">19 CMD</text>
+<path class="w" d="M410 560 L410 570"/>
+<text class="pin" transform="translate(414 552) rotate(-90)">20 CLK</text>
+<path class="w" d="M390 560 L390 570"/>
+<text class="pin" transform="translate(394 552) rotate(-90)">21 SD0</text>
+<path class="w" d="M370 560 L370 570"/>
+<text class="pin" transform="translate(374 552) rotate(-90)">22 SD1</text>
+<path class="w" d="M350 560 L350 570"/>
+<text class="pin" transform="translate(354 552) rotate(-90)">23 IO15</text>
+<path class="w" d="M330 560 L330 570"/>
+<text class="pin" transform="translate(334 552) rotate(-90)">24 IO2</text>
+<path class="w" d="M300 150 L278 150"/>
+<path class="w" d="M278 150 V160 M267 160 H289 M271 165 H285 M275 170 H281"/>
+<path class="w" d="M540 150 L552 150"/>
+<path class="w" d="M552 150 V160 M541 160 H563 M545 165 H559 M549 170 H555"/>
+<path class="w" d="M510 570 V580 M499 580 H521 M503 585 H517 M507 590 H513"/>
+<path class="w" d="M540 176 L575 176 L575 120 L980 120"/>
+<circle class="solid" cx="575" cy="120" r="3"/>
+<text x="590" y="112" class="ref">3V3</text>
+<circle class="solid" cx="620" cy="120" r="3"/>
+<path class="w" d="M620 120 L620 139.0"/><path class="w" d="M620 147.0 L620 166"/><path class="w" d="M606 139.0 H634 M606 147.0 H634"/>
+<path class="w" d="M620 166 V176 M609 176 H631 M613 181 H627 M617 186 H623"/>
+<text x="636" y="150" class="ref">C3</text><text x="636" y="166">100nF</text><text x="636" y="181" class="pin">кераміка</text>
+<circle class="solid" cx="880" cy="120" r="3"/>
+<path class="w" d="M880 120 L880 138.0"/><path class="w" d="M880 150.0 L880 166"/><path class="w" d="M866 138.0 H894"/><rect class="solid" x="866" y="145.0" width="28" height="5"/><text x="862" y="135.0" text-anchor="end">+</text>
+<path class="w" d="M880 166 V176 M869 176 H891 M873 181 H887 M877 186 H883"/>
+<text x="896" y="150" class="ref">C2</text><text x="896" y="166">100µF</text><text x="896" y="181" class="pin">≥ 6.3 В</text>
+<circle class="solid" cx="720" cy="120" r="3"/>
+<path class="w" d="M720 120 L720 145.0"/><path class="w" d="M720 177.0 L720 202"/><rect class="b" x="714" y="145.0" width="12" height="32"/>
+<text x="734" y="148" class="ref">R3</text><text x="734" y="164">10k</text>
+<path class="w" d="M540 202 L840 202"/>
+<circle class="solid" cx="720" cy="202" r="3"/>
+<text x="560" y="196" class="pin">EN</text>
+<circle class="solid" cx="780" cy="202" r="3"/>
+<path class="w" d="M780 202 L780 214.0"/><path class="w" d="M780 226.0 L780 236"/><path class="w" d="M766 214.0 H794"/><rect class="solid" x="766" y="221.0" width="28" height="5"/><text x="798" y="211.0">+</text>
+<path class="w" d="M780 236 V246 M769 246 H791 M773 251 H787 M777 256 H783"/>
+<text x="764" y="236" class="ref" text-anchor="end">C4</text><text x="764" y="252" text-anchor="end">1µF</text>
+<path class="w" d="M840 202 L840 201.0"/><path class="w" d="M840 237.0 L840 236"/><path class="w" d="M840 237.0 L852 205.0 M848 219.0 H860"/><circle class="b" cx="840" cy="201.0" r="3"/><circle class="b" cx="840" cy="237.0" r="3"/>
+<path class="w" d="M840 236 V246 M829 246 H851 M833 251 H847 M837 256 H843"/>
+<text x="866" y="220" class="ref">SW1</text><text x="866" y="236">RST</text><text x="866" y="251" class="pin">опційно</text>
+<path class="w" d="M540 280 L600 280"/>
+<polygon class="solid" points="612,274 600,280 612,286"/><text x="618" y="284" class="ref">ADC</text><text x="618" y="300" class="pin">з аркуша 1 (R1/R2)</text>
+<text x="980" y="18" class="pin" text-anchor="middle">вид на напис, ніжки вниз</text>
+<rect class="b" x="950" y="26" width="60" height="14"/>
+<text x="1016" y="37" class="pin">таб = OUT</text>
+<rect class="b" x="920" y="40" width="120" height="44" rx="2"/>
+<text x="980" y="58" class="ref" text-anchor="middle">U2</text>
+<text x="980" y="76" text-anchor="middle">AMS1117-3.3</text>
+<text x="944" y="98" class="pin">1</text>
+<text x="984" y="98" class="pin">2</text>
+<text x="1024" y="98" class="pin">3</text>
+<path class="w" d="M940 84 L940 96"/>
+<path class="w" d="M940 96 V106 M929 106 H951 M933 111 H947 M937 116 H943"/>
+<path class="w" d="M980 84 L980 120"/>
+<circle class="solid" cx="980" cy="120" r="3"/>
+<path class="w" d="M1020 84 L1020 104 L1050 104"/>
+<polygon class="solid" points="1062,98 1050,104 1062,110"/><text x="1068" y="108" class="ref">+5 В</text><text x="1068" y="124" class="pin">з аркуша 1</text>
+<path class="w" d="M300 462 L200 462"/>
+<polygon class="solid" points="188,456 200,462 188,468"/><text x="182" y="466" class="ref" text-anchor="end">GPIO4</text><text x="182" y="482" class="pin" text-anchor="end">з аркуша 3</text>
+</svg>

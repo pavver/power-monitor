@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" width="900" height="420" role="img" aria-label="Аркуш 2б: плата ESP32 DevKit. 5 вольт з аркуша 1 на пін VIN, земля на GND, вихід дільника на GPIO34, вихід оптопари на GPIO4.">
+<style>
+text{font-family:'DejaVu Sans Mono',Consolas,Menlo,monospace;font-size:13px;fill:#1d2326}
+.ref{font-weight:600}
+.pin{font-size:11px;fill:#5b666b}
+.set{fill:#0a5fa8;font-weight:600}
+.warn{fill:#b3261e;font-weight:600}
+.w{stroke:#1d2326;stroke-width:1.6;fill:none}
+.b{fill:#fff;stroke:#1d2326;stroke-width:1.6}
+.dash{fill:none;stroke:#5b666b;stroke-width:1.2;stroke-dasharray:5 4}
+.solid{fill:#1d2326;stroke:none}
+.zone{fill:rgba(179,38,30,.07);stroke:#b3261e;stroke-width:1.2;stroke-dasharray:6 4}
+.iso{stroke:#b3261e;stroke-width:1.4;stroke-dasharray:4 4;fill:none}
+</style>
+<rect width="900" height="420" fill="#fff"/>
+<rect class="b" x="330" y="60" width="240" height="300" rx="6"/>
+<text x="450" y="92" class="ref" text-anchor="middle">U3 ESP32 DevKit</text>
+<text x="450" y="110" class="pin" text-anchor="middle">30 або 38 пінів, будь-яка</text>
+<path class="w" d="M570 140 L700 140"/>
+<text x="562" y="144" class="pin" text-anchor="end">VIN / 5V</text>
+<polygon class="solid" points="712,134 700,140 712,146"/><text x="718" y="144" class="ref">+5 В</text><text x="718" y="160" class="pin">з аркуша 1</text>
+<path class="w" d="M570 220 L700 220"/>
+<text x="562" y="224" class="pin" text-anchor="end">GND</text>
+<circle class="solid" cx="700" cy="220" r="3"/>
+<path class="w" d="M700 220 V230 M689 230 H711 M693 235 H707 M697 240 H703"/>
+<text x="714" y="242" class="ref">GND</text>
+<path class="w" d="M330 140 L200 140"/>
+<text x="338" y="144" class="pin">GPIO34 (D34)</text>
+<polygon class="solid" points="188,134 200,140 188,146"/><text x="182" y="144" class="ref" text-anchor="end">ADC</text><text x="182" y="160" class="pin" text-anchor="end">з аркуша 1 (R1/R2)</text>
+<path class="w" d="M330 220 L200 220"/>
+<text x="338" y="224" class="pin">GPIO4 (D4)</text>
+<polygon class="solid" points="188,214 200,220 188,226"/><text x="182" y="224" class="ref" text-anchor="end">GPIO4</text><text x="182" y="240" class="pin" text-anchor="end">з аркуша 3</text>
+</svg>

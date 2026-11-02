@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 380" width="820" height="380" role="img" aria-label="Аркуш 1: акумулятор до 80 вольт через запобіжник F1. Одразу за запобіжником дільник R1 330 кілоом і R2 10 кілоом з конденсатором C1 на вхід АЦП. Далі діод D1 і DC-DC JZ7015, налаштований на 5 вольт.">
+<style>
+text{font-family:'DejaVu Sans Mono',Consolas,Menlo,monospace;font-size:13px;fill:#1d2326}
+.ref{font-weight:600}
+.pin{font-size:11px;fill:#5b666b}
+.set{fill:#0a5fa8;font-weight:600}
+.warn{fill:#b3261e;font-weight:600}
+.w{stroke:#1d2326;stroke-width:1.6;fill:none}
+.b{fill:#fff;stroke:#1d2326;stroke-width:1.6}
+.dash{fill:none;stroke:#5b666b;stroke-width:1.2;stroke-dasharray:5 4}
+.solid{fill:#1d2326;stroke:none}
+.zone{fill:rgba(179,38,30,.07);stroke:#b3261e;stroke-width:1.2;stroke-dasharray:6 4}
+.iso{stroke:#b3261e;stroke-width:1.4;stroke-dasharray:4 4;fill:none}
+</style>
+<rect width="820" height="380" fill="#fff"/>
+<circle class="b" cx="40" cy="80" r="5"/>
+<circle class="b" cx="40" cy="320" r="5"/>
+<text x="20" y="64">+АКБ</text>
+<text x="20" y="346">−АКБ</text>
+<text x="20" y="205" class="ref">J1</text>
+<text x="20" y="222" class="pin">до 80 В</text>
+<path class="w" d="M45 80 L92 80"/>
+<rect class="b" x="92" y="73" width="36" height="14"/>
+<path class="w" d="M92 80 L128 80"/>
+<text x="110" y="64" class="ref" text-anchor="middle">F1</text>
+<text x="110" y="108" text-anchor="middle">1 A</text>
+<path class="w" d="M128 80 L190 80"/>
+<circle class="solid" cx="190" cy="80" r="3"/>
+<path class="w" d="M190 80 L190 124.0"/><path class="w" d="M190 156.0 L190 200"/><rect class="b" x="184" y="124.0" width="12" height="32"/>
+<text x="176" y="128" class="ref" text-anchor="end">R1</text><text x="176" y="144" text-anchor="end">330k</text><text x="176" y="159" class="pin" text-anchor="end">1%</text>
+<path class="w" d="M190 200 L190 244.0"/><path class="w" d="M190 276.0 L190 320"/><rect class="b" x="184" y="244.0" width="12" height="32"/>
+<text x="176" y="248" class="ref" text-anchor="end">R2</text><text x="176" y="264" text-anchor="end">10k</text><text x="176" y="279" class="pin" text-anchor="end">1%</text>
+<circle class="solid" cx="190" cy="200" r="3"/>
+<circle class="solid" cx="190" cy="320" r="3"/>
+<path class="w" d="M190 200 L250 200"/>
+<circle class="solid" cx="250" cy="200" r="3"/>
+<path class="w" d="M250 200 L250 256.0"/><path class="w" d="M250 264.0 L250 320"/><path class="w" d="M236 256.0 H264 M236 264.0 H264"/>
+<circle class="solid" cx="250" cy="320" r="3"/>
+<text x="266" y="250" class="ref">C1</text><text x="266" y="266">100nF</text><text x="266" y="281" class="pin">кераміка</text>
+<path class="w" d="M250 200 L300 200"/>
+<polygon class="solid" points="300,194 312,200 300,206"/><text x="318" y="204" class="ref">ADC</text><text x="318" y="220" class="pin">до аркуша 2</text>
+<path class="w" d="M190 80 L291.0 80"/><path class="w" d="M309.0 80 L410 80"/><polygon class="solid" points="291.0,70 291.0,90 309.0,80"/><path class="w" d="M309.0 70 V90" style="stroke-width:2.2"/>
+<text x="300" y="62" class="ref" text-anchor="middle">D1</text>
+<text x="300" y="110" text-anchor="middle">SS1100</text>
+<path class="w" d="M410 80 L470 80"/>
+<path class="w" d="M45 320 L470 320"/>
+<rect class="b" x="470" y="50" width="150" height="300" rx="4"/>
+<text x="478" y="84" class="pin">IN+</text>
+<text x="478" y="324" class="pin">IN−</text>
+<text x="612" y="84" class="pin" text-anchor="end">OUT+</text>
+<text x="612" y="324" class="pin" text-anchor="end">OUT−</text>
+<text x="545" y="176" class="ref" text-anchor="middle">U1</text>
+<text x="545" y="194" text-anchor="middle">JZ7015</text>
+<text x="545" y="212" class="pin" text-anchor="middle">DC-DC, вхід ≤ 80 В</text>
+<text x="545" y="240" class="set" text-anchor="middle">OUT = 5.0 В</text>
+<path class="w" d="M620 80 L690 80"/>
+<polygon class="solid" points="690,74 702,80 690,86"/><text x="708" y="84" class="ref">+5 В</text><text x="708" y="100" class="pin">до аркуша 2</text>
+<path class="w" d="M620 320 L690 320"/>
+<circle class="solid" cx="690" cy="320" r="3"/>
+<path class="w" d="M690 320 V330 M679 330 H701 M683 335 H697 M687 340 H693"/>
+<text x="704" y="340" class="ref">GND</text>
+</svg>
