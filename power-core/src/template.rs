@@ -3,7 +3,9 @@
 //!
 //! `{name?text}` is a section: `text` (which may hold placeholders and
 //! sections) shows only when `name` has a value, so a missing value can
-//! take its whole sentence away instead of showing a shrug. `\n` in the
+//! take its whole sentence away instead of showing a shrug; `{!name?text}`
+//! shows `text` only when `name` has none, so a second value can stand in
+//! for the first. `\n` in the
 //! text is a line break, for fields where a real one is awkward to type.
 
 use std::fmt;
@@ -74,9 +76,16 @@ pub fn uses_bms(template: &str) -> bool {
 enum Part<'a> {
     Text(&'a str),
     Value(&'a str),
-    Section(&'a str, Vec<Part<'a>>),
+    Section(&'a str, Shown, Vec<Part<'a>>),
     /// A `{name?` never closed; shown as written.
     Unclosed,
+}
+
+/// When a section's text shows: `{name?` or `{!name?`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shown {
+    Known,
+    Missing,
 }
 
 fn parse(template: &str) -> Vec<Part<'_>> {
@@ -93,28 +102,43 @@ fn parse_until(mut rest: &str, inside: bool) -> (Vec<Part<'_>>, Option<&str>) {
         if rest[at..].starts_with('}') {
             return (parts, Some(after));
         }
-        let end = after.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(after.len());
-        let (name, tail) = after.split_at(end);
-        let is_name = name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic());
-        if let (true, Some(tail)) = (is_name, tail.strip_prefix('}')) {
-            parts.push(Part::Value(name));
-            rest = tail;
-            continue;
-        }
-        if let (true, Some(body)) = (is_name, tail.strip_prefix('?')) {
+        if let Some((name, shown, body)) = section_start(after) {
             if let (body, Some(tail)) = parse_until(body, true) {
-                parts.push(Part::Section(name, body));
+                parts.push(Part::Section(name, shown, body));
                 rest = tail;
                 continue;
             }
             parts.push(Part::Unclosed);
-        } else {
-            parts.push(Part::Text("{"));
+            rest = after;
+            continue;
         }
+        if let Some((name, tail)) = name_at(after).and_then(|(name, tail)| Some((name, tail.strip_prefix('}')?))) {
+            parts.push(Part::Value(name));
+            rest = tail;
+            continue;
+        }
+        parts.push(Part::Text("{"));
         rest = after;
     }
     parts.push(Part::Text(rest));
     (parts, None)
+}
+
+/// The name, when it shows and the text after `?` of a section that starts
+/// right after a `{`.
+fn section_start(after: &str) -> Option<(&str, Shown, &str)> {
+    let (shown, after) = match after.strip_prefix('!') {
+        Some(after) => (Shown::Missing, after),
+        None => (Shown::Known, after),
+    };
+    let (name, tail) = name_at(after)?;
+    Some((name, shown, tail.strip_prefix('?')?))
+}
+
+/// The name `text` starts with and the text after it.
+fn name_at(text: &str) -> Option<(&str, &str)> {
+    let (name, tail) = text.split_at(text.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(text.len()));
+    name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic()).then_some((name, tail))
 }
 
 fn write(out: &mut String, parts: &[Part], values: &[(&str, Option<&str>)]) {
@@ -126,8 +150,9 @@ fn write(out: &mut String, parts: &[Part], values: &[(&str, Option<&str>)]) {
                 Some(value) => out.push_str(value.unwrap_or(UNKNOWN)),
                 None => *out += &format!("{{{name}}}"),
             },
-            Part::Section(name, body) => {
-                if let Some(Some(_)) = value(name) {
+            Part::Section(name, shown, body) => {
+                let known = matches!(value(name), Some(Some(_)));
+                if known == (*shown == Shown::Known) {
                     write(out, body, values);
                 }
             }
@@ -143,7 +168,7 @@ fn names<'a>(parts: &[Part<'a>]) -> Vec<Option<&'a str>> {
         .flat_map(|part| match part {
             Part::Text(_) => vec![],
             Part::Value(name) => vec![Some(*name)],
-            Part::Section(name, body) => [vec![Some(*name)], names(body)].concat(),
+            Part::Section(name, _, body) => [vec![Some(*name)], names(body)].concat(),
             Part::Unclosed => vec![None],
         })
         .collect()
@@ -208,6 +233,29 @@ mod tests {
     }
 
     #[test]
+    fn negated_section_shows_only_when_its_value_is_missing() {
+        let text = "{bms_soc?{bms_soc}%}{!bms_soc?{duration?{duration}}}";
+        assert_eq!(render(text, &VALUES), "84%");
+        assert_eq!(render(text, &[("bms_soc", None), ("duration", Some("5 хв"))]), "5 хв");
+        assert_eq!(render(text, &[("bms_soc", None), ("duration", None)]), "");
+    }
+
+    #[test]
+    fn exclamation_without_a_section_is_plain_text() {
+        assert_eq!(render("{!device} {!} {!device", &VALUES), "{!device} {!} {!device");
+        assert_eq!(validate("{!device}", true), Ok(()));
+    }
+
+    #[test]
+    fn checks_names_of_negated_sections() {
+        assert_eq!(validate("{!bms_soc?{battery_voltage} В}", false), Ok(()));
+        assert_eq!(validate("{!duration?a}", false), Err(TemplateError::NoDuration));
+        assert_eq!(validate("{!time?a}", true), Err(TemplateError::Unknown));
+        assert_eq!(validate("{!device?a", true), Err(TemplateError::Unclosed));
+        assert!(uses_bms("{!bms_soc?нема BMS}"));
+    }
+
+    #[test]
     fn checks_names_inside_and_of_sections() {
         assert_eq!(validate("{duration?Не було {duration}.}", true), Ok(()));
         assert_eq!(validate("{bms_soc?{bms_soc}%}", false), Ok(()));
@@ -245,7 +293,7 @@ mod tests {
 
     #[test]
     fn accepts_known_placeholders() {
-        assert_eq!(validate("🟢 {device}: світло є", false), Ok(()));
+        assert_eq!(validate("⚡ {device}: світло є", false), Ok(()));
         assert_eq!(validate("Не було {duration} на {device}", true), Ok(()));
         assert_eq!(validate("{ просто дужки }", false), Ok(()));
     }
