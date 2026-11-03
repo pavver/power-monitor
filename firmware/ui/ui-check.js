@@ -131,6 +131,9 @@ async function runBms() {
   await page.click("[data-go=bms]");
   await page.waitForSelector("#s-bms.on");
   await page.click("#bms-scan-btn");
+  // The button spins for the whole search, not just for the request.
+  await page.waitForTimeout(1000);
+  const scanButton = await page.$eval("#bms-scan-btn", n => n.dataset.state);
   await page.waitForSelector("#bms-found .item button", { timeout: 6000 });
   await page.screenshot({ path: OUT + "/bms-0-found.png" });
   await page.click("#bms-found .item button");
@@ -158,9 +161,9 @@ async function runBms() {
   const ok = errors.length === 0 && pollsOnDashboard === 0 && pollsAfter === pollsLeaving && pollsLeaving > 0
     && dev.bmsSaved && dev.bmsSaved.address === "C8:47:8C:F2:7E:03" && dev.bmsSaved.random === ""
     && shown.includes("53.22 В") && preview[0] === "Дім|lost|Батарея {bms_soc}%" && !preview[1] && rejected[0] === "невідома змінна" && rejected[1]
-    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0;
+    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0 && scanButton === "pending";
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, preview, rejected, copied, copiedNote, chips, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, preview, rejected, copied, copiedNote, chips, errors }));
 }
 
 /* Remote support: switch on with a server, connect now, see the session, end it. */

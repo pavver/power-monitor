@@ -1135,7 +1135,12 @@ actionButton($("bms-scan-btn"), async () => {
     say("bms-msg", "");
     await api("/api/bms/scan", {});
   }
+  // The search takes seconds on the device: spin until it is over.
   await refreshBms();
+  while (bms.scanning && view === "bms") {
+    await sleep(1000);
+    await refreshBms();
+  }
 }, {msg: "bms-msg"});
 
 /* Bluetooth is kept only for a saved BMS; a search restarts the device

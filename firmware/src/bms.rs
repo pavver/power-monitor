@@ -111,6 +111,7 @@ impl Bms {
     pub fn scan(&self) -> bool {
         if self.bluetooth {
             self.update(|state| state.scan_asked = true);
+            self.stop_connecting();
         }
         self.bluetooth
     }
@@ -142,6 +143,17 @@ impl Bms {
             state.reading = None;
             state.error = None;
         });
+        self.stop_connecting();
+    }
+
+    /// A BMS that is out of reach, or busy with another client, holds the
+    /// link in `connect` for up to 30 s; nothing else gets the radio then.
+    fn stop_connecting(&self) {
+        if self.lock().link == Link::Connecting {
+            // SAFETY: NimBLE takes its own lock; the stack is up while a
+            // connection is attempted. Without one it only returns an error.
+            unsafe { esp_idf_svc::sys::ble_gap_conn_cancel() };
+        }
     }
 
     fn want(&self) -> MutexGuard<'_, State> {
@@ -219,21 +231,30 @@ impl Bms {
         if client.connected() {
             let _ = client.disconnect();
         }
-        if let Err(error) = result {
+        if let Err(error) = &result {
             log::warn!("bms {}: {error}", battery.address_text());
-            self.update(|state| {
-                state.link = Link::Failed;
-                state.error = Some(error);
-            });
-            // Not straight back at a BMS that is out of reach.
-            let state = self.lock();
-            drop(self.shared.changed.wait_timeout_while(state, RETRY, |s| !s.scan_asked).unwrap());
+        }
+        match result {
+            // A BMS forgotten, or put aside for a search, has not failed.
+            Err(error) if self.keep(battery) => {
+                self.update(|state| {
+                    state.link = Link::Failed;
+                    state.error = Some(error);
+                });
+                // Not straight back at a BMS that is out of reach.
+                let state = self.lock();
+                drop(self.shared.changed.wait_timeout_while(state, RETRY, |s| !s.scan_asked).unwrap());
+            }
+            _ => self.update(|state| state.link = Link::Off),
         }
     }
 
     async fn serve(&self, client: &mut BLEClient, battery: &Battery) -> Result<(), String> {
         let kind = if battery.random { BLEAddressType::Random } else { BLEAddressType::Public };
         let address = BLEAddress::from_be_bytes(battery.address, kind);
+        if !self.keep(battery) {
+            return Ok(());
+        }
         client.connect(&address).await.map_err(|e| format!("не вдалося з'єднатися ({e:?})"))?;
         let frames = subscribe(client).await?;
 
