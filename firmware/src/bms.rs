@@ -263,10 +263,15 @@ impl Bms {
         let (frames, device) = within(SETUP, open(client, battery)).await.ok_or("BMS не відповіла вчасно")??;
         let layout = device.layout();
         log::info!("bms: {} hw {} sw {}, {layout:?}", device.model, device.hardware, device.software);
-        self.update(|state| {
+        {
+            let mut state = self.lock();
+            if self.settings.battery().as_ref() != Some(battery) {
+                return Ok(());
+            }
             state.device = Some(device);
             state.link = Link::Connected;
-        });
+        }
+        self.shared.changed.notify_all();
 
         // From here on the BMS sends cell info about once a second.
         command(client, Request::CellInfo).await?;
@@ -369,7 +374,9 @@ async fn subscribe(client: &mut BLEClient) -> Result<Receiver<Frame>, String> {
                 let _ = sender.send(frame);
             }
         })
-        .subscribe_notify(false)
+        // The CCCD is written as a request, as the spec asks: a 28:D4:… module
+        // ignores a write command there and never notifies.
+        .subscribe_notify(true)
         .await
         .map_err(|e| format!("підписка не вдалася ({e:?})"))?;
     Ok(frames)
@@ -383,7 +390,9 @@ async fn command(client: &mut BLEClient, request: Request) -> Result<(), String>
         .map_err(|e| format!("{e:?}"))?
         .find(|c| c.uuid() == uuid16(jk::CHARACTERISTIC) && (c.can_write_no_response() || c.can_write()))
         .ok_or("BMS не приймає запитів")?;
-    writer.write_value(&jk::command(request), false).await.map_err(|e| format!("запит не надіслано ({e:?})"))
+    // With a reply where the BMS takes one, as aiobmsble does.
+    let with_reply = writer.can_write();
+    writer.write_value(&jk::command(request), with_reply).await.map_err(|e| format!("запит не надіслано ({e:?})"))
 }
 
 /// The first frame `pick` takes, skipping others, within `ANSWER`.
