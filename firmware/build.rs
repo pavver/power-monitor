@@ -5,6 +5,8 @@ use std::path::Path;
 use std::process::Command;
 use std::{env, fs};
 
+use power_core::settings::Divider;
+
 /// Set by `sysenv::output` from the ESP-IDF build and read by the
 /// `esp_app_desc!` macro, but not declared to the compiler by it.
 const ESP_IDF_CFGS: [&str; 10] = [
@@ -27,6 +29,18 @@ fn main() {
     }
     gzip_page();
     stamp_version();
+    check_built_in_divider();
+}
+
+/// A wrong built-in divider stops the build, not the device.
+fn check_built_in_divider() {
+    let [top, bottom] = ["DIVIDER_TOP_OHM", "DIVIDER_BOTTOM_OHM"].map(|name| {
+        println!("cargo:rerun-if-env-changed={name}");
+        env::var(name).ok()
+    });
+    if let Err(error) = Divider::built_in(top.as_deref(), bottom.as_deref()) {
+        panic!("{error}");
+    }
 }
 
 /// The page ships gzipped (served with `Content-Encoding: gzip`): a third of

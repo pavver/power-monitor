@@ -148,6 +148,32 @@ impl Divider {
         form::encode(&[("top", &self.top_ohm.to_string()), ("bottom", &self.bottom_ohm.to_string())])
     }
 
+    /// The divider a firmware build brings, from `DIVIDER_TOP_OHM` and
+    /// `DIVIDER_BOTTOM_OHM`: both or neither.
+    pub fn built_in(top: Option<&str>, bottom: Option<&str>) -> Result<Option<Self>, &'static str> {
+        match (top, bottom) {
+            (None, None) => Ok(None),
+            (Some(top), Some(bottom)) => Self::from_form(&form::encode(&[("top", top), ("bottom", bottom)]))
+                .map(Some)
+                .map_err(|_| "DIVIDER_TOP_OHM і DIVIDER_BOTTOM_OHM — цілі оми від 1 до 100000000"),
+            _ => Err("задайте обидва: DIVIDER_TOP_OHM і DIVIDER_BOTTOM_OHM"),
+        }
+    }
+
+    /// How a choice made on the page is kept; switching the divider off is
+    /// kept too, so the built-in one does not come back after a restart.
+    pub fn to_stored(divider: Option<Self>) -> String {
+        divider.map_or_else(String::new, |divider| divider.to_form())
+    }
+
+    /// The divider to use given what was kept (`None`: never chosen).
+    pub fn from_stored(stored: Option<&str>, built_in: Option<Self>) -> Option<Self> {
+        match stored {
+            None => built_in,
+            Some(stored) => Self::from_form(stored).ok(),
+        }
+    }
+
     /// The battery voltage that puts `pin_mv` on the ADC pin.
     pub fn battery_mv(&self, pin_mv: u32) -> u32 {
         let total = u64::from(self.top_ohm) + u64::from(self.bottom_ohm);
@@ -496,6 +522,36 @@ mod tests {
             let body = form::encode(&[("top", top), ("bottom", bottom)]);
             assert_eq!(Divider::from_form(&body), Err(SettingsError::Divider), "{top} / {bottom}");
         }
+    }
+
+    #[test]
+    fn built_in_divider_needs_both_resistors_or_neither() {
+        let divider = Divider::from_form("top=330000&bottom=10000").unwrap();
+        assert_eq!(Divider::built_in(Some("330000"), Some("10000")), Ok(Some(divider)));
+        assert_eq!(Divider::built_in(None, None), Ok(None));
+        assert!(Divider::built_in(Some("330000"), None).is_err());
+        assert!(Divider::built_in(None, Some("10000")).is_err());
+        assert!(Divider::built_in(Some("330k"), Some("10000")).is_err());
+    }
+
+    #[test]
+    fn a_divider_never_saved_is_the_built_in_one() {
+        let built_in = Divider::from_form("top=330000&bottom=10000").ok();
+        assert_eq!(Divider::from_stored(None, built_in), built_in);
+        assert_eq!(Divider::from_stored(None, None), None);
+    }
+
+    #[test]
+    fn a_divider_switched_off_stays_off_despite_the_built_in_one() {
+        let built_in = Divider::from_form("top=330000&bottom=10000").ok();
+        assert_eq!(Divider::from_stored(Some(&Divider::to_stored(None)), built_in), None);
+    }
+
+    #[test]
+    fn a_saved_divider_beats_the_built_in_one() {
+        let built_in = Divider::from_form("top=330000&bottom=10000").ok();
+        let saved = Divider::from_form("top=100000&bottom=4700").ok();
+        assert_eq!(Divider::from_stored(Some(&Divider::to_stored(saved)), built_in), saved);
     }
 
     #[test]

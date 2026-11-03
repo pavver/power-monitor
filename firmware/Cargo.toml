@@ -26,5 +26,6 @@ power-core = { path = "../power-core" }
 esp32-nimble = "0.13"
 
 [build-dependencies]
+power-core = { path = "../power-core" }
 embuild = "0.33"
 zopfli = "0.8.4"

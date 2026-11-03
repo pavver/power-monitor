@@ -26,6 +26,9 @@ const IDENTITY: &str = "remote_id";
 /// `REMOTE_SERVER=https://… cargo build` makes new devices call that
 /// server for remote support; without it support starts switched off.
 const BUILT_IN_SERVER: Option<&str> = option_env!("REMOTE_SERVER");
+/// `DIVIDER_TOP_OHM=… DIVIDER_BOTTOM_OHM=… cargo build` gives new devices
+/// that divider; build.rs has checked the values.
+const BUILT_IN_DIVIDER: [Option<&str>; 2] = [option_env!("DIVIDER_TOP_OHM"), option_env!("DIVIDER_BOTTOM_OHM")];
 
 pub struct Settings {
     nvs: Mutex<EspNvs<NvsDefault>>,
@@ -49,7 +52,8 @@ impl Settings {
         let password = read(&nvs, PASSWORD, |s| PasswordHash::from_stored(s).ok_or(()));
         let last_ip = read(&nvs, LAST_IP, |s| Ok::<_, ()>(s.to_string()));
         let battery = read(&nvs, BATTERY, Battery::from_form);
-        let divider = read(&nvs, DIVIDER, Divider::from_form);
+        let stored = read(&nvs, DIVIDER, |s| Ok::<_, ()>(s.to_string()));
+        let divider = Divider::from_stored(stored.as_deref(), built_in_divider());
         let remote = read(&nvs, REMOTE, RemoteSettings::from_form).unwrap_or_else(built_in_remote);
         Ok(Self {
             nvs: Mutex::new(nvs),
@@ -147,12 +151,7 @@ impl Settings {
 
     /// `None`: no divider fitted, the battery voltage is not read.
     pub fn save_divider(&self, divider: Option<Divider>) -> anyhow::Result<()> {
-        match &divider {
-            Some(divider) => self.write(DIVIDER, &divider.to_form())?,
-            None => {
-                self.nvs.lock().unwrap().remove(DIVIDER)?;
-            }
-        }
+        self.write(DIVIDER, &Divider::to_stored(divider))?;
         *self.divider.write().unwrap() = divider;
         Ok(())
     }
@@ -225,4 +224,9 @@ fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, 
 
 fn built_in_remote() -> RemoteSettings {
     RemoteSettings::factory(BUILT_IN_SERVER)
+}
+
+fn built_in_divider() -> Option<Divider> {
+    let [top, bottom] = BUILT_IN_DIVIDER;
+    Divider::built_in(top, bottom).ok().flatten()
 }

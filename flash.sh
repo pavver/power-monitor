@@ -6,6 +6,8 @@
 #   ./flash.sh --reset         also erase saved settings (Wi-Fi, bot, texts)
 #   ./flash.sh --no-monitor    do not open the monitor after flashing
 #   ./flash.sh --image         only build power-monitor.bin for the web OTA update
+#   REMOTE_SERVER=https://…, DIVIDER_TOP_OHM=… DIVIDER_BOTTOM_OHM=…
+#                              defaults built in for new devices (see README)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -20,7 +22,7 @@ while [[ $# -gt 0 ]]; do
     --reset) ERASE="otadata,nvs"; shift ;;
     --no-monitor) MONITOR=(); shift ;;
     --image) IMAGE_ONLY=1; shift ;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "Невідомий параметр: $1 (див. --help)" >&2; exit 1 ;;
   esac
 done
