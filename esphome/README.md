@@ -56,6 +56,6 @@ actions:
   - action: notify.mobile_app_my_phone
     data:
       message: >-
-        {{ '🟢 Світло з''явилося' if trigger.to_state.state == 'on' else '🔴 Світло зникло' }},
+        {{ '⚡ Світло з''явилося' if trigger.to_state.state == 'on' else '🔌 Світло зникло' }},
         акумулятор {{ states('sensor.power_monitor_napruga_akumuliatora') }} В
 ```

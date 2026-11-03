@@ -195,7 +195,7 @@ mod tests {
     fn start_up_with_power() {
         assert_eq!(
             event_text(&Messages::default(), &event(Present, None), 10 * SEC, Readings::NONE),
-            "🟢 Дім: монітор запущено, світло є."
+            "⚡ Дім: монітор запущено, світло є."
         );
     }
 
@@ -203,7 +203,7 @@ mod tests {
     fn start_up_without_power() {
         assert_eq!(
             event_text(&Messages::default(), &event(Absent, None), 10 * SEC, Readings::NONE),
-            "🔴 Дім: монітор запущено, світла немає."
+            "🔌 Дім: монітор запущено, світла немає."
         );
     }
 
@@ -211,7 +211,7 @@ mod tests {
     fn power_returned_says_how_long_it_was_out() {
         assert_eq!(
             event_text(&Messages::default(), &event(Present, Some(2 * HOUR + 15 * MIN)), 10 * SEC, Readings::NONE),
-            "🟢 Дім: світло з'явилось.\nНе було 2 год 15 хв."
+            "⚡ Дім: світло з'явилось.\nНе було 2 год 15 хв."
         );
     }
 
@@ -219,7 +219,7 @@ mod tests {
     fn power_lost_says_how_long_it_was_on() {
         assert_eq!(
             event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC, Readings::NONE),
-            "🔴 Дім: світло зникло.\nБуло 5 хв."
+            "🔌 Дім: світло зникло.\nБуло 5 хв."
         );
     }
 
@@ -243,7 +243,7 @@ mod tests {
     fn late_delivery_says_when_it_happened() {
         assert_eq!(
             event_text(&Messages::default(), &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN, Readings::NONE),
-            "🔴 Дім: світло зникло.\nБуло 5 хв.\n(сталося 12 хв тому)"
+            "🔌 Дім: світло зникло.\nБуло 5 хв.\n(сталося 12 хв тому)"
         );
     }
 
@@ -252,11 +252,11 @@ mod tests {
         // Power may have been off long before the device was switched on.
         assert_eq!(
             event_text(&Messages::default(), &change_after_start_up(Present), 10 * SEC, Readings::NONE),
-            "🟢 Дім: світло з'явилось."
+            "⚡ Дім: світло з'явилось."
         );
         assert_eq!(
             event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC, Readings::NONE),
-            "🔴 Дім: світло зникло."
+            "🔌 Дім: світло зникло."
         );
     }
 
@@ -280,7 +280,7 @@ mod tests {
     fn late_change_after_start_up_still_says_when_it_happened() {
         // The moment of the change is measured; only the length before it is not.
         let text = event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC + 12 * MIN, Readings::NONE);
-        assert_eq!(text, "🔴 Дім: світло зникло.\n(сталося 12 хв тому)");
+        assert_eq!(text, "🔌 Дім: світло зникло.\n(сталося 12 хв тому)");
     }
 
     #[test]
@@ -337,7 +337,27 @@ mod tests {
         assert!(needs_bms(&battery_messages(), &lost));
         assert!(!needs_bms(&battery_messages(), &returned));
         assert!(!needs_bms(&battery_messages(), &Notice::Address("10.0.0.2".into())));
-        assert!(!needs_bms(&Messages::default(), &lost));
+        assert!(needs_bms(&Messages::default(), &lost));
+    }
+
+    #[test]
+    fn default_texts_show_the_bms_or_else_the_divider() {
+        let lost = event(Absent, Some(5 * MIN));
+        let both = Readings { bms: Some(&reading()), voltage_mv: Some(52_020) };
+        let divider = Readings { voltage_mv: Some(52_020), ..Readings::NONE };
+        let text = |readings| event_text(&Messages::default(), &lost, 10 * SEC, readings);
+        assert_eq!(text(both), "🔌 Дім: світло зникло.\nБуло 5 хв.\n🔋 84% · 13.28 В · 1.12 кВт·год");
+        assert_eq!(text(divider), "🔌 Дім: світло зникло.\nБуло 5 хв.\n🔋 52.02 В");
+        assert_eq!(text(Readings::NONE), "🔌 Дім: світло зникло.\nБуло 5 хв.");
+    }
+
+    #[test]
+    fn every_default_text_ends_with_the_battery() {
+        let divider = Readings { voltage_mv: Some(52_020), ..Readings::NONE };
+        for (state, lasted) in [(Present, None), (Absent, None), (Present, Some(MIN)), (Absent, Some(MIN))] {
+            let text = event_text(&Messages::default(), &event(state, lasted), 10 * SEC, divider);
+            assert!(text.ends_with("\n🔋 52.02 В"), "{text}");
+        }
     }
 
     fn preview_form(text: &str, template: &str) -> String {

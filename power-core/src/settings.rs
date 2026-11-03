@@ -289,11 +289,17 @@ impl Text {
     }
 
     fn default_template(self) -> &'static str {
+        // The last line: the BMS if it answered, else the divider, else nothing.
+        macro_rules! battery {
+            () => {
+                "{bms_soc?\n🔋 {bms_soc}% · {bms_voltage} В · {bms_energy} кВт·год}{!bms_soc?{battery_voltage?\n🔋 {battery_voltage} В}}"
+            };
+        }
         match self {
-            Text::StartPresent => "🟢 {device}: монітор запущено, світло є.",
-            Text::StartAbsent => "🔴 {device}: монітор запущено, світла немає.",
-            Text::Lost => "🔴 {device}: світло зникло.{duration?\nБуло {duration}.}",
-            Text::Returned => "🟢 {device}: світло з'явилось.{duration?\nНе було {duration}.}",
+            Text::StartPresent => concat!("⚡ {device}: монітор запущено, світло є.", battery!()),
+            Text::StartAbsent => concat!("🔌 {device}: монітор запущено, світла немає.", battery!()),
+            Text::Lost => concat!("🔌 {device}: світло зникло.{duration?\nБуло {duration}.}", battery!()),
+            Text::Returned => concat!("⚡ {device}: світло з'явилось.{duration?\nНе було {duration}.}", battery!()),
         }
     }
 }
