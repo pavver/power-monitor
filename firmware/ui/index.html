@@ -1055,7 +1055,7 @@ function renderBms() {
     $("bms-sub").textContent = bmsLinkText();
     $("bms-values").replaceChildren(...(r ? BMS_VARS.map(([name, label, unit]) => bmsValueRow(name, label, unit, r.values[name])) : []));
     const d = bms.device;
-    $("bms-device").textContent = d ? d.model + " · залізо " + d.hardware + " · прошивка " + d.software : "";
+    $("bms-device").textContent = d ? d.model + " · hardware " + d.hardware + " · software " + d.software : "";
   }
   const found = bms.found.filter(f => !b || f.address !== b.address);
   $("bms-found").classList.toggle("hidden", !bms.scanning && !found.length);
