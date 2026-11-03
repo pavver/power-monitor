@@ -14,9 +14,10 @@ pub(crate) struct BLEClientState {
     pub(crate) conn_handle: u16,
     services: Option<Vec<BLERemoteService>>,
     signal: Signal<u32>,
-    /// `connect` waits for the first MTU event only. A peer that starts an
-    /// MTU exchange of its own causes a second one, which would otherwise
-    /// end the next wait (e.g. service discovery) early.
+    /// Whether `connect` still waits for its MTU exchange to finish. Only
+    /// that wait may be ended by an MTU event: a peer that starts an MTU
+    /// exchange of its own causes a second event, which would otherwise end
+    /// the next wait on `signal` (e.g. service discovery) early.
     awaiting_mtu: bool,
     connect_timeout_ms: u32,
     ble_gap_conn_params: ble_gap_conn_params,
@@ -274,11 +275,13 @@ impl BLEClient {
                     };
 
                     if rc != 0 {
+                        client.state.awaiting_mtu = false;
                         client.state.signal.signal(rc as _);
                     }
                 } else {
                     ::log::info!("connect_status {}", connect.status);
                     client.state.conn_handle = esp_idf_sys::BLE_HS_CONN_HANDLE_NONE as _;
+                    client.state.awaiting_mtu = false;
                     client.state.signal.signal(connect.status as _);
                 }
             }
@@ -288,6 +291,11 @@ impl BLEClient {
                     return 0;
                 }
                 client.state.conn_handle = esp_idf_sys::BLE_HS_CONN_HANDLE_NONE as _;
+                // The link went down before the MTU exchange finished: no MTU
+                // event will come, so `connect` would wait forever.
+                if core::mem::take(&mut client.state.awaiting_mtu) {
+                    client.state.signal.signal(disconnect.reason as _);
+                }
 
                 ::log::info!(
                     "Disconnected: {:?}",
