@@ -113,6 +113,8 @@ dialog.ctl{position:fixed}
 .actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
 .actions .btn{flex:1 1 auto}
 .btn.wide{width:100%}
+.actions.grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr}
+.actions.grid .btn{min-width:0;padding:calc(var(--du)*2) calc(var(--du)*3)}
 
 /* OperatorTextField */
 label.cap{display:block;font-size:11px;line-height:14px;color:var(--text-2);margin:calc(var(--du)*3) 0 calc(var(--du)*1)}
@@ -333,7 +335,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <div class="item"><span class="k">У черзі</span><span class="v" id="d-pending"></span></div>
     <div class="item"><span class="k">Віддалений доступ</span><span class="v" id="d-remote"></span></div>
   </div>
-  <div class="actions" style="margin:0 0 calc(var(--du)*4)">
+  <div class="actions grid" style="margin:0 0 calc(var(--du)*4)">
     <button class="btn" type="button" id="test-btn">Тестове повідомлення</button>
     <button class="btn" type="button" data-go="wifi" data-nav>Змінити Wi-Fi</button>
     <button class="btn" type="button" data-go="bot" data-nav>Змінити бота</button>
@@ -505,10 +507,12 @@ function icon(name) {
 /* ---------- ControlState frame (operatorStateBorder) ----------
    Strokes are inset by half their width so they stay inside the control.
    The pending segment is 25% of the perimeter and runs clockwise in 2 s. */
-const frames = new ResizeObserver(entries => entries.forEach(e => layoutFrame(e.target)));
-function layoutFrame(node) {
+// The border box is fractional: rounding it (offsetWidth) can push the
+// frame half a pixel past the clipped edge and hide that side.
+const frames = new ResizeObserver(entries => entries.forEach(e =>
+  layoutFrame(e.target, e.borderBoxSize[0].inlineSize, e.borderBoxSize[0].blockSize)));
+function layoutFrame(node, w, h) {
   const svg = node.querySelector(":scope>.sf");
-  const w = node.offsetWidth, h = node.offsetHeight;
   if (!svg || !w || !h) return;
   for (const rect of svg.children) {
     const inset = (+rect.dataset.stroke || 0) / 2;
@@ -537,7 +541,7 @@ class Control {
     }
     node.prepend(svg);
     node.dataset.state = "idle";
-    frames.observe(node);
+    frames.observe(node, {box: "border-box"});
     ripple(node);
   }
   /* idle | pending | ok | err. Leaving ok/err fades the status colour over 500 ms. */
