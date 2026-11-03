@@ -29,3 +29,7 @@ esp32-nimble = "0.13"
 power-core = { path = "../power-core" }
 embuild = "0.33"
 zopfli = "0.8.4"
+
+# A fix to its client's MTU handling; see vendor/esp32-nimble/PATCHED.md.
+[patch.crates-io]
+esp32-nimble = { path = "vendor/esp32-nimble" }
