@@ -345,6 +345,8 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <p class="small muted">Змінні: <code>{device}</code> — назва пристрою, <code>{duration}</code> — скільки тривав попередній стан.
       Якщо повідомлення про зникнення чи появу світла доставлено із запізненням, пристрій сам допише, коли це сталося.
       Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
+    <p class="small muted">Умовний фрагмент <code>{duration?Не було {duration}.}</code> виводиться лише тоді, коли значення відоме,
+      а інакше зникає разом із текстом. Так працює з будь-якою змінною, наприклад <code>{bms_soc?Заряд {bms_soc}%}</code>.</p>
     <p class="small muted">Значення батареї — <code>{battery_voltage}</code> (напруга через дільник) і значення BMS,
       наприклад <code>{bms_soc}</code>, — копіюються одним натиском на рядок на екрані «Батарея». Перед таким
       повідомленням пристрій зчитає їх; якщо значення недоступне, буде 🤷‍♂️.
@@ -464,10 +466,10 @@ dialog .actions{margin-top:calc(var(--du)*4)}
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const TEXTS = [
-  ["start_present", "Запуск, світло є", false],
-  ["start_absent", "Запуск, світла немає", false],
-  ["lost", "Світло зникло", true],
-  ["returned", "Світло з'явилось", true],
+  ["start_present", "Запуск, світло є"],
+  ["start_absent", "Запуск, світла немає"],
+  ["lost", "Світло зникло"],
+  ["returned", "Світло з'явилось"],
 ];
 let state = null, view = null, picked = null, verifiedToken = null, messagesFilled = false, joining = false;
 
@@ -956,18 +958,16 @@ actionButton($("test-btn"), async () => {
   say("test-msg", "Тестове повідомлення надіслано.", "ok");
 }, {msg: "test-msg"});
 
-const SAMPLE_DURATION = "2 год 15 хв";
 function fillMessages(messages) {
   messagesFilled = true;
   $("m-device_name").value = messages.device_name;
-  $("templates").replaceChildren(...TEXTS.map(([key, title, withDuration]) => {
+  $("templates").replaceChildren(...TEXTS.map(([key, title]) => {
     const area = el("textarea", {id: "m-" + key, name: key, maxlength: "500", rows: "3", class: "area"});
     area.value = messages[key];
     const wrap = el("div", {class: "areawrap"}, area);
     new Control(wrap);
-    const vars = withDuration ? ["{device}", "{duration}"] : ["{device}"];
     const preview = el("div", {class: "preview"});
-    const update = () => renderPreview(preview, area.value, vars);
+    const update = previewer(preview, key, area);
     area.addEventListener("input", update);
     $("m-device_name").addEventListener("input", update);
     update();
@@ -975,23 +975,34 @@ function fillMessages(messages) {
   }));
 }
 
-/* Live preview with the same variables the device substitutes; battery
-   values are the last ones read on the battery screen, else samples. */
-function renderPreview(node, text, allowed) {
-  if (!text.trim()) {
-    node.classList.remove("bad");
-    node.textContent = "Поле порожнє: це повідомлення не надсилатиметься.";
-    return;
-  }
-  const known = [...allowed, "{battery_voltage}", ...BMS_VARS.map(([name]) => "{" + name + "}")];
-  const unknown = (text.match(/\{[A-Za-z][A-Za-z0-9_]*\}/g) || []).filter(v => !known.includes(v));
-  node.classList.toggle("bad", unknown.length > 0);
-  const values = {device: $("m-device_name").value, duration: SAMPLE_DURATION,
-    battery_voltage: divider && divider.voltage_mv != null ? volts(divider.voltage_mv) : "52.40",
-    ...(bms && bms.reading ? bms.reading.values : BMS_SAMPLE)};
-  node.textContent = unknown.length
-    ? "Невідома змінна: " + unknown[0] + ". Доступні: " + allowed.join(", ") + ", {battery_voltage} і змінні BMS {bms_…}"
-    : text.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (all, name) => name in values ? values[name] : all);
+/* Live preview filled by the device itself, so it follows the same rules
+   and shows the values measured now; asked once typing pauses. */
+const PREVIEW_DELAY_MS = 300;
+function previewer(node, key, area) {
+  let timer, asked = 0;
+  return () => {
+    clearTimeout(timer);
+    const text = area.value;
+    if (!text.trim()) {
+      asked++;
+      node.classList.remove("bad");
+      node.textContent = "Поле порожнє: це повідомлення не надсилатиметься.";
+      return;
+    }
+    timer = setTimeout(async () => {
+      const mine = ++asked;
+      let shown, bad = false;
+      try {
+        shown = await api("/api/messages/preview", {device_name: $("m-device_name").value, text: key, template: text});
+      } catch (e) {
+        shown = e.message;
+        bad = true;
+      }
+      if (mine !== asked) return;
+      node.classList.toggle("bad", bad);
+      node.textContent = shown;
+    }, PREVIEW_DELAY_MS);
+  };
 }
 
 actionButton($("messages-btn"), async () => {
@@ -1003,7 +1014,6 @@ actionButton($("messages-btn"), async () => {
 
 /* ---------- battery (JK BMS) ---------- */
 const BMS_VARS = [["bms_soc", "Заряд", "%"], ["bms_voltage", "Напруга", "В"], ["bms_energy", "Енергія в батареї", "кВт·год"]];
-const BMS_SAMPLE = {bms_soc: "84", bms_voltage: "51.20", bms_energy: "4.30"};
 
 /* Only this screen asks for the values: each request keeps the link up a little longer. */
 let bms = null, divider = null;

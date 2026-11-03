@@ -130,6 +130,11 @@ impl Bms {
         }
     }
 
+    /// The last values read, however old; does not bring the link up.
+    pub fn last_reading(&self) -> Option<Reading> {
+        self.lock().reading.as_ref().map(|(_, reading)| reading.clone())
+    }
+
     /// The saved BMS changed: what was read belongs to the old one.
     pub fn forget(&self) {
         self.update(|state| {

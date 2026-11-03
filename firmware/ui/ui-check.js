@@ -84,6 +84,14 @@ function route(page, dev) {
     }
     if (url.pathname === "/api/remote/connect") { dev.remote = { ...dev.remote, phase: "session", next_in_s: null, last_contact_s: 0 }; return json("connecting"); }
     if (url.pathname === "/api/remote/end") { dev.remote = { ...dev.remote, phase: "waiting", next_in_s: 3600 }; dev.remoteEnded = true; return json("ended"); }
+    if (url.pathname === "/api/divider") return json({ divider: null, voltage_mv: null });
+    if (url.pathname === "/api/messages/preview") {
+      // The device fills the text; the page only has to show its answer.
+      const form = new URLSearchParams(route.request().postData());
+      const template = form.get("template");
+      if (template.includes("{nope}")) return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "невідома змінна" }) });
+      return json(form.get("device_name") + "|" + form.get("text") + "|" + template);
+    }
     if (url.pathname === "/api/bot") {
       dev.saved = Object.fromEntries(new URLSearchParams(route.request().postData()));
       dev.stage = "dashboard";
@@ -108,7 +116,7 @@ async function runBms() {
   page.on("pageerror", e => errors.push(e.message));
   const dev = device();
   dev.stage = "dashboard"; dev.setupAp = false; dev.link = { state: "connected", ssid: "Home", ip: "192.168.1.50" };
-  dev.bms = { battery: null, link: "off", error: null, device: null, reading: null, scanning: false, found: [] };
+  dev.bms = { battery: null, bluetooth: true, link: "off", error: null, device: null, reading: null, scanning: false, found: [] };
   dev.bmsPolls = 0;
   await route(page, dev);
   // Plain http: the page copies through a hidden textarea; record what it copied.
@@ -127,7 +135,6 @@ async function runBms() {
   await page.screenshot({ path: OUT + "/bms-0-found.png" });
   await page.click("#bms-found .item button");
   await page.waitForFunction(() => document.getElementById("bms-head").textContent.includes("85%"), null, { timeout: 6000 });
-  const cells = await page.$$eval("#bms-cells span", n => n.length);
   const shown = await page.$eval("#bms-values", n => n.textContent);
   await page.click("#bms-values .item >> nth=0");
   const copied = await page.evaluate(() => window.copied);
@@ -138,16 +145,22 @@ async function runBms() {
   const pollsLeaving = dev.bmsPolls;
   await page.waitForTimeout(4000);
   const pollsAfter = dev.bmsPolls;
-  await page.fill("#m-lost", "Батарея {bms_soc}%, {bms_temp1}°");
-  const preview = await page.$eval("#m-lost", a => a.closest("div").parentElement.querySelector(".preview").textContent);
+  const shownPreview = async () => {
+    await page.waitForTimeout(800);
+    return page.$eval("#m-lost", a => { const p = a.closest("div").parentElement.querySelector(".preview"); return [p.textContent, p.classList.contains("bad")]; });
+  };
+  await page.fill("#m-lost", "Батарея {bms_soc}%");
+  const preview = await shownPreview();
+  await page.fill("#m-lost", "{nope}");
+  const rejected = await shownPreview();
   const chips = await page.$$eval(".chip", n => n.length);
   await browser.close();
   const ok = errors.length === 0 && pollsOnDashboard === 0 && pollsAfter === pollsLeaving && pollsLeaving > 0
     && dev.bmsSaved && dev.bmsSaved.address === "C8:47:8C:F2:7E:03" && dev.bmsSaved.random === ""
-    && cells === 4 && shown.includes("53.22 В") && preview === "Батарея 85%, 20.7°"
+    && shown.includes("53.22 В") && preview[0] === "Дім|lost|Батарея {bms_soc}%" && !preview[1] && rejected[0] === "невідома змінна" && rejected[1]
     && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0;
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, cells, preview, copied, copiedNote, chips, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, preview, rejected, copied, copiedNote, chips, errors }));
 }
 
 /* Remote support: switch on with a server, connect now, see the session, end it. */

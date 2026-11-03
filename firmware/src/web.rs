@@ -13,7 +13,7 @@ use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer,
 use power_core::api::Link;
 use power_core::auth::{expired_cookie, NewPassword, PasswordHash, Sessions};
 use power_core::form;
-use power_core::message::test_text;
+use power_core::message::{preview, test_text, Readings};
 use power_core::portal::redirect_target;
 use power_core::remote::RemoteSettings;
 use power_core::settings::{Battery, Bot, BotToken, Divider, Messages, WifiCredentials};
@@ -161,6 +161,13 @@ pub fn start(
         let messages = Messages::from_form(body).map_err(|e| e.to_string())?;
         s.save_messages(messages).map_err(|e| e.to_string())?;
         json(&"saved")
+    })?;
+
+    // The page asks while a text is edited, so the device's own rules fill it.
+    let (b, v) = (bms.clone(), voltmeter.clone());
+    post(&mut server, &auth, "/api/messages/preview", move |body| {
+        let reading = b.last_reading();
+        json(&preview(body, Readings { bms: reading.as_ref(), voltage_mv: v.battery_mv() })?)
     })?;
 
     let s = settings.clone();
