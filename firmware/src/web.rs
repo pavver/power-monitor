@@ -182,14 +182,14 @@ pub fn start(
     let b = bms.clone();
     get(&mut server, &auth, "/api/bms", move || json(&b.view()))?;
 
-    let (s, b) = (settings.clone(), bms.clone());
+    let (s, st, b) = (settings.clone(), status.clone(), bms.clone());
     post(&mut server, &auth, "/api/bms/scan", move |_| {
         if b.scan() {
             return json(&"scanning");
         }
         // Bluetooth memory was given back at start-up: start again with it.
         s.ask_bluetooth_once().map_err(|e| e.to_string())?;
-        restart_soon();
+        planned_restart(&s, &st);
         json(&"restarting")
     })?;
 
@@ -265,14 +265,14 @@ pub fn start(
         json(&"reset")
     })?;
 
-    let a = auth.clone();
+    let (a, st) = (auth.clone(), status.clone());
     server.fn_handler::<anyhow::Error, _>("/api/ota", Method::Post, move |mut req| {
         if !a.allows(req.header("Cookie")) {
             return deny(req);
         }
         let size = req.content_len().unwrap_or(0) as usize;
         let reply = ota::update(&mut req, size).and_then(|info| {
-            restart_soon();
+            planned_restart(&a.settings, &st);
             json(&serde_json::json!({ "version": info.version, "built": info.built }))
         });
         respond(req, reply)
@@ -392,6 +392,17 @@ fn system_view() -> serde_json::Value {
         "reset_reason": format!("{:?}", esp_idf_svc::hal::reset::ResetReason::get()),
         "uptime_s": crate::status::now_ms() / 1000,
     })
+}
+
+/// A restart the owner asked for: the next start goes on from the power
+/// state seen now instead of announcing itself in Telegram.
+fn planned_restart(settings: &Settings, status: &Status) {
+    if let Some(state) = status.power() {
+        if let Err(error) = settings.keep_power_for_restart(state) {
+            log::error!("keeping the power state for the restart: {error}");
+        }
+    }
+    restart_soon();
 }
 
 /// Lets the response reach the browser before the reboot.

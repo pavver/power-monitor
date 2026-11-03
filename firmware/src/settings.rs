@@ -8,6 +8,7 @@ use std::sync::{Mutex, RwLock};
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
+use power_core::power::PowerState;
 use power_core::remote::{Identity, RemoteSettings};
 use power_core::settings::{Battery, Bot, Divider, Messages, WifiCredentials};
 
@@ -19,6 +20,7 @@ const PASSWORD: &str = "password";
 const LAST_IP: &str = "last_ip";
 const QUICK_BOOTS: &str = "quick_boots";
 const BLUETOOTH_ONCE: &str = "bt_once";
+const RESUME_POWER: &str = "resume_power";
 const BATTERY: &str = "bms";
 const DIVIDER: &str = "divider";
 const REMOTE: &str = "remote";
@@ -202,6 +204,22 @@ impl Settings {
             nvs.remove(BLUETOOTH_ONCE)?;
         }
         Ok(asked)
+    }
+
+    /// The power state seen just before a planned restart, for the next start.
+    pub fn keep_power_for_restart(&self, state: PowerState) -> anyhow::Result<()> {
+        self.nvs.lock().unwrap().set_u8(RESUME_POWER, state.to_stored())?;
+        Ok(())
+    }
+
+    /// The state kept by a planned restart, if any; it is used up.
+    pub fn take_kept_power(&self) -> anyhow::Result<Option<PowerState>> {
+        let nvs = self.nvs.lock().unwrap();
+        let kept = nvs.get_u8(RESUME_POWER)?;
+        if kept.is_some() {
+            nvs.remove(RESUME_POWER)?;
+        }
+        Ok(kept.and_then(PowerState::from_stored))
     }
 
     /// Wipes everything this device stored; takes effect after a restart.

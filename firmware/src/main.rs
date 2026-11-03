@@ -25,6 +25,7 @@ use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::hal::reset::ResetReason;
+use power_core::power::PowerState;
 use power_core::reset::{self, BootAction, Start, QUICK_BOOT_MS};
 
 use crate::settings::Settings;
@@ -51,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     let bms = bms::Bms::start(settings.clone(), keep_bluetooth(&settings)?)?;
     let voltmeter = voltmeter::Voltmeter::new(peripherals.adc1, peripherals.pins.gpio34, settings.clone())?;
     let (notices, inbox) = mpsc::channel();
-    sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone())?;
+    sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone(), kept_power(&settings)?)?;
     notifier::spawn(inbox, settings.clone(), status.clone(), bms.clone(), voltmeter.clone())?;
     let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone(), notices)?;
     let remote = remote::Remote::start(settings.clone(), status.clone())?;
@@ -77,6 +78,13 @@ fn keep_bluetooth(settings: &Settings) -> anyhow::Result<bool> {
         log::info!("bluetooth memory released: no BMS saved");
     }
     Ok(keep)
+}
+
+/// The power state a planned restart kept. Only a software restart counts:
+/// a crash in the moment between keeping it and restarting is announced.
+fn kept_power(settings: &Settings) -> anyhow::Result<Option<PowerState>> {
+    let kept = settings.take_kept_power()?;
+    Ok(kept.filter(|_| ResetReason::get() == ResetReason::Software))
 }
 
 /// Hardware random bytes; true random once the radio is running.

@@ -7,7 +7,7 @@ use std::thread;
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::gpio::{Input, InputPin, PinDriver, Pull};
 use power_core::message::Notice;
-use power_core::power::{classify_window, Detector};
+use power_core::power::{classify_window, Detector, PowerState};
 
 use crate::status::{now_ms, Status};
 
@@ -20,10 +20,18 @@ pub fn spawn(
     pin: impl InputPin + 'static,
     notices: Sender<Notice>,
     status: Arc<Status>,
+    kept: Option<PowerState>,
 ) -> anyhow::Result<()> {
     let input = PinDriver::input(pin, Pull::Up)?;
+    // After a planned restart only a change is news; the start-up is not.
+    let mut detector = match kept {
+        Some(state) => {
+            status.set_power(state, None);
+            Detector::resume(CONFIRM_WINDOWS, state)
+        }
+        None => Detector::new(CONFIRM_WINDOWS),
+    };
     thread::Builder::new().stack_size(4096).spawn(move || {
-        let mut detector = Detector::new(CONFIRM_WINDOWS);
         loop {
             let started_ms = now_ms();
             let low_samples = count_low_samples(&input);

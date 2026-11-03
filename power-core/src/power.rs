@@ -11,6 +11,24 @@ pub enum PowerState {
     Absent,
 }
 
+impl PowerState {
+    /// How the state is kept across a restart.
+    pub fn to_stored(self) -> u8 {
+        match self {
+            Self::Present => 1,
+            Self::Absent => 0,
+        }
+    }
+
+    pub fn from_stored(stored: u8) -> Option<Self> {
+        match stored {
+            1 => Some(Self::Present),
+            0 => Some(Self::Absent),
+            _ => None,
+        }
+    }
+}
+
 /// Low samples a window needs to count as "pulses seen". A 100 ms window at
 /// 50 Hz holds at least five pulses of several ms each, so 3 rejects single
 /// spikes of noise while keeping a wide margin.
@@ -45,7 +63,8 @@ impl PowerEvent {
 pub enum Before {
     /// Nothing: this is the state found at start-up.
     StartUp,
-    /// The state found at start-up, whose beginning nobody saw.
+    /// A state whose beginning nobody saw: found at start-up, or after a
+    /// planned restart.
     Unmeasured,
     /// A state that began and ended while the device ran, this long.
     Lasted(u64),
@@ -71,6 +90,12 @@ impl Detector {
     /// `confirm_windows` consecutive agreeing windows confirm a state.
     pub fn new(confirm_windows: u32) -> Self {
         Self { confirm_windows, stable: None, streak: None }
+    }
+
+    /// Goes on watching from `state`, seen before a planned restart: only a
+    /// change is reported, and how long the state before it lasted is unknown.
+    pub fn resume(confirm_windows: u32, state: PowerState) -> Self {
+        Self { stable: Some((state, None)), ..Self::new(confirm_windows) }
     }
 
     pub fn observe(&mut self, window: PowerState, now_ms: u64) -> Option<PowerEvent> {
@@ -161,6 +186,28 @@ mod tests {
         feed(&mut d, Absent, 0, 10);
         let events = feed(&mut d, Present, 1_000, 3);
         assert_eq!(events, vec![PowerEvent { state: Present, at_ms: 1_000, before: Before::Unmeasured }]);
+    }
+
+    #[test]
+    fn resumed_state_that_still_holds_is_not_reported_again() {
+        // A planned restart is a pause in watching, not a new start.
+        let mut d = Detector::resume(3, Present);
+        assert_eq!(feed(&mut d, Present, 0, 50), vec![]);
+    }
+
+    #[test]
+    fn change_during_a_planned_restart_is_reported_without_a_length() {
+        let mut d = Detector::resume(3, Present);
+        let events = feed(&mut d, Absent, 0, 3);
+        assert_eq!(events, vec![PowerEvent { state: Absent, at_ms: 0, before: Before::Unmeasured }]);
+    }
+
+    #[test]
+    fn state_survives_storage() {
+        for state in [Present, Absent] {
+            assert_eq!(PowerState::from_stored(state.to_stored()), Some(state));
+        }
+        assert_eq!(PowerState::from_stored(7), None);
     }
 
     #[test]

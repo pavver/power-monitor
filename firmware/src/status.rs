@@ -58,6 +58,10 @@ impl Status {
         self.networks.lock().unwrap().clone()
     }
 
+    pub fn power(&self) -> Option<PowerState> {
+        self.power.lock().unwrap().map(|(state, _)| state)
+    }
+
     pub fn set_telegram(&self, text: impl Into<String>) {
         *self.telegram.lock().unwrap() = text.into();
     }
