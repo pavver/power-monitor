@@ -1,9 +1,12 @@
-//! The JK BMS over Bluetooth LE, read only while someone wants its values:
-//! the page while the battery screen is open, the notifier for a message
-//! that shows them. One thread owns the radio link; everyone else talks to
-//! it through `Bms`. The Bluetooth stack itself starts on first demand.
+//! The JK BMS over Bluetooth LE, kept connected while one is saved: it
+//! streams its values about once a second, so a message takes the last ones
+//! and never waits for the BMS. One thread owns the radio link; everyone
+//! else talks to it through `Bms`. The Bluetooth stack starts on first demand.
 
+use std::future::{poll_fn, Future};
+use std::pin::pin;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::task::Poll;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -11,6 +14,7 @@ use std::time::{Duration, Instant};
 use esp32_nimble::utilities::BleUuid;
 use esp32_nimble::{BLEAddress, BLEAddressType, BLEClient, BLEDevice, BLEScan};
 use esp_idf_svc::hal::task::block_on;
+use esp_idf_svc::timer::EspTaskTimerService;
 use power_core::jk::{self, Assembler, DeviceInfo, Found, Frame, Reading, Request};
 use power_core::settings::Battery;
 use serde::Serialize;
@@ -23,6 +27,12 @@ const SCAN_MS: i32 = 5_000;
 /// The BMS answers a request, and streams cell info, within about a second.
 const ANSWER: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(5);
+/// Asking again this often keeps the link up for good (see `WANTED_FOR`).
+const KEEP_UP: Duration = Duration::from_secs(10);
+/// Connecting (up to 30 s) and the first answers. NimBLE waits for some
+/// replies with no limit of its own, e.g. the MTU exchange of a BMS that
+/// stopped answering.
+const SETUP: Duration = Duration::from_secs(40);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -78,6 +88,8 @@ impl Bms {
         if bluetooth {
             let worker = bms.clone();
             thread::Builder::new().stack_size(8 * 1024).spawn(move || block_on(worker.run()))?;
+            let keeper = bms.clone();
+            thread::Builder::new().stack_size(3 * 1024).spawn(move || keeper.keep_up())?;
         }
         Ok(bms)
     }
@@ -116,18 +128,20 @@ impl Bms {
         self.bluetooth
     }
 
-    /// A reading taken after this call, waiting at most `wait` for it.
-    pub fn fresh_reading(&self, wait: Duration) -> Option<Reading> {
-        let asked = Instant::now();
-        let mut state = self.want();
+    /// The last values read, if not older than `max_age`; never waits.
+    pub fn recent_reading(&self, max_age: Duration) -> Option<Reading> {
+        let state = self.lock();
+        let (at, reading) = state.reading.as_ref()?;
+        (at.elapsed() <= max_age).then(|| reading.clone())
+    }
+
+    /// Keeps the saved BMS connected.
+    fn keep_up(self) {
         loop {
-            if let Some((at, reading)) = &state.reading {
-                if *at >= asked {
-                    return Some(reading.clone());
-                }
+            if self.settings.battery().is_some() {
+                drop(self.want());
             }
-            let left = wait.checked_sub(asked.elapsed())?;
-            state = self.shared.changed.wait_timeout(state, left).unwrap().0;
+            thread::sleep(KEEP_UP);
         }
     }
 
@@ -173,10 +187,6 @@ impl Bms {
     }
 
     async fn run(self) {
-        // A client caches the services of the device it talks to, so each
-        // BMS gets its own. It must stay in place while connected: the
-        // stack keeps a pointer to it.
-        let mut client: Option<(Battery, BLEClient)> = None;
         loop {
             match self.next_job() {
                 Job::Scan => {
@@ -187,11 +197,10 @@ impl Bms {
                     });
                 }
                 Job::Read(battery) => {
-                    if client.as_ref().is_none_or(|(b, _)| b.address != battery.address) {
-                        client = Some((battery.clone(), BLEDevice::take().new_client()));
-                    }
-                    let (_, client) = client.as_mut().unwrap();
-                    self.session(client, &battery).await;
+                    // A fresh client each time: one keeps the services it
+                    // found, even an empty list from a discovery cut short.
+                    let mut client = BLEDevice::take().new_client();
+                    self.session(&mut client, &battery).await;
                 }
             }
         }
@@ -228,9 +237,7 @@ impl Bms {
             state.error = None;
         });
         let result = self.serve(client, battery).await;
-        if client.connected() {
-            let _ = client.disconnect();
-        }
+        disconnect(client);
         if let Err(error) = &result {
             log::warn!("bms {}: {error}", battery.address_text());
         }
@@ -250,20 +257,10 @@ impl Bms {
     }
 
     async fn serve(&self, client: &mut BLEClient, battery: &Battery) -> Result<(), String> {
-        let kind = if battery.random { BLEAddressType::Random } else { BLEAddressType::Public };
-        let address = BLEAddress::from_be_bytes(battery.address, kind);
         if !self.keep(battery) {
             return Ok(());
         }
-        client.connect(&address).await.map_err(|e| format!("не вдалося з'єднатися ({e:?})"))?;
-        let frames = subscribe(client).await?;
-
-        command(client, Request::DeviceInfo).await?;
-        let device = wait_for(&frames, |frame| match frame {
-            Frame::DeviceInfo(info) => Some(info),
-            _ => None,
-        })
-        .ok_or("BMS не відповіла на запит")?;
+        let (frames, device) = within(SETUP, open(client, battery)).await.ok_or("BMS не відповіла вчасно")??;
         let layout = device.layout();
         log::info!("bms: {} hw {} sw {}, {layout:?}", device.model, device.hardware, device.software);
         self.update(|state| {
@@ -277,15 +274,71 @@ impl Bms {
             if !client.connected() {
                 return Err("з'єднання обірвалось".into());
             }
-            let bytes = wait_for(&frames, |frame| match frame {
+            let Some(bytes) = wait_for(&frames, |frame| match frame {
                 Frame::CellInfo(bytes) => Some(bytes),
                 _ => None,
-            })
-            .ok_or("BMS перестала надсилати дані")?;
+            }) else {
+                // Some BMS (seen on 19.13) end the stream after half a minute
+                // and ignore a new request; a fresh connection starts it again.
+                log::info!("bms {}: stream ended, reconnecting", battery.address_text());
+                return Ok(());
+            };
             let reading = jk::reading(&bytes, layout);
-            self.update(|state| state.reading = Some((Instant::now(), reading)));
+            // Checked under the lock: a BMS forgotten meanwhile has its say no more.
+            let mut state = self.lock();
+            if self.settings.battery().as_ref() != Some(battery) {
+                break;
+            }
+            state.reading = Some((Instant::now(), reading));
+            drop(state);
+            self.shared.changed.notify_all();
         }
         Ok(())
+    }
+}
+
+/// Connects, subscribes and asks who the BMS is.
+async fn open(client: &mut BLEClient, battery: &Battery) -> Result<(Receiver<Frame>, DeviceInfo), String> {
+    let kind = if battery.random { BLEAddressType::Random } else { BLEAddressType::Public };
+    let address = BLEAddress::from_be_bytes(battery.address, kind);
+    client.connect(&address).await.map_err(|e| format!("не вдалося з'єднатися ({e:?})"))?;
+    let frames = subscribe(client).await?;
+    command(client, Request::DeviceInfo).await?;
+    let device = wait_for(&frames, |frame| match frame {
+        Frame::DeviceInfo(info) => Some(info),
+        _ => None,
+    })
+    .ok_or("BMS не відповіла на запит")?;
+    Ok((frames, device))
+}
+
+/// `work`, unless `limit` runs out first.
+async fn within<T>(limit: Duration, work: impl Future<Output = T>) -> Option<T> {
+    let mut timer = EspTaskTimerService::new().and_then(|service| service.timer_async()).ok()?;
+    let mut work = pin!(work);
+    let mut alarm = pin!(timer.after(limit));
+    poll_fn(|cx| match work.as_mut().poll(cx) {
+        Poll::Ready(value) => Poll::Ready(Some(value)),
+        Poll::Pending => alarm.as_mut().poll(cx).map(|_| None),
+    })
+    .await
+}
+
+/// Ends the link, or the attempt at one, and waits until the stack has let
+/// go of it: connecting again before that fails, and the stack calls back
+/// into the client until then.
+fn disconnect(client: &mut BLEClient) {
+    if client.connected() {
+        let _ = client.disconnect();
+    } else {
+        // SAFETY: NimBLE takes its own lock; without an attempt it only
+        // returns an error.
+        unsafe { esp_idf_svc::sys::ble_gap_conn_cancel() };
+    }
+    let deadline = Instant::now() + ANSWER;
+    // SAFETY: only reads whether a connect procedure is under way.
+    while (client.connected() || unsafe { esp_idf_svc::sys::ble_gap_conn_active() } != 0) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
     }
 }
 
@@ -297,6 +350,11 @@ fn uuid16(uuid: u16) -> BleUuid {
 async fn subscribe(client: &mut BLEClient) -> Result<Receiver<Frame>, String> {
     let (sender, frames) = mpsc::channel();
     let mut assembler = Assembler::default();
+    // A BMS still holding its last link (just after a restart) lists nothing.
+    let listed = client.get_services().await.map_err(|e| format!("сервіси не прочитано ({e:?})"))?.next().is_some();
+    if !listed {
+        return Err("BMS ще не готова: не дала список сервісів".into());
+    }
     let service = client.get_service(uuid16(jk::SERVICE)).await.map_err(|_| "це не JK BMS: немає сервісу FFE0")?;
     // Newer modules split FFE1 in two: one to write to, one that notifies.
     let notifier = service

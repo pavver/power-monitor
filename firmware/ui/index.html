@@ -353,8 +353,8 @@ dialog .actions{margin-top:calc(var(--du)*4)}
       а інакше зникає разом із текстом. Так працює з будь-якою змінною, наприклад <code>{bms_soc?Заряд {bms_soc}%}</code>.
       Новий рядок можна писати як <code>\n</code>: <code>{duration?\nНе було {duration}.}</code>.</p>
     <p class="small muted">Значення батареї — <code>{battery_voltage}</code> (напруга через дільник) і значення BMS,
-      наприклад <code>{bms_soc}</code>, — копіюються одним натиском на рядок на екрані «Батарея». Перед таким
-      повідомленням пристрій зчитає їх; якщо значення недоступне, буде 🤷‍♂️.
+      наприклад <code>{bms_soc}</code>, — копіюються одним натиском на рядок на екрані «Батарея». Пристрій
+      тримає з'єднання з BMS і бере останнє значення, не чекаючи; якщо воно старше хвилини, буде 🤷‍♂️.
       Залиште текст порожнім, щоб це повідомлення не надсилалось.</p>
     <label class="cap" for="m-device_name">Назва пристрою</label>
     <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
@@ -431,8 +431,9 @@ dialog .actions{margin-top:calc(var(--du)*4)}
   <div class="card">
     <h2>BMS</h2>
     <p class="small muted" id="bms-chosen"></p>
-    <p class="small muted">Пристрій лише читає дані BMS і нічого в ній не змінює. Bluetooth вмикається,
-      тільки поки відкрито цей екран або коли повідомлення містить значення батареї.</p>
+    <p class="small muted">Пристрій лише читає дані BMS і нічого в ній не змінює. Поки BMS вибрано,
+      пристрій тримає з'єднання з нею, тож застосунок JK на телефоні до неї не підключиться — для нього
+      натисніть «Забути BMS».</p>
     <div class="actions">
       <button class="btn" type="button" id="bms-scan-btn">Шукати поруч</button>
       <button class="btn hidden" type="button" id="bms-forget-btn">Забути BMS</button>

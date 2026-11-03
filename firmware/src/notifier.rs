@@ -20,8 +20,9 @@ const RETRY: Duration = Duration::from_secs(15);
 /// How often to look whether Wi-Fi is back, so a message goes out right after.
 const LINK_CHECK: Duration = Duration::from_secs(1);
 const OUTBOX_CAPACITY: usize = 32;
-/// Connecting to the BMS alone may take up to half a minute.
-const BMS_WAIT: Duration = Duration::from_secs(45);
+/// Battery values this old still go into a message. The BMS streams them
+/// every second while connected; older ones mean the link is down.
+const BMS_MAX_AGE: Duration = Duration::from_secs(60);
 
 pub fn spawn(
     notices: Receiver<Notice>,
@@ -77,9 +78,9 @@ fn deliver_next(
         return Delivery::Offline;
     }
     let messages = settings.messages();
-    // The BMS is read only for a text that shows its values.
+    // Never waits for the BMS: a value too old to show is a shrug.
     let battery = if needs_bms(&messages, notice) && settings.battery().is_some() {
-        bms.fresh_reading(BMS_WAIT)
+        bms.recent_reading(BMS_MAX_AGE)
     } else {
         None
     };
