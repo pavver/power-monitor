@@ -3,7 +3,8 @@
 //!
 //! `{name?text}` is a section: `text` (which may hold placeholders and
 //! sections) shows only when `name` has a value, so a missing value can
-//! take its whole sentence away instead of showing a shrug.
+//! take its whole sentence away instead of showing a shrug. `\n` in the
+//! text is a line break, for fields where a real one is awkward to type.
 
 use std::fmt;
 
@@ -120,7 +121,7 @@ fn write(out: &mut String, parts: &[Part], values: &[(&str, Option<&str>)]) {
     let value = |name: &str| values.iter().find(|(key, _)| *key == name).map(|(_, value)| *value);
     for part in parts {
         match part {
-            Part::Text(text) => out.push_str(text),
+            Part::Text(text) => *out += &text.replace("\\n", "\n"),
             Part::Value(name) => match value(name) {
                 Some(value) => out.push_str(value.unwrap_or(UNKNOWN)),
                 None => *out += &format!("{{{name}}}"),
@@ -186,6 +187,17 @@ mod tests {
     #[test]
     fn missing_value_outside_a_section_is_a_shrug() {
         assert_eq!(render("Було {duration}.", &UNMEASURED), "Було 🤷‍♂️.");
+    }
+
+    #[test]
+    fn backslash_n_is_a_line_break() {
+        assert_eq!(render("Є.{duration?\\nНе було {duration}.}", &VALUES), "Є.\nНе було 5 хв.");
+        assert_eq!(render("a\\nb", &VALUES), "a\nb");
+    }
+
+    #[test]
+    fn backslash_n_in_a_value_stays_as_it_is() {
+        assert_eq!(render("{device}", &[("device", Some("a\\nb"))]), "a\\nb");
     }
 
     #[test]
