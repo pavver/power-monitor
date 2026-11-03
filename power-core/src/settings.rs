@@ -257,7 +257,7 @@ impl Text {
     }
 
     /// Start-up messages have no previous state to measure.
-    fn has_duration(self) -> bool {
+    pub(crate) fn has_duration(self) -> bool {
         matches!(self, Text::Lost | Text::Returned)
     }
 
@@ -265,8 +265,8 @@ impl Text {
         match self {
             Text::StartPresent => "🟢 {device}: монітор запущено, світло є.",
             Text::StartAbsent => "🔴 {device}: монітор запущено, світла немає.",
-            Text::Lost => "🔴 {device}: світло зникло.\nБуло {duration}.",
-            Text::Returned => "🟢 {device}: світло з'явилось.\nНе було {duration}.",
+            Text::Lost => "🔴 {device}: світло зникло.{duration?\nБуло {duration}.}",
+            Text::Returned => "🟢 {device}: світло з'явилось.{duration?\nНе було {duration}.}",
         }
     }
 }

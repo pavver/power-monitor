@@ -1,5 +1,6 @@
 //! Telegram message texts.
 
+use crate::form;
 use crate::jk::{self, Reading};
 use crate::power::{Before, PowerEvent, PowerState};
 use crate::settings::{Messages, Text};
@@ -11,9 +12,7 @@ use crate::template;
 /// the time of any event.
 const LATE_AFTER_MS: u64 = 60_000;
 
-/// Stands for a length nobody measured, e.g. of the state found at start-up,
-/// and for battery values when the BMS could not be read.
-pub const UNKNOWN: &str = "🤷‍♂️";
+pub use crate::template::UNKNOWN;
 
 /// Human-readable duration in Ukrainian, at most two units: "2 год 15 хв".
 pub fn format_duration(ms: u64) -> String {
@@ -46,28 +45,44 @@ impl Readings<'_> {
 /// The message for `event`, written at monotonic time `now_ms`.
 pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64, readings: Readings) -> String {
     let start_up = event.before == Before::StartUp;
-    let text = text_for(event);
     let duration = match event.before {
-        Before::Lasted(ms) => format_duration(ms),
-        _ => UNKNOWN.to_string(),
+        Before::Lasted(ms) => Some(format_duration(ms)),
+        _ => None,
     };
-    let voltage = readings.voltage_mv.map_or(UNKNOWN.to_string(), |mv| format!("{:.2}", f64::from(mv) / 1e3));
-    let battery = readings.bms.map(Reading::values);
-    let mut values = vec![
-        ("device", messages.device_name()),
-        ("duration", duration.as_str()),
-        (template::BATTERY_VOLTAGE, voltage.as_str()),
-    ];
-    match &battery {
-        Some(battery) => values.extend(battery.iter().map(|(name, value)| (*name, value.as_str()))),
-        None => values.extend(jk::VARIABLES.map(|name| (name, UNKNOWN))),
-    }
-    let mut out = template::render(messages.template(text), &values);
+    let mut out = fill(messages.template(text_for(event)), messages.device_name(), duration.as_deref(), readings);
     let delay = now_ms.saturating_sub(event.at_ms);
     if !start_up && delay >= LATE_AFTER_MS {
         out += &format!("\n(сталося {} тому)", format_duration(delay));
     }
     out
+}
+
+/// Stands in for `{duration}` in a preview, where nothing was measured.
+const SAMPLE_DURATION_MS: u64 = 2 * 3_600_000 + 15 * 60_000;
+
+/// What the page shows while a text is edited: the unsaved `template` for
+/// the `text` named in the form, with `device_name`, a sample length and the
+/// values measured now; or why the template would not be saved.
+pub fn preview(body: &str, readings: Readings) -> Result<String, String> {
+    let fields = form::parse(body);
+    let key = form::field(&fields, "text");
+    let text = Text::ALL.into_iter().find(|text| text.key() == key).ok_or("невідомий текст")?;
+    let template = form::field(&fields, "template");
+    template::validate(template, text.has_duration()).map_err(|error| error.to_string())?;
+    let duration = format_duration(SAMPLE_DURATION_MS);
+    Ok(fill(template, form::field(&fields, "device_name").trim(), Some(&duration), readings))
+}
+
+/// `template` with every value put in; a `None` one was not measured.
+fn fill(template: &str, device: &str, duration: Option<&str>, readings: Readings) -> String {
+    let voltage = readings.voltage_mv.map(|mv| format!("{:.2}", f64::from(mv) / 1e3));
+    let battery = readings.bms.map(Reading::values);
+    let mut values = vec![("device", Some(device)), ("duration", duration), (template::BATTERY_VOLTAGE, voltage.as_deref())];
+    match &battery {
+        Some(battery) => values.extend(battery.iter().map(|(name, value)| (*name, Some(value.as_str())))),
+        None => values.extend(jk::VARIABLES.map(|name| (name, None))),
+    }
+    template::render(template, &values)
 }
 
 fn text_for(event: &PowerEvent) -> Text {
@@ -112,7 +127,6 @@ pub fn test_text(device: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::form;
     use PowerState::*;
 
     const SEC: u64 = 1_000;
@@ -234,15 +248,15 @@ mod tests {
     }
 
     #[test]
-    fn unknown_length_is_a_shrug() {
+    fn default_texts_leave_out_an_unknown_length() {
         // Power may have been off long before the device was switched on.
         assert_eq!(
             event_text(&Messages::default(), &change_after_start_up(Present), 10 * SEC, Readings::NONE),
-            "🟢 Дім: світло з'явилось.\nНе було 🤷‍♂️."
+            "🟢 Дім: світло з'явилось."
         );
         assert_eq!(
             event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC, Readings::NONE),
-            "🔴 Дім: світло зникло.\nБуло 🤷‍♂️."
+            "🔴 Дім: світло зникло."
         );
     }
 
@@ -266,7 +280,7 @@ mod tests {
     fn late_change_after_start_up_still_says_when_it_happened() {
         // The moment of the change is measured; only the length before it is not.
         let text = event_text(&Messages::default(), &change_after_start_up(Absent), 10 * SEC + 12 * MIN, Readings::NONE);
-        assert_eq!(text, "🔴 Дім: світло зникло.\nБуло 🤷‍♂️.\n(сталося 12 хв тому)");
+        assert_eq!(text, "🔴 Дім: світло зникло.\n(сталося 12 хв тому)");
     }
 
     #[test]
@@ -324,6 +338,30 @@ mod tests {
         assert!(!needs_bms(&battery_messages(), &returned));
         assert!(!needs_bms(&battery_messages(), &Notice::Address("10.0.0.2".into())));
         assert!(!needs_bms(&Messages::default(), &lost));
+    }
+
+    fn preview_form(text: &str, template: &str) -> String {
+        form::encode(&[("device_name", "Дача"), ("text", text), ("template", template)])
+    }
+
+    #[test]
+    fn preview_fills_a_sample_length_and_the_measured_values() {
+        let body = preview_form("lost", "{device}{duration?: {duration}}, {battery_voltage} В");
+        let measured = Readings { voltage_mv: Some(52_020), ..Readings::NONE };
+        assert_eq!(preview(&body, measured), Ok("Дача: 2 год 15 хв, 52.02 В".to_string()));
+    }
+
+    #[test]
+    fn preview_shows_what_is_missing_as_the_message_would() {
+        let body = preview_form("start_absent", "{device}{bms_soc?, заряд {bms_soc}%}, {battery_voltage} В");
+        assert_eq!(preview(&body, Readings::NONE), Ok("Дача, 🤷‍♂️ В".to_string()));
+    }
+
+    #[test]
+    fn preview_explains_a_bad_template() {
+        let error = preview(&preview_form("start_present", "{duration}"), Readings::NONE).unwrap_err();
+        assert!(error.contains("{duration}"), "{error}");
+        assert!(preview(&preview_form("nope", "x"), Readings::NONE).is_err());
     }
 
     #[test]
