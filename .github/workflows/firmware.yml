@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 env:
-  ESPUP_VERSION: "0.18.0"
+  ESPUP_VERSION: "0.19.0"
   ESP_TOOLCHAIN: "1.97.0.0"
   ESPFLASH_VERSION: "4.6.0"
   LDPROXY_VERSION: "0.3.5"
@@ -21,14 +21,14 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # build.rs stamps the version from `git describe`: tags needed.
           fetch-depth: 0
 
       - name: Cache tools
         id: tools
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/espflash
@@ -49,7 +49,7 @@ jobs:
           cargo install --locked "espflash@${ESPFLASH_VERSION}" "ldproxy@${LDPROXY_VERSION}"
 
       - name: Cache ESP-IDF and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -62,7 +62,7 @@ jobs:
       - name: Test, build and make the images
         run: ./flash.sh --image
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: power-monitor-${{ github.sha }}
           path: |
