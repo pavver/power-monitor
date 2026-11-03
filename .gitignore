@@ -2,5 +2,6 @@ target/
 .metrics/
 .embuild/
 /power-monitor.bin
+/power-monitor-full.bin
 /server/data/
 /server/.env

@@ -32,8 +32,8 @@
 
 1. **Зберіть пристрій** за [інструкцією](hardware/README.md). Там три варіанти: модуль ESP32-WROOM-32 на
    власній платі, готова плата ESP32 DevKit або Wemos D1 mini для Home Assistant.
-2. **Прошийте:** ESP32 — за розділом [Збірка і прошивка](#збірка-і-прошивка) нижче, D1 mini — за
-   [інструкцією ESPHome](esphome/README.md).
+2. **Прошийте:** ESP32 — готовим образом із [релізів](#готова-прошивка) або
+   [зібравши самостійно](#збірка-і-прошивка), D1 mini — за [інструкцією ESPHome](esphome/README.md).
 3. **Налаштуйте** через телефон: [Налаштування](#налаштування).
 
 ## Структура
@@ -45,6 +45,26 @@
 | [`power-core/`](power-core) | Уся логіка без заліза: детектор, шаблони, налаштування, розбір кадрів BMS, API. Тести запускаються на ПК: `cargo test`. |
 | [`esphome/`](esphome) | Конфігурація для Wemos D1 mini і Home Assistant. |
 | [`server/`](server) | Сервер віддаленої підтримки (необов'язковий). |
+
+## Готова прошивка
+
+Кожен [реліз](https://github.com/pavver/power-monitor/releases) містить два образи для ESP32 з 4 МБ флешу,
+зібрані GitHub Actions з тегу. Віддалена підтримка в них вимкнена, дільник напруги — з аркуша 1 схеми
+(усе змінюється на панелі).
+
+| Файл | Коли |
+| --- | --- |
+| `power-monitor-full.bin` | Перша прошивка нової плати: завантажувач, таблиця розділів і прошивка одним файлом. Пишеться з адреси `0x0` і стирає збережені налаштування. |
+| `power-monitor.bin` | Оновлення пристрою, що вже працює: панель → «Прошивка» ([OTA](#оновлення-через-wi-fi-ota)). |
+
+Записати повний образ можна будь-яким інструментом:
+
+- **У браузері** (Chrome або Edge): [ESP Tool](https://espressif.github.io/esptool-js/) → «Connect» →
+  адреса `0x0`, файл `power-monitor-full.bin` → «Program».
+- **esptool:** `esptool.py --chip esp32 write_flash 0x0 power-monitor-full.bin`
+- **espflash:** `espflash write-bin 0x0 power-monitor-full.bin`
+
+Далі — [налаштування](#налаштування) з телефона.
 
 ## Збірка і прошивка
 
@@ -62,7 +82,7 @@ espup install          # створить ~/export-esp.sh
 ./flash.sh -p /dev/ttyUSB0  # явно вказати порт
 ./flash.sh --reset          # ще й стерти збережені налаштування
 ./flash.sh --no-monitor
-./flash.sh --image          # лише зібрати power-monitor.bin для оновлення через Wi-Fi
+./flash.sh --image          # лише зібрати образи: power-monitor.bin (OTA) і power-monitor-full.bin
 ```
 
 Перша збірка завантажує ESP-IDF і триває 10–20 хвилин; наступні — до хвилини.

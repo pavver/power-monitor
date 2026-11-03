@@ -5,7 +5,8 @@
 #   ./flash.sh -p /dev/ttyUSB0 use this serial port
 #   ./flash.sh --reset         also erase saved settings (Wi-Fi, bot, texts)
 #   ./flash.sh --no-monitor    do not open the monitor after flashing
-#   ./flash.sh --image         only build power-monitor.bin for the web OTA update
+#   ./flash.sh --image         only build the images: power-monitor.bin for the web
+#                              OTA update, power-monitor-full.bin for a first flash at 0x0
 #   REMOTE_SERVER=https://…, DIVIDER_TOP_OHM=… DIVIDER_BOTTOM_OHM=…
 #                              defaults built in for new devices (see README)
 set -euo pipefail
@@ -22,7 +23,7 @@ while [[ $# -gt 0 ]]; do
     --reset) ERASE="otadata,nvs"; shift ;;
     --no-monitor) MONITOR=(); shift ;;
     --image) IMAGE_ONLY=1; shift ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "Невідомий параметр: $1 (див. --help)" >&2; exit 1 ;;
   esac
 done
@@ -49,7 +50,14 @@ ELF=target/xtensa-esp32-espidf/release/power-monitor
 
 if [[ $IMAGE_ONLY == 1 ]]; then
   espflash save-image --chip esp32 "$ELF" "$ROOT/power-monitor.bin"
+  # Bootloader, partition table and app in one 4 MB file, settings erased:
+  # what a new board needs, written at 0x0 by any flashing tool.
+  espflash save-image --chip esp32 --merge --flash-size 4mb \
+    --bootloader target/xtensa-esp32-espidf/release/bootloader.bin \
+    --partition-table partitions.csv \
+    "$ELF" "$ROOT/power-monitor-full.bin"
   echo "==> Готово: $ROOT/power-monitor.bin — завантажте його на панелі пристрою, розділ «Прошивка»."
+  echo "    $ROOT/power-monitor-full.bin — повний образ для першої прошивки з адреси 0x0."
   exit 0
 fi
 
