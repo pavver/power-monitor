@@ -3,6 +3,9 @@ name = "remote-server"
 version = "0.1.0"
 edition = "2021"
 description = "Remote support for power monitors: check-ins, sessions and a relay to each device's panel"
+license = "MIT"
+repository = "https://github.com/pavver/power-monitor"
+publish = false
 
 [dependencies]
 power-core = { path = "../power-core" }

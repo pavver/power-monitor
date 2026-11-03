@@ -3,6 +3,9 @@ name = "power-monitor"
 version = "0.1.0"
 edition = "2021"
 description = "ESP32 firmware: watches mains voltage and reports changes to Telegram"
+license = "MIT"
+repository = "https://github.com/pavver/power-monitor"
+publish = false
 
 [[bin]]
 name = "power-monitor"

@@ -3,6 +3,9 @@ name = "power-core"
 version = "0.1.0"
 edition = "2021"
 description = "Host-testable logic of the mains power monitor"
+license = "MIT"
+repository = "https://github.com/pavver/power-monitor"
+publish = false
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
