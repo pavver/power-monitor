@@ -111,7 +111,8 @@ dialog.ctl{position:fixed}
 .btn[data-state=pending] .over.wait{display:block}
 .btn[data-flash][data-state=ok] .over.ok,.btn[data-flash][data-state=err] .over.err{display:block}
 .actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
-.actions .btn{flex:1 1 auto}
+/* Equal shares; a label that does not fit its share wraps the row instead. */
+.actions .btn{flex:1 1 0}
 .btn.wide{width:100%}
 .actions.grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr}
 .actions.grid .btn{min-width:0;padding:calc(var(--du)*2) calc(var(--du)*3)}
@@ -130,6 +131,7 @@ textarea.area{display:block;width:100%;min-height:calc(var(--du)*16);padding:cal
 
 /* OperatorListItem */
 .list{border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
+.list+p{margin-top:calc(var(--du)*2)}
 .item{display:flex;align-items:center;gap:calc(var(--du)*3);width:100%;min-height:calc(var(--du)*10);padding:calc(var(--du)*2) calc(var(--du)*3);
   border:0;border-bottom:calc(var(--du)*.25) solid var(--divider);background:none;color:var(--text);text-align:left;font:inherit;position:relative;overflow:hidden}
 .item:last-child{border-bottom:0}
