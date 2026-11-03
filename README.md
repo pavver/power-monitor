@@ -10,6 +10,19 @@
 > 🟢 Дім: світло з'явилось.
 > Не було 2 год 15 хв.
 
+<details>
+<summary><b>In English</b></summary>
+
+A small ESP32 device that watches whether the house has 220 V mains and posts to Telegram when power goes
+out or comes back. It runs from the same battery that keeps the router up during outages, so the "power is
+out" message gets through. It can also measure the battery voltage through a divider or read a JK BMS over
+Bluetooth. Setup is a web page on the device itself: no cloud, no Home Assistant. The firmware is Rust on
+ESP-IDF; ready images for an ESP32 with 4 MB flash are in the
+[releases](https://github.com/pavver/power-monitor/releases). There is also an ESPHome variant for a
+Wemos D1 mini and Home Assistant. The docs are in Ukrainian; issues in English are welcome.
+
+</details>
+
 ## Можливості
 
 - **Повідомлення в Telegram:** у чат, групу або гілку форуму. Тексти для кожної події редагуються, зі змінними:
@@ -35,6 +48,14 @@
 2. **Прошийте:** ESP32 — готовим образом із [релізів](#готова-прошивка) або
    [зібравши самостійно](#збірка-і-прошивка), D1 mini — за [інструкцією ESPHome](esphome/README.md).
 3. **Налаштуйте** через телефон: [Налаштування](#налаштування).
+
+Серце пристрою — оптопара, що бачить 220 В і віддає ESP32 лише «є/немає»
+(аркуш 3, решта схеми — в [інструкції](hardware/README.md)):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="hardware/sheet-3-mains-dark.svg">
+  <img alt="Аркуш 3: 220 В через резистори на оптопару PC817, її вихід на GPIO4" src="hardware/sheet-3-mains.svg">
+</picture>
 
 ## Структура
 
@@ -260,4 +281,7 @@ REMOTE_SERVER=https://svitlo.example.com ./flash.sh
 
 [MIT](LICENSE). Шрифт сторінки — [SIL Open Font License](firmware/ui/OFL.txt). Записи кадрів BMS у
 `power-core/src/jk_frames.rs` взято з [esphome-jk-bms](https://github.com/syssi/esphome-jk-bms)
-(Apache-2.0).
+(Apache-2.0). У `firmware/vendor/esp32-nimble/` лежить копія бібліотеки
+[esp32-nimble](https://github.com/taks/esp32-nimble) 0.13.0 (Apache-2.0) з виправленням підключення;
+що змінено й навіщо — у [PATCHED.md](firmware/vendor/esp32-nimble/PATCHED.md), запит на включення в
+бібліотеку — [taks/esp32-nimble#210](https://github.com/taks/esp32-nimble/pull/210).
