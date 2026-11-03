@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Як зібрати і прошити
+    url: https://github.com/pavver/power-monitor#з-чого-почати
+    about: Перш ніж питати — інструкція в README.

@@ -1,0 +1,42 @@
+name: Щось не працює
+description: Помилка прошивки, панелі, BMS чи сервера підтримки
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Що сталося
+      description: Що ви робили, що очікували і що побачили натомість. Текст помилки з панелі — дослівно.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Версія прошивки
+      description: Панель → картка «Прошивка».
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: board
+    attributes:
+      label: Варіант пристрою
+      options:
+        - А — ESP32-WROOM-32 на власній платі
+        - Б — ESP32 DevKit
+        - В — Wemos D1 mini з ESPHome
+        - Інше
+    validations:
+      required: true
+  - type: input
+    id: bms
+    attributes:
+      label: JK BMS, якщо стосується
+      description: Рядок під показниками на екрані «Батарея» або назва з пошуку.
+      placeholder: JK_B1A20S15P · hardware 19A · software 19.13
+  - type: textarea
+    id: log
+    attributes:
+      label: Лог з USB
+      description: Якщо є — вивід `espflash monitor` навколо помилки.
+      render: text
