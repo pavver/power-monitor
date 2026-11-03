@@ -133,6 +133,8 @@ pub struct Divider {
 
 impl Divider {
     const MAX_OHM: u32 = 100_000_000;
+    /// R1 330k and R2 10k from sheet 1 of the schematic: up to 80 V.
+    pub const SHEET_1: Self = Self { top_ohm: 330_000, bottom_ohm: 10_000 };
 
     /// Reads `top` and `bottom`, whole ohms.
     pub fn from_form(body: &str) -> Result<Self, SettingsError> {
@@ -149,12 +151,11 @@ impl Divider {
     }
 
     /// The divider a firmware build brings, from `DIVIDER_TOP_OHM` and
-    /// `DIVIDER_BOTTOM_OHM`: both or neither.
-    pub fn built_in(top: Option<&str>, bottom: Option<&str>) -> Result<Option<Self>, &'static str> {
+    /// `DIVIDER_BOTTOM_OHM`: both, or neither for the one on sheet 1.
+    pub fn built_in(top: Option<&str>, bottom: Option<&str>) -> Result<Self, &'static str> {
         match (top, bottom) {
-            (None, None) => Ok(None),
+            (None, None) => Ok(Self::SHEET_1),
             (Some(top), Some(bottom)) => Self::from_form(&form::encode(&[("top", top), ("bottom", bottom)]))
-                .map(Some)
                 .map_err(|_| "DIVIDER_TOP_OHM і DIVIDER_BOTTOM_OHM — цілі оми від 1 до 100000000"),
             _ => Err("задайте обидва: DIVIDER_TOP_OHM і DIVIDER_BOTTOM_OHM"),
         }
@@ -167,9 +168,9 @@ impl Divider {
     }
 
     /// The divider to use given what was kept (`None`: never chosen).
-    pub fn from_stored(stored: Option<&str>, built_in: Option<Self>) -> Option<Self> {
+    pub fn from_stored(stored: Option<&str>, built_in: Self) -> Option<Self> {
         match stored {
-            None => built_in,
+            None => Some(built_in),
             Some(stored) => Self::from_form(stored).ok(),
         }
     }
@@ -526,30 +527,34 @@ mod tests {
 
     #[test]
     fn built_in_divider_needs_both_resistors_or_neither() {
-        let divider = Divider::from_form("top=330000&bottom=10000").unwrap();
-        assert_eq!(Divider::built_in(Some("330000"), Some("10000")), Ok(Some(divider)));
-        assert_eq!(Divider::built_in(None, None), Ok(None));
+        let divider = Divider::from_form("top=240000&bottom=10000").unwrap();
+        assert_eq!(Divider::built_in(Some("240000"), Some("10000")), Ok(divider));
         assert!(Divider::built_in(Some("330000"), None).is_err());
         assert!(Divider::built_in(None, Some("10000")).is_err());
         assert!(Divider::built_in(Some("330k"), Some("10000")).is_err());
     }
 
     #[test]
+    fn without_built_in_values_the_divider_is_the_one_on_sheet_1() {
+        let sheet = Divider::from_form("top=330000&bottom=10000").unwrap();
+        assert_eq!(Divider::built_in(None, None), Ok(sheet));
+    }
+
+    #[test]
     fn a_divider_never_saved_is_the_built_in_one() {
-        let built_in = Divider::from_form("top=330000&bottom=10000").ok();
-        assert_eq!(Divider::from_stored(None, built_in), built_in);
-        assert_eq!(Divider::from_stored(None, None), None);
+        let built_in = Divider::from_form("top=240000&bottom=10000").unwrap();
+        assert_eq!(Divider::from_stored(None, built_in), Some(built_in));
     }
 
     #[test]
     fn a_divider_switched_off_stays_off_despite_the_built_in_one() {
-        let built_in = Divider::from_form("top=330000&bottom=10000").ok();
+        let built_in = Divider::SHEET_1;
         assert_eq!(Divider::from_stored(Some(&Divider::to_stored(None)), built_in), None);
     }
 
     #[test]
     fn a_saved_divider_beats_the_built_in_one() {
-        let built_in = Divider::from_form("top=330000&bottom=10000").ok();
+        let built_in = Divider::SHEET_1;
         let saved = Divider::from_form("top=100000&bottom=4700").ok();
         assert_eq!(Divider::from_stored(Some(&Divider::to_stored(saved)), built_in), saved);
     }

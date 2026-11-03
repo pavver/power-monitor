@@ -27,7 +27,7 @@ const IDENTITY: &str = "remote_id";
 /// server for remote support; without it support starts switched off.
 const BUILT_IN_SERVER: Option<&str> = option_env!("REMOTE_SERVER");
 /// `DIVIDER_TOP_OHM=… DIVIDER_BOTTOM_OHM=… cargo build` gives new devices
-/// that divider; build.rs has checked the values.
+/// that divider instead of the one on sheet 1; build.rs has checked the values.
 const BUILT_IN_DIVIDER: [Option<&str>; 2] = [option_env!("DIVIDER_TOP_OHM"), option_env!("DIVIDER_BOTTOM_OHM")];
 
 pub struct Settings {
@@ -226,7 +226,7 @@ fn built_in_remote() -> RemoteSettings {
     RemoteSettings::factory(BUILT_IN_SERVER)
 }
 
-fn built_in_divider() -> Option<Divider> {
+fn built_in_divider() -> Divider {
     let [top, bottom] = BUILT_IN_DIVIDER;
-    Divider::built_in(top, bottom).ok().flatten()
+    Divider::built_in(top, bottom).unwrap_or(Divider::SHEET_1)
 }
