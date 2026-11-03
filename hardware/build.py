@@ -3,25 +3,35 @@
     python3 hardware/build.py
 
 Sheet 1 (power and the battery divider) and sheet 3 (the 220 V sensor) are
-the same for every build; sheet 2 has one version per board.
+the same for every build; sheet 2 has one version per board. Each sheet is
+drawn twice, in the colours of GitHub's light and dark themes; the READMEs
+pick one with <picture>.
 """
 
 from pathlib import Path
 
 HERE = Path(__file__).parent
 
+# GitHub's own (Primer) colours, so a sheet sits on the page like its text.
+THEMES = {
+    "": {"bg": "#ffffff", "fg": "#1f2328", "muted": "#59636e", "accent": "#0969da", "danger": "#d1242f", "zone": "rgba(209,36,47,.07)"},
+    "-dark": {"bg": "#0d1117", "fg": "#f0f6fc", "muted": "#9198a1", "accent": "#4493f8", "danger": "#f85149", "zone": "rgba(248,81,73,.12)"},
+}
+
 STYLE = """<style>
-text{font-family:'DejaVu Sans Mono',Consolas,Menlo,monospace;font-size:13px;fill:#1d2326}
-.ref{font-weight:600}
-.pin{font-size:11px;fill:#5b666b}
-.set{fill:#0a5fa8;font-weight:600}
-.warn{fill:#b3261e;font-weight:600}
-.w{stroke:#1d2326;stroke-width:1.6;fill:none}
-.b{fill:#fff;stroke:#1d2326;stroke-width:1.6}
-.dash{fill:none;stroke:#5b666b;stroke-width:1.2;stroke-dasharray:5 4}
-.solid{fill:#1d2326;stroke:none}
-.zone{fill:rgba(179,38,30,.07);stroke:#b3261e;stroke-width:1.2;stroke-dasharray:6 4}
-.iso{stroke:#b3261e;stroke-width:1.4;stroke-dasharray:4 4;fill:none}
+text{{font-family:'DejaVu Sans Mono',Consolas,Menlo,monospace;font-size:13px;fill:{fg}}}
+.ref{{font-weight:600}}
+.pin{{font-size:11px;fill:{muted}}}
+.set{{fill:{accent};font-weight:600}}
+.warn{{fill:{danger};font-weight:600}}
+.w{{stroke:{fg};stroke-width:1.6;fill:none}}
+.b{{fill:{bg};stroke:{fg};stroke-width:1.6}}
+.dash{{fill:none;stroke:{muted};stroke-width:1.2;stroke-dasharray:5 4}}
+.solid{{fill:{fg};stroke:none}}
+.bg{{fill:{bg}}}
+.hot{{fill:{zone}}}
+.zone{{fill:{zone};stroke:{danger};stroke-width:1.2;stroke-dasharray:6 4}}
+.iso{{stroke:{danger};stroke-width:1.4;stroke-dasharray:4 4;fill:none}}
 </style>"""
 
 
@@ -33,13 +43,13 @@ class Sheet:
     def add(self, *parts):
         self.parts.extend(parts)
 
-    def svg(self):
+    def svg(self, theme):
         body = "\n".join(self.parts)
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.width} {self.height}" '
             f'width="{self.width}" height="{self.height}" role="img" aria-label="{self.label}">\n'
-            f"{STYLE}\n"
-            f'<rect width="{self.width}" height="{self.height}" fill="#fff"/>\n{body}\n</svg>\n'
+            f"{STYLE.format(**theme)}\n"
+            f'<rect class="bg" width="{self.width}" height="{self.height}"/>\n{body}\n</svg>\n'
         )
 
 
@@ -187,7 +197,7 @@ def sheet_wroom():
     x0, x1, y0, y1 = 300, 540, 40, 560
     pad_y = lambda i: 150 + i * 26
     s.add(f'<rect class="b" x="{x0}" y="{y0}" width="{x1 - x0}" height="{y1 - y0}" rx="4"/>')
-    s.add(f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="70" fill="rgba(179,38,30,.07)"/>')
+    s.add(f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="70" class="hot"/>')
     s.add(text(420, 66, "U3 ESP32-WROOM-32", "ref", "middle"), text(420, 86, "вид знизу, з боку падів", "pin", "middle"))
     s.add(f'<rect x="385" y="300" width="70" height="70" class="dash"/>')
     s.add(text(420, 331, "39 GND", "pin", "middle"), text(420, 346, "центр. пад", "pin", "middle"))
@@ -293,7 +303,7 @@ def sheet_d1_mini():
 def sheet_mains():
     s = Sheet(1000, 300, "Аркуш 3: 220 вольт через чотири резистори R4–R7 по 82 кілоом на світлодіод оптопари U4 PC817, діод D2 1N4148 зустрічно паралельно. Вихід оптопари з підтяжкою R8 100 кілоом до 3V3 і конденсатором C5 3.3 мікрофаради на землю, далі на GPIO4 або D5.")
     s.add('<defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">'
-          '<path d="M0 0 L8 4 L0 8 Z" fill="#1d2326"/></marker></defs>')
+          '<path class="solid" d="M0 0 L8 4 L0 8 Z"/></marker></defs>')
     s.add('<rect class="zone" x="8" y="48" width="497" height="226"/>', text(18, 68, "220 В — небезпечно для життя", "warn"))
     s.add(terminal(40, 120), terminal(40, 220), text(18, 124, "L", "ref"), text(16, 224, "N", "ref"), text(40, 174, "J2", "ref", "middle"))
     s.add(wire((45, 220), (430, 220)))
@@ -327,14 +337,16 @@ def sheet_mains():
 
 
 SHEETS = {
-    "sheet-1-power.svg": sheet_power,
-    "sheet-2a-wroom.svg": sheet_wroom,
-    "sheet-2b-devkit.svg": sheet_devkit,
-    "sheet-2c-d1-mini.svg": sheet_d1_mini,
-    "sheet-3-mains.svg": sheet_mains,
+    "sheet-1-power": sheet_power,
+    "sheet-2a-wroom": sheet_wroom,
+    "sheet-2b-devkit": sheet_devkit,
+    "sheet-2c-d1-mini": sheet_d1_mini,
+    "sheet-3-mains": sheet_mains,
 }
 
 if __name__ == "__main__":
     for name, draw in SHEETS.items():
-        (HERE / name).write_text(draw().svg(), encoding="utf-8")
-        print(name)
+        sheet = draw()
+        for suffix, theme in THEMES.items():
+            (HERE / f"{name}{suffix}.svg").write_text(sheet.svg(theme), encoding="utf-8")
+            print(f"{name}{suffix}.svg")

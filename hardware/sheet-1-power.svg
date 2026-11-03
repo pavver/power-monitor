@@ -1,18 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 380" width="820" height="380" role="img" aria-label="Аркуш 1: акумулятор до 80 вольт через запобіжник F1. Одразу за запобіжником дільник R1 330 кілоом і R2 10 кілоом з конденсатором C1 на вхід АЦП. Далі діод D1 і DC-DC JZ7015, налаштований на 5 вольт.">
 <style>
-text{font-family:'DejaVu Sans Mono',Consolas,Menlo,monospace;font-size:13px;fill:#1d2326}
+text{font-family:'DejaVu Sans Mono',Consolas,Menlo,monospace;font-size:13px;fill:#1f2328}
 .ref{font-weight:600}
-.pin{font-size:11px;fill:#5b666b}
-.set{fill:#0a5fa8;font-weight:600}
-.warn{fill:#b3261e;font-weight:600}
-.w{stroke:#1d2326;stroke-width:1.6;fill:none}
-.b{fill:#fff;stroke:#1d2326;stroke-width:1.6}
-.dash{fill:none;stroke:#5b666b;stroke-width:1.2;stroke-dasharray:5 4}
-.solid{fill:#1d2326;stroke:none}
-.zone{fill:rgba(179,38,30,.07);stroke:#b3261e;stroke-width:1.2;stroke-dasharray:6 4}
-.iso{stroke:#b3261e;stroke-width:1.4;stroke-dasharray:4 4;fill:none}
+.pin{font-size:11px;fill:#59636e}
+.set{fill:#0969da;font-weight:600}
+.warn{fill:#d1242f;font-weight:600}
+.w{stroke:#1f2328;stroke-width:1.6;fill:none}
+.b{fill:#ffffff;stroke:#1f2328;stroke-width:1.6}
+.dash{fill:none;stroke:#59636e;stroke-width:1.2;stroke-dasharray:5 4}
+.solid{fill:#1f2328;stroke:none}
+.bg{fill:#ffffff}
+.hot{fill:rgba(209,36,47,.07)}
+.zone{fill:rgba(209,36,47,.07);stroke:#d1242f;stroke-width:1.2;stroke-dasharray:6 4}
+.iso{stroke:#d1242f;stroke-width:1.4;stroke-dasharray:4 4;fill:none}
 </style>
-<rect width="820" height="380" fill="#fff"/>
+<rect class="bg" width="820" height="380"/>
 <circle class="b" cx="40" cy="80" r="5"/>
 <circle class="b" cx="40" cy="320" r="5"/>
 <text x="20" y="64">+АКБ</text>

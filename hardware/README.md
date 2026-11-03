@@ -28,7 +28,10 @@
 
 ## Аркуш 1. Живлення і дільник напруги
 
-![Аркуш 1: живлення і дільник](sheet-1-power.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="sheet-1-power-dark.svg">
+  <img alt="Аркуш 1: живлення і дільник" src="sheet-1-power.svg">
+</picture>
 
 Акумулятор живить пристрій через запобіжник **F1**. Одразу за ним стоїть дільник **R1/R2**: він зменшує
 напругу акумулятора до рівня, який безпечно міряє АЦП контролера. **C1** згладжує завади на вході АЦП.
@@ -69,7 +72,10 @@
 
 ### Варіант А: модуль ESP32-WROOM-32
 
-![Аркуш 2а: модуль ESP32-WROOM-32](sheet-2a-wroom.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="sheet-2a-wroom-dark.svg">
+  <img alt="Аркуш 2а: модуль ESP32-WROOM-32" src="sheet-2a-wroom.svg">
+</picture>
 
 Модуль намальований **знизу, з боку падів**. Якщо паяєте модуль екраном догори, ліва і права сторони
 поміняються місцями. Цифри — номери падів.
@@ -94,7 +100,10 @@
 
 ### Варіант Б: ESP32 DevKit
 
-![Аркуш 2б: ESP32 DevKit](sheet-2b-devkit.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="sheet-2b-devkit-dark.svg">
+  <img alt="Аркуш 2б: ESP32 DevKit" src="sheet-2b-devkit.svg">
+</picture>
 
 Стабілізатор 3.3 В, конденсатори і кнопки вже є на платі. Підключити треба чотири дроти:
 
@@ -110,7 +119,10 @@ DevKit між USB і VIN стоїть діод, але не на всіх, то�
 
 ### Варіант В: Wemos D1 mini з ESPHome
 
-![Аркуш 2в: Wemos D1 mini](sheet-2c-d1-mini.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="sheet-2c-d1-mini-dark.svg">
+  <img alt="Аркуш 2в: Wemos D1 mini" src="sheet-2c-d1-mini.svg">
+</picture>
 
 | Звідки | Пін D1 mini |
 |---|---|
@@ -125,7 +137,10 @@ DevKit між USB і VIN стоїть діод, але не на всіх, то�
 
 ## Аркуш 3. Датчик 220 В
 
-![Аркуш 3: датчик 220 В](sheet-3-mains.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="sheet-3-mains-dark.svg">
+  <img alt="Аркуш 3: датчик 220 В" src="sheet-3-mains.svg">
+</picture>
 
 > ⚠️ **Ліворуч від червоної пунктирної лінії — напруга мережі, небезпечна для життя.** Вона є на всіх
 > деталях цієї частини, навіть на маленьких. Не торкайтеся плати, поки підключено 220 В. Плата має
