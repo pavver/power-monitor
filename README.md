@@ -10,6 +10,11 @@
 > 🟢 Дім: світло з'явилось.
 > Не було 2 год 15 хв.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screens-dark.png">
+  <img alt="Панель пристрою з телефона: стан світла й мережі, тексти повідомлень із попереднім переглядом, показники JK BMS" src="docs/screens-light.png">
+</picture>
+
 <details>
 <summary><b>In English</b></summary>
 
