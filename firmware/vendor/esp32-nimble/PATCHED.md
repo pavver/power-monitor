@@ -12,7 +12,7 @@ A copy of [esp32-nimble](https://github.com/taks/esp32-nimble) 0.13.0
 - A link lost before the MTU exchange finished left `connect` waiting
   forever; the disconnect now ends that wait with its reason.
 
-Offered upstream: https://github.com/taks/esp32-nimble (pull request from
-pavver/esp32-nimble, branch `fix-mtu-signal`).
+Offered upstream: https://github.com/taks/esp32-nimble/pull/210. Once a
+release has it, drop this copy and the `[patch.crates-io]` entry.
 
 The examples and the packaged toolchain archive are left out.
