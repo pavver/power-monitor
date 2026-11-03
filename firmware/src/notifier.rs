@@ -22,7 +22,7 @@ const LINK_CHECK: Duration = Duration::from_secs(1);
 const OUTBOX_CAPACITY: usize = 32;
 /// Battery values this old still go into a message. The BMS streams them
 /// every second while connected; older ones mean the link is down.
-const BMS_MAX_AGE: Duration = Duration::from_secs(60);
+pub const BMS_MAX_AGE: Duration = Duration::from_secs(60);
 
 pub fn spawn(
     notices: Receiver<Notice>,

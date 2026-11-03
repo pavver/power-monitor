@@ -259,18 +259,30 @@ pub enum Text {
     StartAbsent,
     Lost,
     Returned,
+    Address,
+    Test,
+}
+
+/// The note on a power change delivered late. Devices before `{delay}`
+/// appended it themselves, so their saved texts get it on migration.
+macro_rules! delay_note {
+    () => {
+        "{delay?\n(сталося {delay} тому)}"
+    };
 }
 
 impl Text {
-    pub const ALL: [Text; 4] = [Text::StartPresent, Text::StartAbsent, Text::Lost, Text::Returned];
+    pub const ALL: [Text; 6] = [Text::StartPresent, Text::StartAbsent, Text::Lost, Text::Returned, Text::Address, Text::Test];
 
-    /// Form field and JSON key.
+    /// Form field, JSON key and settings key (at most 15 bytes).
     pub fn key(self) -> &'static str {
         match self {
             Text::StartPresent => "start_present",
             Text::StartAbsent => "start_absent",
             Text::Lost => "lost",
             Text::Returned => "returned",
+            Text::Address => "address",
+            Text::Test => "test",
         }
     }
 
@@ -280,12 +292,19 @@ impl Text {
             Text::StartAbsent => "Запуск, світла немає",
             Text::Lost => "Світло зникло",
             Text::Returned => "Світло з'явилось",
+            Text::Address => "Нова адреса панелі",
+            Text::Test => "Тестове повідомлення",
         }
     }
 
-    /// Start-up messages have no previous state to measure.
-    pub(crate) fn has_duration(self) -> bool {
-        matches!(self, Text::Lost | Text::Returned)
+    /// The values of `template::OWN` this text has. Start-up messages have
+    /// no previous state to measure and are never late.
+    pub(crate) fn own(self) -> &'static [&'static str] {
+        match self {
+            Text::Lost | Text::Returned => &["duration", "delay"],
+            Text::Address => &["ip"],
+            Text::StartPresent | Text::StartAbsent | Text::Test => &[],
+        }
     }
 
     fn default_template(self) -> &'static str {
@@ -298,8 +317,20 @@ impl Text {
         match self {
             Text::StartPresent => concat!("⚡ {device}: монітор запущено, світло є.", battery!()),
             Text::StartAbsent => concat!("🔌 {device}: монітор запущено, світла немає.", battery!()),
-            Text::Lost => concat!("🔌 {device}: світло зникло.{duration?\nБуло {duration}.}", battery!()),
-            Text::Returned => concat!("⚡ {device}: світло з'явилось.{duration?\nНе було {duration}.}", battery!()),
+            Text::Lost => concat!("🔌 {device}: світло зникло.{duration?\nБуло {duration}.}", delay_note!(), battery!()),
+            Text::Returned => concat!("⚡ {device}: світло з'явилось.{duration?\nНе було {duration}.}", delay_note!(), battery!()),
+            Text::Address => "🌐 {device}: нова адреса панелі http://{ip}/",
+            Text::Test => concat!("🔔 {device}: тестове повідомлення, бот працює.", battery!()),
+        }
+    }
+
+    /// A text as it will be kept: blank turns the message off, except the
+    /// test one, which is what checks the bot.
+    fn parse(self, value: &str) -> Result<String, TemplateError> {
+        match (value.trim().is_empty(), self) {
+            (true, Text::Test) => Err(TemplateError::Blank),
+            (true, _) => Ok(String::new()),
+            (false, _) => template::validate(value, self.own()).map(|()| value.to_string()),
         }
     }
 }
@@ -312,49 +343,51 @@ pub struct Messages {
     start_absent: String,
     lost: String,
     returned: String,
+    address: String,
+    test: String,
 }
+
+const DEFAULT_DEVICE_NAME: &str = "Дім";
 
 impl Default for Messages {
     fn default() -> Self {
-        Self {
-            device_name: "Дім".to_string(),
-            start_present: Text::StartPresent.default_template().to_string(),
-            start_absent: Text::StartAbsent.default_template().to_string(),
-            lost: Text::Lost.default_template().to_string(),
-            returned: Text::Returned.default_template().to_string(),
-        }
+        Self::build(DEFAULT_DEVICE_NAME.to_string(), |text| Ok::<_, ()>(text.default_template().to_string())).unwrap()
     }
 }
 
 impl Messages {
-    /// Reads `device_name` and one field per `Text::key`.
+    /// Reads `device_name` and one field per `Text::key`, as the page sends them.
     pub fn from_form(body: &str) -> Result<Self, SettingsError> {
         let fields = form::parse(body);
-        let device_name = form::field(&fields, "device_name").trim();
-        if !(1..=32).contains(&device_name.chars().count()) {
-            return Err(SettingsError::DeviceName);
-        }
-        // A blank text turns its message off.
-        let text = |text: Text| {
-            let value = form::field(&fields, text.key());
-            let value = if value.trim().is_empty() { "" } else { value };
-            template::validate(value, text.has_duration())
-                .map(|()| value.to_string())
-                .map_err(|error| SettingsError::Text(text, error))
-        };
-        Ok(Self {
-            device_name: device_name.to_string(),
-            start_present: text(Text::StartPresent)?,
-            start_absent: text(Text::StartAbsent)?,
-            lost: text(Text::Lost)?,
-            returned: text(Text::Returned)?,
-        })
+        let device_name = device_name(form::field(&fields, "device_name")).ok_or(SettingsError::DeviceName)?;
+        Self::build(device_name, |text| text.parse(form::field(&fields, text.key())).map_err(|error| SettingsError::Text(text, error)))
     }
 
-    pub fn to_form(&self) -> String {
-        let mut pairs = vec![("device_name", self.device_name.as_str())];
-        pairs.extend(Text::ALL.map(|text| (text.key(), self.template(text))));
-        form::encode(&pairs)
+    /// What `fields` stored, `get` giving each by its key; a missing or
+    /// broken one, e.g. a text from a newer firmware, is the default.
+    pub fn from_stored(get: impl Fn(&str) -> Option<String>) -> Self {
+        let device_name = get("device_name").as_deref().and_then(device_name).unwrap_or(DEFAULT_DEVICE_NAME.to_string());
+        let text = |text: Text| get(text.key()).and_then(|value| text.parse(&value).ok());
+        Self::build(device_name, |t| Ok::<_, ()>(text(t).unwrap_or(t.default_template().to_string()))).unwrap()
+    }
+
+    /// The single form firmware 0.1.0 stored all texts in.
+    pub fn from_old_form(body: &str) -> Self {
+        let fields = form::parse(body);
+        let mut messages = Self::from_stored(|key| fields.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()));
+        for text in [&mut messages.lost, &mut messages.returned] {
+            if !text.is_empty() {
+                text.push_str(delay_note!());
+            }
+        }
+        messages
+    }
+
+    /// Every value with its key, for storing.
+    pub fn fields(&self) -> Vec<(&'static str, &str)> {
+        let mut fields = vec![("device_name", self.device_name.as_str())];
+        fields.extend(Text::ALL.map(|text| (text.key(), self.template(text))));
+        fields
     }
 
     pub fn device_name(&self) -> &str {
@@ -367,8 +400,28 @@ impl Messages {
             Text::StartAbsent => &self.start_absent,
             Text::Lost => &self.lost,
             Text::Returned => &self.returned,
+            Text::Address => &self.address,
+            Text::Test => &self.test,
         }
     }
+
+    fn build<E>(device_name: String, mut text: impl FnMut(Text) -> Result<String, E>) -> Result<Self, E> {
+        Ok(Self {
+            device_name,
+            start_present: text(Text::StartPresent)?,
+            start_absent: text(Text::StartAbsent)?,
+            lost: text(Text::Lost)?,
+            returned: text(Text::Returned)?,
+            address: text(Text::Address)?,
+            test: text(Text::Test)?,
+        })
+    }
+}
+
+/// A device name of 1 to 32 characters, trimmed.
+fn device_name(value: &str) -> Option<String> {
+    let name = value.trim();
+    (1..=32).contains(&name.chars().count()).then(|| name.to_string())
 }
 
 #[cfg(test)]
@@ -463,7 +516,7 @@ mod tests {
         assert_eq!(m.device_name(), "Дача");
         assert_eq!(m.template(Text::Lost), "Нема {duration}");
         assert_eq!(m.template(Text::Returned), Text::Returned.default_template());
-        assert_eq!(Messages::from_form(&m.to_form()), Ok(m));
+        assert_eq!(Messages::from_form(&form::encode(&m.fields())), Ok(m));
     }
 
     #[test]
@@ -480,8 +533,73 @@ mod tests {
     fn messages_reject_bad_templates_naming_the_text() {
         assert_eq!(
             Messages::from_form(&messages_form(&[("start_absent", "{duration}")])),
-            Err(SettingsError::Text(Text::StartAbsent, TemplateError::NoDuration))
+            Err(SettingsError::Text(Text::StartAbsent, TemplateError::NotHere("duration")))
         );
+        assert_eq!(
+            Messages::from_form(&messages_form(&[("start_present", "{ip}")])),
+            Err(SettingsError::Text(Text::StartPresent, TemplateError::NotHere("ip")))
+        );
+    }
+
+    #[test]
+    fn each_text_has_its_own_values() {
+        let m = Messages::from_form(&messages_form(&[
+            ("address", "{device}: http://{ip}/"),
+            ("lost", "{delay?(сталося {delay} тому)}"),
+            ("test", "{device}: {bms_soc}%"),
+        ]))
+        .unwrap();
+        assert_eq!(m.template(Text::Address), "{device}: http://{ip}/");
+        assert_eq!(m.template(Text::Lost), "{delay?(сталося {delay} тому)}");
+        assert_eq!(m.template(Text::Test), "{device}: {bms_soc}%");
+    }
+
+    #[test]
+    fn the_test_text_cannot_be_blank() {
+        // It is what checks the bot; the address message may be turned off.
+        assert_eq!(
+            Messages::from_form(&messages_form(&[("test", " ")])),
+            Err(SettingsError::Text(Text::Test, TemplateError::Blank))
+        );
+        assert_eq!(Messages::from_form(&messages_form(&[("address", "")])).unwrap().template(Text::Address), "");
+    }
+
+    #[test]
+    fn stored_texts_fill_what_is_missing_or_broken_with_defaults() {
+        let stored = [("device_name", "Дача"), ("lost", "Нема"), ("returned", "{nope}"), ("address", "")];
+        let m = Messages::from_stored(|key| stored.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string()));
+        assert_eq!(m.device_name(), "Дача");
+        assert_eq!(m.template(Text::Lost), "Нема");
+        assert_eq!(m.template(Text::Returned), Text::Returned.default_template());
+        assert_eq!(m.template(Text::Address), "");
+        assert_eq!(m.template(Text::Test), Text::Test.default_template());
+        assert_eq!(Messages::from_stored(|_| None), Messages::default());
+    }
+
+    #[test]
+    fn stored_texts_round_trip() {
+        let m = Messages::from_form(&messages_form(&[("lost", "Нема & {duration}"), ("address", "")])).unwrap();
+        let stored = m.fields();
+        let back = Messages::from_stored(|key| stored.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string()));
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn texts_saved_before_the_delay_value_keep_their_late_note() {
+        // Those devices appended the note to every power change themselves.
+        let old = form::encode(&[
+            ("device_name", "Дача"),
+            ("start_present", "Є"),
+            ("start_absent", "Нема"),
+            ("lost", "Зникло"),
+            ("returned", ""),
+        ]);
+        let m = Messages::from_old_form(&old);
+        assert_eq!(m.template(Text::Lost), "Зникло{delay?\n(сталося {delay} тому)}");
+        assert_eq!(m.template(Text::Returned), "");
+        assert_eq!(m.template(Text::StartPresent), "Є");
+        assert_eq!(m.template(Text::Address), Text::Address.default_template());
+        assert_eq!(m.template(Text::Test), Text::Test.default_template());
     }
 
     #[test]
@@ -489,7 +607,7 @@ mod tests {
         let m = Messages::from_form(&messages_form(&[("returned", " \n "), ("start_absent", "")])).unwrap();
         assert_eq!(m.template(Text::Returned), "");
         assert_eq!(m.template(Text::StartAbsent), "");
-        assert_eq!(Messages::from_form(&m.to_form()), Ok(m));
+        assert_eq!(Messages::from_form(&form::encode(&m.fields())), Ok(m));
     }
 
     #[test]
@@ -501,6 +619,8 @@ mod tests {
     fn errors_explain_which_text_is_wrong() {
         let error = SettingsError::Text(Text::Lost, TemplateError::TooLong);
         assert_eq!(error.to_string(), "Світло зникло: текст довший за 500 символів.");
+        let error = SettingsError::Text(Text::Test, TemplateError::Blank);
+        assert_eq!(error.to_string(), "Тестове повідомлення: цей текст не можна залишити порожнім — ним перевіряється бот.");
     }
 
     #[test]

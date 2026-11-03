@@ -6,7 +6,7 @@ use crate::power::{Before, PowerEvent, PowerState};
 use crate::settings::{Messages, Text};
 use crate::template;
 
-/// Power changes delivered later than this get a note saying when they
+/// Power changes delivered later than this have `{delay}`, how long ago they
 /// happened, since Wi-Fi is often down together with the power. Start-up
 /// messages never do: they wait for Wi-Fi and the bot, so the delay is not
 /// the time of any event.
@@ -44,21 +44,22 @@ impl Readings<'_> {
 
 /// The message for `event`, written at monotonic time `now_ms`.
 pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64, readings: Readings) -> String {
-    let start_up = event.before == Before::StartUp;
     let duration = match event.before {
         Before::Lasted(ms) => Some(format_duration(ms)),
         _ => None,
     };
-    let mut out = fill(messages.template(text_for(event)), messages.device_name(), duration.as_deref(), readings);
     let delay = now_ms.saturating_sub(event.at_ms);
-    if !start_up && delay >= LATE_AFTER_MS {
-        out += &format!("\n(сталося {} тому)", format_duration(delay));
-    }
-    out
+    let late = event.before != Before::StartUp && delay >= LATE_AFTER_MS;
+    let delay = late.then(|| format_duration(delay));
+    let own = [("duration", duration.as_deref()), ("delay", delay.as_deref())];
+    fill(messages.template(text_for(event)), messages.device_name(), &own, readings)
 }
 
 /// Stands in for `{duration}` in a preview, where nothing was measured.
 const SAMPLE_DURATION_MS: u64 = 2 * 3_600_000 + 15 * 60_000;
+
+/// Stands in for `{ip}` in a preview.
+const SAMPLE_IP: &str = "192.168.1.50";
 
 /// What the page shows while a text is edited: the unsaved `template` for
 /// the `text` named in the form, with `device_name`, a sample length and the
@@ -68,16 +69,19 @@ pub fn preview(body: &str, readings: Readings) -> Result<String, String> {
     let key = form::field(&fields, "text");
     let text = Text::ALL.into_iter().find(|text| text.key() == key).ok_or("невідомий текст")?;
     let template = form::field(&fields, "template");
-    template::validate(template, text.has_duration()).map_err(|error| error.to_string())?;
+    template::validate(template, text.own()).map_err(|error| error.to_string())?;
+    // An on-time message: the usual case, so no `{delay}`.
     let duration = format_duration(SAMPLE_DURATION_MS);
-    Ok(fill(template, form::field(&fields, "device_name").trim(), Some(&duration), readings))
+    let own = [("duration", Some(duration.as_str())), ("delay", None), ("ip", Some(SAMPLE_IP))];
+    Ok(fill(template, form::field(&fields, "device_name").trim(), &own, readings))
 }
 
 /// `template` with every value put in; a `None` one was not measured.
-fn fill(template: &str, device: &str, duration: Option<&str>, readings: Readings) -> String {
+fn fill(template: &str, device: &str, own: &[(&str, Option<&str>)], readings: Readings) -> String {
     let voltage = readings.voltage_mv.map(|mv| format!("{:.2}", f64::from(mv) / 1e3));
     let battery = readings.bms.map(Reading::values);
-    let mut values = vec![("device", Some(device)), ("duration", duration), (template::BATTERY_VOLTAGE, voltage.as_deref())];
+    let mut values = vec![("device", Some(device)), (template::BATTERY_VOLTAGE, voltage.as_deref())];
+    values.extend_from_slice(own);
     match &battery {
         Some(battery) => values.extend(battery.iter().map(|(name, value)| (*name, Some(value.as_str())))),
         None => values.extend(jk::VARIABLES.map(|name| (name, None))),
@@ -94,12 +98,16 @@ fn text_for(event: &PowerEvent) -> Text {
     }
 }
 
+fn text_for_notice(notice: &Notice) -> Text {
+    match notice {
+        Notice::Power(event) => text_for(event),
+        Notice::Address(_) => Text::Address,
+    }
+}
+
 /// Whether the text for `notice` shows battery values, so the BMS has to be read first.
 pub fn needs_bms(messages: &Messages, notice: &Notice) -> bool {
-    match notice {
-        Notice::Power(event) => template::uses_bms(messages.template(text_for(event))),
-        Notice::Address(_) => false,
-    }
+    template::uses_bms(messages.template(text_for_notice(notice)))
 }
 
 /// Something to tell the chat.
@@ -112,16 +120,18 @@ pub enum Notice {
 
 /// What to send for `notice`; `None` when the user left its text empty.
 pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64, readings: Readings) -> Option<String> {
-    match notice {
-        Notice::Power(event) if messages.template(text_for(event)).is_empty() => None,
-        Notice::Power(event) => Some(event_text(messages, event, now_ms, readings)),
-        Notice::Address(ip) => Some(format!("🌐 {}: нова адреса панелі http://{ip}/", messages.device_name())),
+    if messages.template(text_for_notice(notice)).is_empty() {
+        return None;
     }
+    Some(match notice {
+        Notice::Power(event) => event_text(messages, event, now_ms, readings),
+        Notice::Address(ip) => fill(messages.template(Text::Address), messages.device_name(), &[("ip", Some(ip))], readings),
+    })
 }
 
 /// Sent from the web page to check the bot settings.
-pub fn test_text(device: &str) -> String {
-    format!("🔔 {device}: тестове повідомлення, бот працює.")
+pub fn test_text(messages: &Messages, readings: Readings) -> String {
+    fill(messages.template(Text::Test), messages.device_name(), &[], readings)
 }
 
 #[cfg(test)]
@@ -167,7 +177,7 @@ mod tests {
 
     #[test]
     fn a_blank_text_sends_nothing() {
-        let body = form::encode(&[("device_name", "Дім"), ("start_present", "Є"), ("start_absent", " "), ("lost", ""), ("returned", "Є {duration}")]);
+        let body = form_with(&[("device_name", "Дім"), ("start_present", "Є"), ("start_absent", " "), ("lost", ""), ("returned", "Є {duration}")]);
         let messages = Messages::from_form(&body).unwrap();
         let late = 10 * SEC + 30 * MIN;
         let send = |e: PowerEvent| notice_text(&messages, &Notice::Power(e), late, Readings::NONE);
@@ -188,7 +198,61 @@ mod tests {
 
     #[test]
     fn test_message_names_the_device() {
-        assert_eq!(test_text("Дача"), "🔔 Дача: тестове повідомлення, бот працює.");
+        let messages = Messages::from_form(&form_with(&[("device_name", "Дача")])).unwrap();
+        assert_eq!(test_text(&messages, Readings::NONE), "🔔 Дача: тестове повідомлення, бот працює.");
+    }
+
+    #[test]
+    fn test_message_shows_the_battery() {
+        let divider = Readings { voltage_mv: Some(52_020), ..Readings::NONE };
+        assert_eq!(test_text(&Messages::default(), divider), "🔔 Дім: тестове повідомлення, бот працює.\n🔋 52.02 В");
+    }
+
+    #[test]
+    fn test_message_uses_its_template() {
+        let messages = Messages::from_form(&form_with(&[("test", "Перевірка {device}")])).unwrap();
+        assert_eq!(test_text(&messages, Readings::NONE), "Перевірка Дім");
+    }
+
+    /// The default texts as the page would send them, some replaced.
+    fn form_with(changes: &[(&str, &str)]) -> String {
+        let defaults = Messages::default();
+        let mut fields = defaults.fields();
+        for &(key, value) in changes {
+            fields.iter_mut().find(|(k, _)| *k == key).unwrap().1 = value;
+        }
+        form::encode(&fields)
+    }
+
+    #[test]
+    fn address_message_uses_its_template() {
+        let messages = Messages::from_form(&form_with(&[("address", "{device} тепер на {ip}")])).unwrap();
+        let notice = Notice::Address("10.0.0.2".to_string());
+        assert_eq!(notice_text(&messages, &notice, 0, Readings::NONE).as_deref(), Some("Дім тепер на 10.0.0.2"));
+        let off = Messages::from_form(&form_with(&[("address", "")])).unwrap();
+        assert_eq!(notice_text(&off, &notice, 0, Readings::NONE), None);
+    }
+
+    #[test]
+    fn late_note_is_where_the_template_puts_it() {
+        let messages = Messages::from_form(&form_with(&[("lost", "Зникло{delay? ({delay} тому)}.")])).unwrap();
+        let late = event_text(&messages, &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN, Readings::NONE);
+        assert_eq!(late, "Зникло (12 хв тому).");
+        let on_time = event_text(&messages, &event(Absent, Some(5 * MIN)), 10 * SEC, Readings::NONE);
+        assert_eq!(on_time, "Зникло.");
+    }
+
+    #[test]
+    fn a_text_without_delay_has_no_late_note() {
+        let messages = Messages::from_form(&form_with(&[("lost", "Зникло")])).unwrap();
+        let late = event_text(&messages, &event(Absent, Some(5 * MIN)), 10 * SEC + 12 * MIN, Readings::NONE);
+        assert_eq!(late, "Зникло");
+    }
+
+    #[test]
+    fn preview_of_the_address_fills_a_sample_one() {
+        let body = preview_form("address", "{device}: http://{ip}/");
+        assert_eq!(preview(&body, Readings::NONE), Ok("Дача: http://192.168.1.50/".to_string()));
     }
 
     #[test]
@@ -225,7 +289,7 @@ mod tests {
 
     #[test]
     fn uses_the_users_templates() {
-        let body = form::encode(&[
+        let body = form_with(&[
             ("device_name", "Дача"),
             ("start_present", "a"),
             ("start_absent", "b"),
@@ -262,7 +326,7 @@ mod tests {
 
     #[test]
     fn unknown_length_in_a_user_template_is_a_shrug_too() {
-        let body = form::encode(&[
+        let body = form_with(&[
             ("device_name", "Дача"),
             ("start_present", "a"),
             ("start_absent", "b"),
@@ -294,7 +358,7 @@ mod tests {
     }
 
     fn battery_messages() -> Messages {
-        let body = form::encode(&[
+        let body = form_with(&[
             ("device_name", "Дача"),
             ("start_present", "a"),
             ("start_absent", "b"),
@@ -316,7 +380,7 @@ mod tests {
 
     #[test]
     fn battery_voltage_comes_from_the_divider() {
-        let body = form::encode(&[("device_name", "Дача"), ("lost", "{device}: акумулятор {battery_voltage} В")]);
+        let body = form_with(&[("device_name", "Дача"), ("lost", "{device}: акумулятор {battery_voltage} В")]);
         let messages = Messages::from_form(&body).unwrap();
         let lost = event(Absent, Some(MIN));
         let measured = Readings { voltage_mv: Some(52_020), ..Readings::NONE };

@@ -13,8 +13,12 @@ use power_core::remote::{Identity, RemoteSettings};
 use power_core::settings::{Battery, Bot, Divider, Messages, WifiCredentials};
 
 const NAMESPACE: &str = "monitor";
+/// One key per `Messages::fields`, each text in its own value: NVS caps one
+/// string at 4000 bytes, which all texts in one form could pass.
+const TEXTS_NAMESPACE: &str = "texts";
 const WIFI: &str = "wifi";
 const BOT: &str = "bot";
+/// Firmware 0.1.0 kept all texts here, as one form.
 const MESSAGES: &str = "messages";
 const PASSWORD: &str = "password";
 const LAST_IP: &str = "last_ip";
@@ -34,6 +38,7 @@ const BUILT_IN_DIVIDER: [Option<&str>; 2] = [option_env!("DIVIDER_TOP_OHM"), opt
 
 pub struct Settings {
     nvs: Mutex<EspNvs<NvsDefault>>,
+    texts: Mutex<EspNvs<NvsDefault>>,
     wifi: RwLock<Option<WifiCredentials>>,
     bot: RwLock<Option<Bot>>,
     messages: RwLock<Messages>,
@@ -47,10 +52,11 @@ pub struct Settings {
 impl Settings {
     /// Loads what is stored; a part that is missing or no longer valid counts as unset.
     pub fn load(partition: EspDefaultNvsPartition) -> anyhow::Result<Self> {
-        let nvs = EspNvs::new(partition, NAMESPACE, true)?;
+        let mut nvs = EspNvs::new(partition.clone(), NAMESPACE, true)?;
+        let mut texts = EspNvs::new(partition, TEXTS_NAMESPACE, true)?;
         let wifi = read(&nvs, WIFI, WifiCredentials::from_form);
         let bot = read(&nvs, BOT, Bot::from_form);
-        let messages = read(&nvs, MESSAGES, Messages::from_form).unwrap_or_default();
+        let messages = load_messages(&mut nvs, &mut texts)?;
         let password = read(&nvs, PASSWORD, |s| PasswordHash::from_stored(s).ok_or(()));
         let last_ip = read(&nvs, LAST_IP, |s| Ok::<_, ()>(s.to_string()));
         let battery = read(&nvs, BATTERY, Battery::from_form);
@@ -59,6 +65,7 @@ impl Settings {
         let remote = read(&nvs, REMOTE, RemoteSettings::from_form).unwrap_or_else(built_in_remote);
         Ok(Self {
             nvs: Mutex::new(nvs),
+            texts: Mutex::new(texts),
             wifi: RwLock::new(wifi),
             bot: RwLock::new(bot),
             messages: RwLock::new(messages),
@@ -100,7 +107,7 @@ impl Settings {
     }
 
     pub fn save_messages(&self, messages: Messages) -> anyhow::Result<()> {
-        self.write(MESSAGES, &messages.to_form())?;
+        write_messages(&mut self.texts.lock().unwrap(), &messages)?;
         *self.messages.write().unwrap() = messages;
         Ok(())
     }
@@ -225,6 +232,7 @@ impl Settings {
     /// Wipes everything this device stored; takes effect after a restart.
     pub fn factory_reset(&self) -> anyhow::Result<()> {
         self.nvs.lock().unwrap().erase_all()?;
+        self.texts.lock().unwrap().erase_all()?;
         Ok(())
     }
 
@@ -238,6 +246,26 @@ fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, 
     let mut buf = vec![0u8; 4096];
     let stored = nvs.get_str(key, &mut buf).ok().flatten()?;
     parse(stored).ok()
+}
+
+/// The texts; on the first start after 0.1.0, moved out of its single form.
+fn load_messages(nvs: &mut EspNvs<NvsDefault>, texts: &mut EspNvs<NvsDefault>) -> anyhow::Result<Messages> {
+    let text = |nvs: &EspNvs<NvsDefault>, key: &str| read(nvs, key, |s| Ok::<_, ()>(s.to_string()));
+    let Some(old) = text(nvs, MESSAGES) else {
+        return Ok(Messages::from_stored(|key| text(texts, key)));
+    };
+    let messages = Messages::from_old_form(&old);
+    // Moved before the old form goes, so a restart in between moves it again.
+    write_messages(texts, &messages)?;
+    nvs.remove(MESSAGES)?;
+    Ok(messages)
+}
+
+fn write_messages(texts: &mut EspNvs<NvsDefault>, messages: &Messages) -> anyhow::Result<()> {
+    for (key, value) in messages.fields() {
+        texts.set_str(key, value)?;
+    }
+    Ok(())
 }
 
 fn built_in_remote() -> RemoteSettings {

@@ -346,8 +346,9 @@ dialog .actions{margin-top:calc(var(--du)*4)}
   <div class="msg" id="test-msg" style="margin:0 0 calc(var(--du)*4)"></div>
   <form class="card" id="messages-form">
     <h2>Повідомлення</h2>
-    <p class="small muted">Змінні: <code>{device}</code> — назва пристрою, <code>{duration}</code> — скільки тривав попередній стан.
-      Якщо повідомлення про зникнення чи появу світла доставлено із запізненням, пристрій сам допише, коли це сталося.
+    <p class="small muted">Змінні: <code>{device}</code> — назва пристрою. У текстах «Світло зникло» і «Світло з'явилось»
+      ще <code>{duration}</code> — скільки тривав попередній стан, і <code>{delay}</code> — скільки тому це сталося, якщо
+      повідомлення доставлено пізніше ніж за хвилину; у «Новій адресі панелі» — <code>{ip}</code>.
       Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
     <p class="small muted">Умовний фрагмент <code>{duration?Не було {duration}.}</code> виводиться лише тоді, коли значення відоме,
       а інакше зникає разом із текстом. Так працює з будь-якою змінною, наприклад <code>{bms_soc?Заряд {bms_soc}%}</code>.
@@ -356,7 +357,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <p class="small muted">Значення батареї — <code>{battery_voltage}</code> (напруга через дільник) і значення BMS,
       наприклад <code>{bms_soc}</code>, — копіюються одним натиском на рядок на екрані «Батарея». Пристрій
       тримає з'єднання з BMS і бере останнє значення, не чекаючи; якщо воно старше хвилини, буде 🤷‍♂️.
-      Залиште текст порожнім, щоб це повідомлення не надсилалось.</p>
+      Залиште текст порожнім, щоб це повідомлення не надсилалось; тестове надсилається завжди, ним перевіряється бот.</p>
     <label class="cap" for="m-device_name">Назва пристрою</label>
     <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
     <div id="templates"></div>
@@ -479,6 +480,8 @@ const TEXTS = [
   ["start_absent", "Запуск, світла немає"],
   ["lost", "Світло зникло"],
   ["returned", "Світло з'явилось"],
+  ["address", "Нова адреса панелі"],
+  ["test", "Тестове повідомлення"],
 ];
 let state = null, view = null, picked = null, verifiedToken = null, messagesFilled = false, joining = false;
 

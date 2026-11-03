@@ -18,7 +18,8 @@ function device() {
         stage: this.stage, link: this.link, setup_ap: this.setupAp ? { ssid: "PowerMonitor-Setup", portal: "http://192.168.71.1/" } : null, power: { present: true, lasted: "5 хв" },
         telegram: "бот не налаштовано", chat_id: null, pending: 0, password_set: false,
         messages: { device_name: "Дім", start_present: "{device}: запуск, світло є", start_absent: "{device}: запуск",
-          lost: "{device}: світло зникло ({duration})", returned: "{device}: світло є ({duration})" },
+          lost: "{device}: світло зникло ({duration})", returned: "{device}: світло є ({duration})",
+          address: "{device}: http://{ip}/", test: "{device}: тест" },
         firmware: { version: "0.1.0", built: "", slot: "ota_0" },
         remote: this.remote,
       };
@@ -161,13 +162,15 @@ async function runBms() {
   await page.fill("#m-lost", "{nope}");
   const rejected = await shownPreview();
   const chips = await page.$$eval(".chip", n => n.length);
+  const texts = await page.$$eval("#templates textarea", n => n.map(a => a.name + "=" + a.value));
   await browser.close();
   const ok = errors.length === 0 && pollsOnDashboard === 0 && pollsAfter === pollsLeaving && pollsLeaving > 0
     && dev.bmsSaved && dev.bmsSaved.address === "C8:47:8C:F2:7E:03" && dev.bmsSaved.random === ""
     && shown.includes("53.22 В") && preview[0] === "Дім|lost|Батарея {bms_soc}%" && !preview[1] && rejected[0] === "невідома змінна" && rejected[1]
-    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0 && scanButton === "pending" && noise[0] && noise[1];
+    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0 && scanButton === "pending" && noise[0] && noise[1]
+    && texts.includes("address={device}: http://{ip}/") && texts.includes("test={device}: тест") && texts.length === 6;
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ noise, scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, preview, rejected, copied, copiedNote, chips, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ texts: texts.length, noise, scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, preview, rejected, copied, copiedNote, chips, errors }));
 }
 
 /* Remote support: switch on with a server, connect now, see the session, end it. */

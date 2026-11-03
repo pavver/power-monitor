@@ -1,5 +1,6 @@
-//! User-editable message templates with `{device}`, `{duration}`,
-//! `{battery_voltage}` and BMS (`{bms_soc}`, … see `jk::VARIABLES`) placeholders.
+//! User-editable message templates. `{device}`, `{battery_voltage}` and the
+//! BMS values (`{bms_soc}`, … see `jk::VARIABLES`) fit every text; the
+//! values in `OWN` only the texts that have them.
 //!
 //! `{name?text}` is a section: `text` (which may hold placeholders and
 //! sections) shows only when `name` has a value, so a missing value can
@@ -17,6 +18,10 @@ const MAX_CHARS: usize = 500;
 /// The battery voltage measured through the divider.
 pub const BATTERY_VOLTAGE: &str = "battery_voltage";
 
+/// Values only some texts have: how long the previous state lasted and how
+/// late the message is (power changes), the new address (its own message).
+pub const OWN: [&str; 3] = ["duration", "delay", "ip"];
+
 /// Shown for a placeholder whose value is missing, e.g. a length nobody
 /// measured or a battery value the BMS did not give.
 pub const UNKNOWN: &str = "🤷‍♂️";
@@ -24,37 +29,40 @@ pub const UNKNOWN: &str = "🤷‍♂️";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemplateError {
     TooLong,
-    /// `{duration}` used where no previous state exists (start-up messages).
-    NoDuration,
+    /// One of `OWN` in a text that does not have it, e.g. `{duration}` at start-up.
+    NotHere(&'static str),
     Unknown,
     /// A `{name?` section without its closing `}`.
     Unclosed,
+    /// Blank where a text must be there.
+    Blank,
 }
 
 impl fmt::Display for TemplateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            TemplateError::TooLong => "текст довший за 500 символів",
-            TemplateError::NoDuration => "{duration} тут недоступний — при запуску тривалості ще немає",
-            TemplateError::Unknown => "невідома змінна — дозволені {device}, {duration}, {battery_voltage} і {bms_…} зі списку",
-            TemplateError::Unclosed => "умовний фрагмент {змінна?текст} не закрито дужкою }",
-        })
+        match self {
+            TemplateError::TooLong => f.write_str("текст довший за 500 символів"),
+            TemplateError::NotHere(name) => write!(f, "змінна {{{name}}} у цьому тексті недоступна"),
+            TemplateError::Unknown => f.write_str("невідома змінна — дивіться список змінних над полями"),
+            TemplateError::Unclosed => f.write_str("умовний фрагмент {змінна?текст} не закрито дужкою }"),
+            TemplateError::Blank => f.write_str("цей текст не можна залишити порожнім — ним перевіряється бот"),
+        }
     }
 }
 
-/// Checks a template; `with_duration` says whether `{duration}` is available.
-pub fn validate(template: &str, with_duration: bool) -> Result<(), TemplateError> {
+/// Checks a template for a text that has the `own` values of `OWN`.
+pub fn validate(template: &str, own: &[&str]) -> Result<(), TemplateError> {
     if template.chars().count() > MAX_CHARS {
         return Err(TemplateError::TooLong);
     }
     names(&parse(template)).into_iter().try_for_each(|name| match name {
         None => Err(TemplateError::Unclosed),
-        Some("device") => Ok(()),
-        Some("duration") if with_duration => Ok(()),
-        Some("duration") => Err(TemplateError::NoDuration),
-        Some(BATTERY_VOLTAGE) => Ok(()),
-        Some(name) if jk::VARIABLES.contains(&name) => Ok(()),
-        Some(_) => Err(TemplateError::Unknown),
+        Some("device" | BATTERY_VOLTAGE) => Ok(()),
+        Some(name) if jk::VARIABLES.contains(&name) || own.contains(&name) => Ok(()),
+        Some(name) => match OWN.into_iter().find(|&other| other == name) {
+            Some(other) => Err(TemplateError::NotHere(other)),
+            None => Err(TemplateError::Unknown),
+        },
     })
 }
 
@@ -178,6 +186,23 @@ fn names<'a>(parts: &[Part<'a>]) -> Vec<Option<&'a str>> {
 mod tests {
     use super::*;
 
+    /// What a power change offers on top of the common values.
+    const CHANGE: &[&str] = &["duration", "delay"];
+
+    #[test]
+    fn each_text_offers_its_own_values() {
+        assert_eq!(validate("{delay?(сталося {delay} тому)}", CHANGE), Ok(()));
+        assert_eq!(validate("http://{ip}/", &["ip"]), Ok(()));
+        assert_eq!(validate("{ip}", CHANGE), Err(TemplateError::NotHere("ip")));
+        assert_eq!(validate("{!delay?вчасно}", &["ip"]), Err(TemplateError::NotHere("delay")));
+        assert_eq!(validate("{device} {battery_voltage} {bms_soc}", &[]), Ok(()));
+    }
+
+    #[test]
+    fn says_which_value_is_not_here() {
+        assert_eq!(TemplateError::NotHere("ip").to_string(), "змінна {ip} у цьому тексті недоступна");
+    }
+
     const VALUES: [(&str, Option<&str>); 3] = [("device", Some("Дім")), ("duration", Some("5 хв")), ("bms_soc", Some("84"))];
 
     #[test]
@@ -243,30 +268,30 @@ mod tests {
     #[test]
     fn exclamation_without_a_section_is_plain_text() {
         assert_eq!(render("{!device} {!} {!device", &VALUES), "{!device} {!} {!device");
-        assert_eq!(validate("{!device}", true), Ok(()));
+        assert_eq!(validate("{!device}", CHANGE), Ok(()));
     }
 
     #[test]
     fn checks_names_of_negated_sections() {
-        assert_eq!(validate("{!bms_soc?{battery_voltage} В}", false), Ok(()));
-        assert_eq!(validate("{!duration?a}", false), Err(TemplateError::NoDuration));
-        assert_eq!(validate("{!time?a}", true), Err(TemplateError::Unknown));
-        assert_eq!(validate("{!device?a", true), Err(TemplateError::Unclosed));
+        assert_eq!(validate("{!bms_soc?{battery_voltage} В}", &[]), Ok(()));
+        assert_eq!(validate("{!duration?a}", &[]), Err(TemplateError::NotHere("duration")));
+        assert_eq!(validate("{!time?a}", CHANGE), Err(TemplateError::Unknown));
+        assert_eq!(validate("{!device?a", CHANGE), Err(TemplateError::Unclosed));
         assert!(uses_bms("{!bms_soc?нема BMS}"));
     }
 
     #[test]
     fn checks_names_inside_and_of_sections() {
-        assert_eq!(validate("{duration?Не було {duration}.}", true), Ok(()));
-        assert_eq!(validate("{bms_soc?{bms_soc}%}", false), Ok(()));
-        assert_eq!(validate("{duration?a}", false), Err(TemplateError::NoDuration));
-        assert_eq!(validate("{device?{time}}", true), Err(TemplateError::Unknown));
-        assert_eq!(validate("{time?a}", true), Err(TemplateError::Unknown));
+        assert_eq!(validate("{duration?Не було {duration}.}", CHANGE), Ok(()));
+        assert_eq!(validate("{bms_soc?{bms_soc}%}", &[]), Ok(()));
+        assert_eq!(validate("{duration?a}", &[]), Err(TemplateError::NotHere("duration")));
+        assert_eq!(validate("{device?{time}}", CHANGE), Err(TemplateError::Unknown));
+        assert_eq!(validate("{time?a}", CHANGE), Err(TemplateError::Unknown));
     }
 
     #[test]
     fn rejects_an_unclosed_section() {
-        assert_eq!(validate("{duration?Не було {duration}.", true), Err(TemplateError::Unclosed));
+        assert_eq!(validate("{duration?Не було {duration}.", CHANGE), Err(TemplateError::Unclosed));
     }
 
     #[test]
@@ -277,10 +302,10 @@ mod tests {
 
     #[test]
     fn accepts_battery_values_in_every_message() {
-        assert_eq!(validate("{bms_soc}% {bms_voltage} В {bms_energy}", false), Ok(()));
-        assert_eq!(validate("{battery_voltage} В", false), Ok(()));
-        assert_eq!(validate("{bms_nonsense}", false), Err(TemplateError::Unknown));
-        assert_eq!(validate("{bms_temp1}", false), Err(TemplateError::Unknown));
+        assert_eq!(validate("{bms_soc}% {bms_voltage} В {bms_energy}", &[]), Ok(()));
+        assert_eq!(validate("{battery_voltage} В", &[]), Ok(()));
+        assert_eq!(validate("{bms_nonsense}", &[]), Err(TemplateError::Unknown));
+        assert_eq!(validate("{bms_temp1}", &[]), Err(TemplateError::Unknown));
     }
 
     #[test]
@@ -293,25 +318,25 @@ mod tests {
 
     #[test]
     fn accepts_known_placeholders() {
-        assert_eq!(validate("⚡ {device}: світло є", false), Ok(()));
-        assert_eq!(validate("Не було {duration} на {device}", true), Ok(()));
-        assert_eq!(validate("{ просто дужки }", false), Ok(()));
+        assert_eq!(validate("⚡ {device}: світло є", &[]), Ok(()));
+        assert_eq!(validate("Не було {duration} на {device}", CHANGE), Ok(()));
+        assert_eq!(validate("{ просто дужки }", &[]), Ok(()));
     }
 
     #[test]
     fn rejects_long_text() {
-        assert_eq!(validate(&"я".repeat(501), true), Err(TemplateError::TooLong));
-        assert_eq!(validate(&"я".repeat(500), true), Ok(()));
+        assert_eq!(validate(&"я".repeat(501), CHANGE), Err(TemplateError::TooLong));
+        assert_eq!(validate(&"я".repeat(500), CHANGE), Ok(()));
     }
 
     #[test]
     fn rejects_duration_where_it_does_not_exist() {
-        assert_eq!(validate("{duration}", false), Err(TemplateError::NoDuration));
+        assert_eq!(validate("{duration}", &[]), Err(TemplateError::NotHere("duration")));
     }
 
     #[test]
     fn rejects_unknown_placeholders() {
-        assert_eq!(validate("{time}", true), Err(TemplateError::Unknown));
-        assert_eq!(validate("{Device}", true), Err(TemplateError::Unknown));
+        assert_eq!(validate("{time}", CHANGE), Err(TemplateError::Unknown));
+        assert_eq!(validate("{Device}", CHANGE), Err(TemplateError::Unknown));
     }
 }

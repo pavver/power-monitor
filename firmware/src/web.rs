@@ -27,6 +27,7 @@ use crate::ota;
 use crate::settings::Settings;
 use crate::status::Status;
 use crate::telegram;
+use crate::notifier::BMS_MAX_AGE;
 use crate::voltmeter::Voltmeter;
 
 /// ui/index.html, gzipped at build time (see build.rs).
@@ -145,10 +146,11 @@ pub fn start(
 
     post(&mut server, &auth, "/api/bot/chats", |body| json(&telegram::chats(&token(body)?)?))?;
 
-    let s = settings.clone();
+    let (s, b, v) = (settings.clone(), bms.clone(), voltmeter.clone());
     post(&mut server, &auth, "/api/bot", move |body| {
         let bot = Bot::from_form(body).map_err(|e| e.to_string())?;
-        telegram::send(&bot, &test_text(s.messages().device_name()))?;
+        let reading = b.recent_reading(BMS_MAX_AGE);
+        telegram::send(&bot, &test_text(&s.messages(), Readings { bms: reading.as_ref(), voltage_mv: v.battery_mv() }))?;
         s.save_bot(bot).map_err(|e| e.to_string())?;
         if !s.stage().needs_setup_ap() {
             let _ = network.send(Command::CloseSetup);
@@ -170,10 +172,11 @@ pub fn start(
         json(&preview(body, Readings { bms: reading.as_ref(), voltage_mv: v.battery_mv() })?)
     })?;
 
-    let s = settings.clone();
+    let (s, b, v) = (settings.clone(), bms.clone(), voltmeter.clone());
     post(&mut server, &auth, "/api/test", move |_| {
         let bot = s.bot().ok_or("Спершу налаштуйте бота.")?;
-        telegram::send(&bot, &test_text(s.messages().device_name()))?;
+        let reading = b.recent_reading(BMS_MAX_AGE);
+        telegram::send(&bot, &test_text(&s.messages(), Readings { bms: reading.as_ref(), voltage_mv: v.battery_mv() }))?;
         json(&"sent")
     })?;
 
