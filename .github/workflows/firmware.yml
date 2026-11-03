@@ -75,12 +75,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<'EOF'
-          Default firmware for an ESP32 with 4 MB flash: remote support off, battery divider from sheet 1.
+          Стандартна прошивка для ESP32 з 4 МБ флешу: віддалена підтримка вимкнена, дільник напруги — з аркуша 1 схеми.
 
-          - **power-monitor-full.bin** — first flash of a new board: write at address `0x0` (erases settings).
-          - **power-monitor.bin** — update of a working device: panel → «Прошивка».
+          - **power-monitor-full.bin** — перша прошивка нової плати: записати з адреси `0x0` (стирає налаштування).
+          - **power-monitor.bin** — оновлення пристрою, що вже працює: панель → «Прошивка».
 
-          How to flash: see README, «Готова прошивка».
+          Як прошити — у README, розділ [«Готова прошивка»](https://github.com/pavver/power-monitor#готова-прошивка).
           EOF
           gh release create "$GITHUB_REF_NAME" power-monitor-full.bin power-monitor.bin \
             --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes
