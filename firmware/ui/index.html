@@ -447,6 +447,8 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <p class="small muted">Напруга акумулятора через дільник R1/R2 на GPIO34 (схема, аркуш 1). Впишіть опір
       резисторів в омах; найточніше — виміряний мультиметром. Порожні поля вимикають вимір.</p>
     <div class="list hidden" id="divider-value"></div>
+    <p class="small muted hidden" id="divider-noise">На вході шум, а не напруга: схоже, дільник не під'єднано.
+      У повідомленнях напруга буде невідомою; порожні поля нижче вимкнуть вимір.</p>
     <label class="cap" for="d-top">R1, верхній, Ом</label>
     <div class="field" data-field><input id="d-top" name="top" inputmode="numeric" pattern="[0-9]*" placeholder="330000" autocomplete="off"></div>
     <label class="cap" for="d-bottom">R2, нижній, Ом</label>
@@ -1082,8 +1084,9 @@ function fillDivider() {
 function renderDivider() {
   const on = divider && divider.divider;
   $("divider-value").classList.toggle("hidden", !on);
+  $("divider-noise").classList.toggle("hidden", !(on && divider.noisy));
   if (on) $("divider-value").replaceChildren(bmsValueRow("battery_voltage", "Напруга акумулятора", "В",
-    divider.voltage_mv == null ? "—" : volts(divider.voltage_mv)));
+    divider.noisy ? "шум" : divider.voltage_mv == null ? "—" : volts(divider.voltage_mv)));
 }
 
 actionButton($("divider-btn"), async () => {

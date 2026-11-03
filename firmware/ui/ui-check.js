@@ -84,7 +84,7 @@ function route(page, dev) {
     }
     if (url.pathname === "/api/remote/connect") { dev.remote = { ...dev.remote, phase: "session", next_in_s: null, last_contact_s: 0 }; return json("connecting"); }
     if (url.pathname === "/api/remote/end") { dev.remote = { ...dev.remote, phase: "waiting", next_in_s: 3600 }; dev.remoteEnded = true; return json("ended"); }
-    if (url.pathname === "/api/divider") return json({ divider: null, voltage_mv: null });
+    if (url.pathname === "/api/divider") return json(dev.divider || { divider: null, voltage_mv: null, noisy: false, spread_mv: null });
     if (url.pathname === "/api/messages/preview") {
       // The device fills the text; the page only has to show its answer.
       const form = new URLSearchParams(route.request().postData());
@@ -118,6 +118,8 @@ async function runBms() {
   dev.stage = "dashboard"; dev.setupAp = false; dev.link = { state: "connected", ssid: "Home", ip: "192.168.1.50" };
   dev.bms = { battery: null, bluetooth: true, link: "off", error: null, device: null, reading: null, scanning: false, found: [] };
   dev.bmsPolls = 0;
+  // A divider set but nothing fitted: the pin is noise.
+  dev.divider = { divider: { top_ohm: 330000, bottom_ohm: 10000 }, voltage_mv: null, noisy: true, spread_mv: 900 };
   await route(page, dev);
   // Plain http: the page copies through a hidden textarea; record what it copied.
   await page.addInitScript(() => {
@@ -142,6 +144,8 @@ async function runBms() {
   await page.click("#bms-values .item >> nth=0");
   const copied = await page.evaluate(() => window.copied);
   const copiedNote = await page.$eval("#bms-values .item", n => n.textContent);
+  const noise = await page.evaluate(() => [document.getElementById("divider-value").textContent.includes("шум"),
+    !document.getElementById("divider-noise").classList.contains("hidden")]);
   await page.screenshot({ path: OUT + "/bms-1-live.png", fullPage: true });
   await page.click("#back");
   await page.waitForSelector("#s-dashboard.on");
@@ -161,9 +165,9 @@ async function runBms() {
   const ok = errors.length === 0 && pollsOnDashboard === 0 && pollsAfter === pollsLeaving && pollsLeaving > 0
     && dev.bmsSaved && dev.bmsSaved.address === "C8:47:8C:F2:7E:03" && dev.bmsSaved.random === ""
     && shown.includes("53.22 В") && preview[0] === "Дім|lost|Батарея {bms_soc}%" && !preview[1] && rejected[0] === "невідома змінна" && rejected[1]
-    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0 && scanButton === "pending";
+    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0 && scanButton === "pending" && noise[0] && noise[1];
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, preview, rejected, copied, copiedNote, chips, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ noise, scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, preview, rejected, copied, copiedNote, chips, errors }));
 }
 
 /* Remote support: switch on with a server, connect now, see the session, end it. */

@@ -7,11 +7,12 @@ use esp_idf_svc::hal::adc::oneshot::config::{AdcChannelConfig, Calibration};
 use esp_idf_svc::hal::adc::oneshot::{AdcChannelDriver, AdcDriver};
 use esp_idf_svc::hal::adc::{ADC1, ADCCH6, ADCU1};
 use esp_idf_svc::hal::gpio::Gpio34;
+use power_core::adc::Pin;
 
 use crate::settings::Settings;
 
 /// Conversions averaged per reading: single ones wander by tens of millivolts.
-const SAMPLES: u32 = 64;
+const SAMPLES: usize = 64;
 
 type Channel = AdcChannelDriver<'static, ADCCH6<ADCU1>, AdcDriver<'static, ADCU1>>;
 
@@ -31,21 +32,26 @@ impl Voltmeter {
         Ok(Self { channel: Arc::new(Mutex::new(channel)), settings })
     }
 
-    /// The battery voltage, or `None` without a divider set (the pin then
-    /// floats) or when the ADC fails.
+    /// The battery voltage, or `None` without a divider set, when the pin
+    /// is noise (nothing fitted) or when the ADC fails.
     pub fn battery_mv(&self) -> Option<u32> {
         let divider = self.settings.divider()?;
+        Some(divider.battery_mv(self.pin()?.steady_mv()?))
+    }
+
+    /// One burst of conversions on the pin, or `None` when the ADC fails.
+    pub fn pin(&self) -> Option<Pin> {
         let mut channel = self.channel.lock().unwrap();
-        let mut total = 0;
-        for _ in 0..SAMPLES {
+        let mut samples = [0u16; SAMPLES];
+        for sample in &mut samples {
             match channel.read() {
-                Ok(mv) => total += u32::from(mv),
+                Ok(mv) => *sample = mv,
                 Err(error) => {
                     log::warn!("battery voltage: {error}");
                     return None;
                 }
             }
         }
-        Some(divider.battery_mv(total / SAMPLES))
+        Pin::of(&samples)
     }
 }

@@ -210,7 +210,11 @@ pub fn start(
 
     let s = settings.clone();
     get(&mut server, &auth, "/api/divider", move || {
-        json(&serde_json::json!({ "divider": s.divider(), "voltage_mv": voltmeter.battery_mv() }))
+        // `noisy`: the pin wanders, as it does with no divider fitted.
+        let pin = voltmeter.pin();
+        let noisy = pin.is_some_and(|pin| pin.steady_mv().is_none());
+        let spread_mv = pin.map(|pin| pin.spread_mv);
+        json(&serde_json::json!({ "divider": s.divider(), "voltage_mv": voltmeter.battery_mv(), "noisy": noisy, "spread_mv": spread_mv }))
     })?;
 
     // Both fields empty: no divider fitted.
