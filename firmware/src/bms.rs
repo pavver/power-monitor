@@ -274,7 +274,7 @@ impl Bms {
         self.shared.changed.notify_all();
 
         // From here on the BMS sends cell info about once a second.
-        command(client, Request::CellInfo).await?;
+        within(ANSWER, command(client, Request::CellInfo)).await.ok_or("BMS не прийняла запит")??;
         while self.keep(battery) {
             if !client.connected() {
                 return Err("з'єднання обірвалось".into());
@@ -390,9 +390,9 @@ async fn command(client: &mut BLEClient, request: Request) -> Result<(), String>
         .map_err(|e| format!("{e:?}"))?
         .find(|c| c.uuid() == uuid16(jk::CHARACTERISTIC) && (c.can_write_no_response() || c.can_write()))
         .ok_or("BMS не приймає запитів")?;
-    // With a reply where the BMS takes one, as aiobmsble does.
-    let with_reply = writer.can_write();
-    writer.write_value(&jk::command(request), with_reply).await.map_err(|e| format!("запит не надіслано ({e:?})"))
+    // Without a reply, as ESPHome sends them: a BD6A20S10P (19.20) never
+    // answers a write request, which would leave the worker waiting.
+    writer.write_value(&jk::command(request), false).await.map_err(|e| format!("запит не надіслано ({e:?})"))
 }
 
 /// The first frame `pick` takes, skipping others, within `ANSWER`.
