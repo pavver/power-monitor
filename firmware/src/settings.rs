@@ -18,7 +18,7 @@ const NAMESPACE: &str = "monitor";
 const TEXTS_NAMESPACE: &str = "texts";
 const WIFI: &str = "wifi";
 const BOT: &str = "bot";
-/// Firmware 0.1.0 kept all texts here, as one form.
+/// Builds before the first release kept all texts here, as one form.
 const MESSAGES: &str = "messages";
 const PASSWORD: &str = "password";
 const LAST_IP: &str = "last_ip";
@@ -248,7 +248,7 @@ fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, 
     parse(stored).ok()
 }
 
-/// The texts; on the first start after 0.1.0, moved out of its single form.
+/// The texts; on the first start after an older build, moved out of its single form.
 fn load_messages(nvs: &mut EspNvs<NvsDefault>, texts: &mut EspNvs<NvsDefault>) -> anyhow::Result<Messages> {
     let text = |nvs: &EspNvs<NvsDefault>, key: &str| read(nvs, key, |s| Ok::<_, ()>(s.to_string()));
     let Some(old) = text(nvs, MESSAGES) else {

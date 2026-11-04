@@ -371,7 +371,7 @@ impl Messages {
         Self::build(device_name, |t| Ok::<_, ()>(text(t).unwrap_or(t.default_template().to_string()))).unwrap()
     }
 
-    /// The single form firmware 0.1.0 stored all texts in.
+    /// The single form builds before the first release stored all texts in.
     pub fn from_old_form(body: &str) -> Self {
         let fields = form::parse(body);
         let mut messages = Self::from_stored(|key| fields.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()));
