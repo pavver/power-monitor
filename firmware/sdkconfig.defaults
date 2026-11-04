@@ -30,3 +30,6 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
 CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+# Fewer Wi-Fi receive buffers kept from the start (default 10 of 1.6 KB):
+# with Bluetooth on, a Telegram TLS handshake did not find room.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=5

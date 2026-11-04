@@ -56,14 +56,15 @@ fn main() -> anyhow::Result<()> {
     notifier::spawn(inbox, settings.clone(), status.clone(), bms.clone(), voltmeter.clone())?;
     let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone(), notices)?;
     let remote = remote::Remote::start(settings.clone(), status.clone())?;
-    let _server = web::start(settings, status, network, bms, voltmeter, remote)?;
+    let server = web::start(settings, status, network, bms, voltmeter, remote)?;
     // Up far enough to take another update: keep this image.
     ota::confirm_running();
 
-    // The work happens in other threads; this one keeps the server alive.
-    loop {
-        thread::park();
-    }
+    // The work happens in other threads. Returning ends this task and frees
+    // its 16 KB stack, which TLS needs while Bluetooth holds its share; the
+    // server lives on, never dropped.
+    std::mem::forget(server);
+    Ok(())
 }
 
 /// Bluetooth is kept only for a saved BMS or a search for one; otherwise
