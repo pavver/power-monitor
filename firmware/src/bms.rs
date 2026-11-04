@@ -150,14 +150,17 @@ impl Bms {
         self.lock().reading.as_ref().map(|(_, reading)| reading.clone())
     }
 
-    /// The saved BMS changed: what was read belongs to the old one.
+    /// The saved BMS changed: what was read belongs to the old one. The
+    /// link shows what comes next, not what the old session still holds.
     pub fn forget(&self) {
+        self.stop_connecting();
+        let link = if self.settings.battery().is_some() { Link::Connecting } else { Link::Off };
         self.update(|state| {
             state.device = None;
             state.reading = None;
             state.error = None;
+            state.link = link;
         });
-        self.stop_connecting();
     }
 
     /// A BMS that is out of reach, or busy with another client, holds the
@@ -248,10 +251,14 @@ impl Bms {
                     state.link = Link::Failed;
                     state.error = Some(error);
                 });
-                // Not straight back at a BMS that is out of reach.
+                // Not straight back at a BMS that is out of reach; a search
+                // or another BMS chosen does not wait.
                 let state = self.lock();
-                drop(self.shared.changed.wait_timeout_while(state, RETRY, |s| !s.scan_asked).unwrap());
+                let same = || self.settings.battery().as_ref() == Some(battery);
+                drop(self.shared.changed.wait_timeout_while(state, RETRY, |s| !s.scan_asked && same()).unwrap());
             }
+            // Another BMS chosen: `forget` has set the link for it already.
+            _ if self.settings.battery().as_ref() != Some(battery) => {}
             _ => self.update(|state| state.link = Link::Off),
         }
     }
