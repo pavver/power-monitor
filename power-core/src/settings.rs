@@ -263,14 +263,6 @@ pub enum Text {
     Test,
 }
 
-/// The note on a power change delivered late. Devices before `{delay}`
-/// appended it themselves, so their saved texts get it on migration.
-macro_rules! delay_note {
-    () => {
-        "{delay?\n(сталося {delay} тому)}"
-    };
-}
-
 impl Text {
     pub const ALL: [Text; 6] = [Text::StartPresent, Text::StartAbsent, Text::Lost, Text::Returned, Text::Address, Text::Test];
 
@@ -317,8 +309,8 @@ impl Text {
         match self {
             Text::StartPresent => concat!("⚡ {device}: монітор запущено, світло є.", battery!()),
             Text::StartAbsent => concat!("🔌 {device}: монітор запущено, світла немає.", battery!()),
-            Text::Lost => concat!("🔌 {device}: світло зникло.{duration?\nБуло {duration}.}", delay_note!(), battery!()),
-            Text::Returned => concat!("⚡ {device}: світло з'явилось.{duration?\nНе було {duration}.}", delay_note!(), battery!()),
+            Text::Lost => concat!("🔌 {device}: світло зникло.{duration?\nБуло {duration}.}{delay?\n(сталося {delay} тому)}", battery!()),
+            Text::Returned => concat!("⚡ {device}: світло з'явилось.{duration?\nНе було {duration}.}{delay?\n(сталося {delay} тому)}", battery!()),
             Text::Address => "🌐 {device}: нова адреса панелі http://{ip}/",
             Text::Test => concat!("🔔 {device}: тестове повідомлення, бот працює.", battery!()),
         }
@@ -369,18 +361,6 @@ impl Messages {
         let device_name = get("device_name").as_deref().and_then(device_name).unwrap_or(DEFAULT_DEVICE_NAME.to_string());
         let text = |text: Text| get(text.key()).and_then(|value| text.parse(&value).ok());
         Self::build(device_name, |t| Ok::<_, ()>(text(t).unwrap_or(t.default_template().to_string()))).unwrap()
-    }
-
-    /// The single form builds before the first release stored all texts in.
-    pub fn from_old_form(body: &str) -> Self {
-        let fields = form::parse(body);
-        let mut messages = Self::from_stored(|key| fields.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()));
-        for text in [&mut messages.lost, &mut messages.returned] {
-            if !text.is_empty() {
-                text.push_str(delay_note!());
-            }
-        }
-        messages
     }
 
     /// Every value with its key, for storing.
@@ -582,24 +562,6 @@ mod tests {
         let stored = m.fields();
         let back = Messages::from_stored(|key| stored.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string()));
         assert_eq!(back, m);
-    }
-
-    #[test]
-    fn texts_saved_before_the_delay_value_keep_their_late_note() {
-        // Those devices appended the note to every power change themselves.
-        let old = form::encode(&[
-            ("device_name", "Дача"),
-            ("start_present", "Є"),
-            ("start_absent", "Нема"),
-            ("lost", "Зникло"),
-            ("returned", ""),
-        ]);
-        let m = Messages::from_old_form(&old);
-        assert_eq!(m.template(Text::Lost), "Зникло{delay?\n(сталося {delay} тому)}");
-        assert_eq!(m.template(Text::Returned), "");
-        assert_eq!(m.template(Text::StartPresent), "Є");
-        assert_eq!(m.template(Text::Address), Text::Address.default_template());
-        assert_eq!(m.template(Text::Test), Text::Test.default_template());
     }
 
     #[test]

@@ -18,8 +18,6 @@ const NAMESPACE: &str = "monitor";
 const TEXTS_NAMESPACE: &str = "texts";
 const WIFI: &str = "wifi";
 const BOT: &str = "bot";
-/// Builds before the first release kept all texts here, as one form.
-const MESSAGES: &str = "messages";
 const PASSWORD: &str = "password";
 const LAST_IP: &str = "last_ip";
 const QUICK_BOOTS: &str = "quick_boots";
@@ -52,11 +50,11 @@ pub struct Settings {
 impl Settings {
     /// Loads what is stored; a part that is missing or no longer valid counts as unset.
     pub fn load(partition: EspDefaultNvsPartition) -> anyhow::Result<Self> {
-        let mut nvs = EspNvs::new(partition.clone(), NAMESPACE, true)?;
-        let mut texts = EspNvs::new(partition, TEXTS_NAMESPACE, true)?;
+        let nvs = EspNvs::new(partition.clone(), NAMESPACE, true)?;
+        let texts = EspNvs::new(partition, TEXTS_NAMESPACE, true)?;
         let wifi = read(&nvs, WIFI, WifiCredentials::from_form);
         let bot = read(&nvs, BOT, Bot::from_form);
-        let messages = load_messages(&mut nvs, &mut texts)?;
+        let messages = Messages::from_stored(|key| read(&texts, key, |s| Ok::<_, ()>(s.to_string())));
         let password = read(&nvs, PASSWORD, |s| PasswordHash::from_stored(s).ok_or(()));
         let last_ip = read(&nvs, LAST_IP, |s| Ok::<_, ()>(s.to_string()));
         let battery = read(&nvs, BATTERY, Battery::from_form);
@@ -246,19 +244,6 @@ fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, 
     let mut buf = vec![0u8; 4096];
     let stored = nvs.get_str(key, &mut buf).ok().flatten()?;
     parse(stored).ok()
-}
-
-/// The texts; on the first start after an older build, moved out of its single form.
-fn load_messages(nvs: &mut EspNvs<NvsDefault>, texts: &mut EspNvs<NvsDefault>) -> anyhow::Result<Messages> {
-    let text = |nvs: &EspNvs<NvsDefault>, key: &str| read(nvs, key, |s| Ok::<_, ()>(s.to_string()));
-    let Some(old) = text(nvs, MESSAGES) else {
-        return Ok(Messages::from_stored(|key| text(texts, key)));
-    };
-    let messages = Messages::from_old_form(&old);
-    // Moved before the old form goes, so a restart in between moves it again.
-    write_messages(texts, &messages)?;
-    nvs.remove(MESSAGES)?;
-    Ok(messages)
 }
 
 fn write_messages(texts: &mut EspNvs<NvsDefault>, messages: &Messages) -> anyhow::Result<()> {
