@@ -8,26 +8,28 @@
 /* Operator UI (design_system/): 1 DU = 4px, sharp corners, monospace,
    ControlState frames drawn as inset vector strokes. */
 :root{
-  --du:4px;--smooth:cubic-bezier(.5,0,.5,1);--fast:cubic-bezier(.4,0,.2,1);
-  --background:#F6F8FA;--surface:#FFFFFF;--surface-alt:#F0F2F5;--border:#B2C0CE;--border-strong:#57606A;--divider:#DDE3EA;
-  --accent:#0969DA;--pending:#9A6700;--success:#1A7F37;--error:#CF222E;--pressed:#E0EEF2;--selection:#D4F1F4;
-  --text:#24292F;--text-2:#57606A;--text-off:#8C959F;--off-surface:#F3F4F6;--off-border:#D9E0E7;
-  --badge-online:#15803D;--badge-offline:#000;--badge-alarm:#C62828;--badge-activity:#15803D;--badge-border:#9EADBC;
-  --switch-on:#C8E6C9;--switch-off:#FFCDD2;
+  --du:4px;--tu:.0625rem;--smooth:cubic-bezier(.45,0,.55,1);--fast:cubic-bezier(.4,0,.2,1);
+  --background:#F8F8F8;--surface:#FFFFFF;--surface-alt:#F0F0F0;--border:#D0D0D0;--border-strong:#767676;--divider:#E5E5E5;
+  --accent:#A35C00;--pending:#2C7489;--success:#477A2E;--error:#B3361F;--pressed:#EBEBEB;--hover:#F4F4F4;--selection:#F5E6D0;--ripple:#A35C00;
+  --text:#3B3B3B;--text-2:#616161;--text-off:#A0A0A0;--off-surface:#F3F3F3;--off-border:#E2E2E2;
+  --badge-online:#477A2E;--badge-offline:#000;--badge-alarm:#B3361F;--badge-activity:#477A2E;--badge-border:#A0A0A0;
+  --switch-on:#DCEBD3;--switch-off:#F5D9D3;--switch-thumb-on:#477A2E;--switch-thumb-off:#B3361F;
+  --rip-op:.16;
 }
 @media (prefers-color-scheme:dark){:root{
-  --background:#0D1117;--surface:#161B22;--surface-alt:#0F141C;--border:#3E4A5C;--border-strong:#8B949E;--divider:#252C36;
-  --accent:#58A6FF;--pending:#E3B341;--success:#39D353;--error:#FF7B72;--pressed:#22313D;--selection:#193B45;
-  --text:#F0F6FC;--text-2:#8B949E;--text-off:#484F58;--off-surface:#10141A;--off-border:#1F252E;
-  --badge-online:#3DDC84;--badge-offline:#000;--badge-alarm:#FF5C5C;--badge-activity:#3DDC84;--badge-border:#3A4656;
-  --switch-on:#193B2D;--switch-off:#3B1E1E;
+  --background:#181818;--surface:#1F1F1F;--surface-alt:#141414;--border:#3A3A3A;--border-strong:#6E6E6E;--divider:#2B2B2B;
+  --accent:#F0A53A;--pending:#6FB3C8;--success:#8CBF6E;--error:#E8664F;--pressed:#2A2A2A;--hover:#252525;--selection:#3A2F1F;--ripple:#F0A53A;
+  --text:#CCCCCC;--text-2:#9D9D9D;--text-off:#5A5A5A;--off-surface:#1B1B1B;--off-border:#2A2A2A;
+  --badge-online:#8CBF6E;--badge-offline:#000;--badge-alarm:#E8664F;--badge-activity:#8CBF6E;--badge-border:#4A4A4A;
+  --switch-on:#26331F;--switch-off:#3A221D;--switch-thumb-on:#8CBF6E;--switch-thumb-off:#E8664F;
+  --rip-op:.24;
 }}
 /* Cascadia Code subset, renamed per its OFL licence (ui/make-font.py). */
 @font-face{font-family:"Operator Mono";src:url(/operator-mono.woff) format("woff");font-weight:400 700;font-display:swap}
 *{box-sizing:border-box;border-radius:0;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--background);color:var(--text);
-  font:400 14px/18px "Operator Mono","Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  font:400 calc(var(--tu)*14)/calc(var(--tu)*18) "Operator Mono","Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 button,input,textarea{font-family:inherit}
 .ic{width:calc(var(--du)*4);height:calc(var(--du)*4);fill:currentColor;flex:none;display:block}
 
@@ -38,9 +40,9 @@ header{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:c
   background:none;color:var(--text);cursor:pointer;position:relative;overflow:hidden}
 .back .ic{width:calc(var(--du)*4.5);height:calc(var(--du)*4.5)}
 .head{flex:1;min-width:0;padding-left:calc(var(--du)*4)}
-.back:not(.hidden)+.head{padding-left:0}
-header h1{font-size:20px;line-height:26px;font-weight:700;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-header .sub{font-size:11px;line-height:14px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.back:not(.hidden)+.head{padding-left:calc(var(--du)*1.5)}
+header h1{font-size:calc(var(--tu)*15);line-height:calc(var(--tu)*20);font-weight:700;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+header .sub{font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*15);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .progress{display:flex;gap:calc(var(--du)*1);flex:none}
 .progress i{width:calc(var(--du)*5);height:calc(var(--du)*1);background:var(--off-border)}
 .progress i.lit{background:var(--accent)}
@@ -51,11 +53,11 @@ section.on{display:block}
 /* OperatorCard */
 .card{background:var(--surface);border:calc(var(--du)*.25) solid var(--border);padding:calc(var(--du)*3);margin-bottom:calc(var(--du)*4)}
 .card.alt{background:var(--surface-alt)}
-h2{font-size:15px;line-height:20px;font-weight:700;margin:0 0 calc(var(--du)*2)}
+h2{font-size:calc(var(--tu)*18);line-height:calc(var(--tu)*24);font-weight:500;margin:0 0 calc(var(--du)*2)}
 p{margin:0 0 calc(var(--du)*2)}
 p:last-child{margin-bottom:0}
 .muted{color:var(--text-2)}
-.small{font-size:11px;line-height:14px}
+.small{font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*15)}
 code{background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--border);padding:0 calc(var(--du)*1)}
 a{color:var(--accent)}
 .hidden{display:none!important}
@@ -82,34 +84,40 @@ dialog.ctl{position:fixed}
 .ctl[data-state=err]{color:var(--error);transition:none}
 .ctl.exit{transition-duration:.5s;transition-timing-function:var(--smooth)}
 .ctl.exit .sf .base{transition:none}
-.field:focus-within .base,.areawrap:focus-within .base,.ctl:focus-visible .base,.ctl.pressed .base{stroke:var(--border-strong)}
+.field:focus-within .base,.areawrap:focus-within .base{stroke:var(--accent);stroke-width:1.5px}
+.ctl:focus-visible{outline:calc(var(--du)*.5) solid var(--accent);outline-offset:calc(var(--du)*.5)}
+.field:focus-within,.areawrap:focus-within{outline:none}
+.field input:focus-visible,textarea.area:focus-visible{outline:none}
 .ctl:disabled,.ctl.disabled{background:var(--off-surface);color:var(--text-off);cursor:default}
 .ctl:disabled .base,.ctl.disabled .base{stroke:var(--off-border)}
 @keyframes run{from{stroke-dashoffset:var(--perimeter)}to{stroke-dashoffset:0}}
 @keyframes pulse{from{stroke-opacity:.55}to{stroke-opacity:1}}
 /* Flat ripple */
-.rip{position:absolute;border-radius:50%;background:var(--pressed);pointer-events:none;z-index:0;transform:scale(0);
-  animation:rip .35s var(--fast) forwards}
-.rip.out{opacity:0;transition:opacity .25s var(--fast)}
+.rip{position:absolute;border-radius:50%;background:var(--ripple);opacity:var(--rip-op);pointer-events:none;z-index:0;transform:scale(0);
+  animation:rip .33s var(--fast) forwards}
+.rip.out{opacity:0;transition:opacity .22s var(--fast)}
 @keyframes rip{to{transform:scale(1)}}
 
 /* OperatorProgressIndicator */
 .spin{display:block;width:calc(var(--du)*4);height:calc(var(--du)*4);border-radius:50%;border:calc(var(--du)*.375) solid var(--pending);
-  border-top-color:transparent;animation:spin .8s linear infinite;flex:none}
+  border-top-color:transparent;animation:spin .9s linear infinite;flex:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* OperatorActionButton */
 .btn{min-height:calc(var(--du)*10);min-width:max-content;padding:0 calc(var(--du)*4);background:var(--surface);color:var(--text);
-  border:0;font-size:14px;line-height:18px;font-weight:500;cursor:pointer;text-align:center;
+  border:0;font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;cursor:pointer;text-align:center;
   display:inline-flex;align-items:center;justify-content:center}
 .btn.danger{background:color-mix(in srgb,var(--error) 15%,var(--surface));color:var(--error)}
 .btn.danger.pressed{background:color-mix(in srgb,var(--error) 30%,var(--surface))}
 .btn .lbl{display:flex;align-items:center;justify-content:center;gap:calc(var(--du)*2)}
 .btn .over{position:absolute;z-index:1;left:50%;top:50%;transform:translate(-50%,-50%);display:none}
 .btn[data-state=pending]{cursor:default}
-.btn[data-state=pending] .lbl,.btn[data-flash] .lbl{visibility:hidden}
-.btn[data-state=pending] .over.wait{display:block}
+.btn[data-state=pending] .lbl{animation:hide-label 0s linear .7s forwards}
+.btn[data-state=pending] .over.wait{display:block;opacity:0;animation:spin-fade .2s linear .7s forwards}
+.btn[data-flash] .lbl{visibility:hidden}
 .btn[data-flash][data-state=ok] .over.ok,.btn[data-flash][data-state=err] .over.err{display:block}
+@keyframes hide-label{to{visibility:hidden}}
+@keyframes spin-fade{to{opacity:1}}
 .actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
 /* Equal shares; a label that does not fit its share wraps the row instead. */
 .actions .btn{flex:1 1 0}
@@ -118,19 +126,20 @@ dialog.ctl{position:fixed}
 .actions.grid .btn{min-width:0;padding:calc(var(--du)*2) calc(var(--du)*3)}
 
 /* OperatorTextField */
-label.cap{display:block;font-size:11px;line-height:14px;color:var(--text-2);margin:calc(var(--du)*3) 0 calc(var(--du)*1)}
+label.cap{display:block;font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*15);color:var(--text-2);margin:calc(var(--du)*3) 0 calc(var(--du)*1)}
 .field{display:flex;align-items:stretch;min-height:calc(var(--du)*10);background:var(--surface)}
-.field input{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font-size:14px;font-weight:500;
-  padding:0 0 0 calc(var(--du)*3);outline:0}
+.field input{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;
+  caret-color:var(--accent);padding:0 0 0 calc(var(--du)*3);outline:0}
 .field input::placeholder{color:var(--text-off)}
 .field .btn{min-height:0;max-width:calc(var(--du)*30)}
 .field .eye{width:calc(var(--du)*10);flex:none;border:0;background:none;color:var(--text-2);cursor:pointer;display:flex;align-items:center;justify-content:center}
-textarea.area{display:block;width:100%;min-height:calc(var(--du)*16);padding:calc(var(--du)*2) calc(var(--du)*3);resize:vertical;
-  border:0;background:none;color:var(--text);font-size:14px;line-height:18px;font-weight:500;outline:0}
+.field .eye:hover,.field .eye.act{color:var(--accent)}
+textarea.area{display:block;width:100%;min-height:calc(var(--du)*16);padding:calc(var(--du)*2.5) calc(var(--du)*3);resize:vertical;
+  border:0;background:none;color:var(--text);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;caret-color:var(--accent);outline:0}
 .areawrap{background:var(--surface)}
 
 /* OperatorListItem */
-.list{border:calc(var(--du)*.25) solid var(--border);background:var(--surface)}
+.list{border:calc(var(--du)*.25) solid var(--border);background:var(--background)}
 .list+p{margin-top:calc(var(--du)*2)}
 .item{display:flex;align-items:center;gap:calc(var(--du)*3);width:100%;min-height:calc(var(--du)*10);padding:calc(var(--du)*2) calc(var(--du)*3);
   border:0;border-bottom:calc(var(--du)*.25) solid var(--divider);background:none;color:var(--text);text-align:left;font:inherit;position:relative;overflow:hidden}
@@ -140,14 +149,14 @@ button.item{cursor:pointer}
 .item.sel{background:var(--selection)}
 .item>:not(.rip){position:relative;z-index:1}
 .item .txt{flex:1;min-width:0}
-.item .t{display:block;font-size:15px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.item .s{display:block;font-size:11px;line-height:14px;color:var(--text-2)}
+.item .t{display:block;font-size:calc(var(--tu)*15);line-height:calc(var(--tu)*20);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .s{display:block;font-size:calc(var(--tu)*13);line-height:calc(var(--tu)*16);color:var(--text-2)}
 .item .s.ok{color:var(--success)}
-.item .k{color:var(--text-2);flex:none}
-.item .v{flex:1;min-width:0;text-align:right;overflow-wrap:anywhere}
+.item .k{color:var(--text-2);flex:0 0 40%}
+.item .v{flex:1 1 60%;min-width:0;text-align:right;overflow-wrap:anywhere}
 .item .trail{flex:none;color:var(--text-2)}
-.empty{display:flex;align-items:center;gap:calc(var(--du)*2);padding:calc(var(--du)*3);color:var(--text-2)}
-.bars{display:inline-flex;align-items:flex-end;gap:1px;height:calc(var(--du)*4);flex:none}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--du)*2);padding:calc(var(--du)*6) calc(var(--du)*3);text-align:center;color:var(--text-2);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18)}
+.bars{display:inline-flex;align-items:flex-end;gap:calc(var(--du)*.25);height:calc(var(--du)*4);flex:none}
 .bars i{width:calc(var(--du)*.75);background:var(--off-border)}
 .bars i:nth-child(1){height:25%}.bars i:nth-child(2){height:50%}.bars i:nth-child(3){height:75%}.bars i:nth-child(4){height:100%}
 .bars i.lit{background:var(--text)}
@@ -159,12 +168,12 @@ button.item{cursor:pointer}
 .badge.online{background:var(--badge-online)}
 .badge.error{background:var(--badge-alarm)}
 .badge.alarm{background:var(--badge-alarm);animation:alarm .25s infinite alternate}
-.badge.pending{background:none;border:calc(var(--du)*.3) solid var(--badge-activity);border-top-color:transparent;animation:spin .8s linear infinite}
+.badge.pending{background:none;border:calc(var(--du)*.3) solid var(--badge-activity);border-top-color:transparent;animation:spin .9s linear infinite}
 @keyframes alarm{to{opacity:.2}}
 .badge.big{width:calc(var(--du)*5);height:calc(var(--du)*5)}
 
 /* Messages under controls */
-.msg{display:flex;align-items:flex-start;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);overflow-wrap:anywhere}
+.msg{display:flex;align-items:flex-start;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);overflow-wrap:anywhere;font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*15)}
 .msg:empty{display:none}
 .msg .badge{margin-top:calc(var(--du)*.75)}
 .msg.err{color:var(--error)}.msg.ok{color:var(--success)}.msg.wait{color:var(--text-2)}
@@ -174,7 +183,9 @@ button.item{cursor:pointer}
 .steps>li:last-child{border-bottom:0}
 .steps>li::before{content:counter(s);flex:none;width:calc(var(--du)*6);height:calc(var(--du)*6);display:flex;align-items:center;justify-content:center;
   border:calc(var(--du)*.25) solid var(--border-strong);font-weight:700}
-.steps>li.done::before{content:"✓";color:var(--success);border-color:var(--success)}
+.steps>li.done::before{content:"";border-color:var(--success);background-color:var(--success);
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z'/%3E%3C/svg%3E") no-repeat center / calc(var(--du)*3.5) calc(var(--du)*3.5);
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z'/%3E%3C/svg%3E") no-repeat center / calc(var(--du)*3.5) calc(var(--du)*3.5)}
 .steps>li.wait{color:var(--text-off)}
 .steps>li.wait a{color:inherit}
 .steps>li>div{flex:1;min-width:0}
@@ -187,36 +198,44 @@ button.item{cursor:pointer}
 /* OperatorAsyncSwitch: moves only once the device confirmed */
 .switchrow{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--du)*3);margin-top:calc(var(--du)*3)}
 .switch{flex:none;width:calc(var(--du)*13);height:calc(var(--du)*8);padding:0;border-radius:calc(var(--du)*4);cursor:pointer;position:relative;
-  background:var(--switch-off);border:calc(var(--du)*.25) solid var(--border)}
-.switch i{position:absolute;top:calc(var(--du)*.75);left:calc(var(--du)*.75);width:calc(var(--du)*6);height:calc(var(--du)*6);border-radius:50%;
-  background:var(--error);border:calc(var(--du)*.25) solid var(--border-strong);transition:left .2s var(--fast)}
-.switch[aria-checked=true]{background:var(--switch-on);border-color:var(--accent)}
-.switch[aria-checked=true] i{left:calc(var(--du)*5.75);background:var(--success)}
+  background:var(--switch-off);border:calc(var(--du)*.25) solid var(--border);transition:background-color .15s var(--fast),border-color .15s var(--fast)}
+.switch:focus-visible{outline:calc(var(--du)*.5) solid var(--accent);outline-offset:calc(var(--du)*.5)}
+.switch .sw-th{position:absolute;top:calc(var(--du)*1);left:calc(var(--du)*1);width:calc(var(--du)*6);height:calc(var(--du)*6);border-radius:50%;
+  background:var(--switch-thumb-off);box-shadow:inset 0 0 0 calc(var(--du)*.25) var(--border-strong);color:#fff;
+  display:flex;align-items:center;justify-content:center;transition:transform .22s cubic-bezier(.2,.9,.3,1),background-color .15s var(--fast)}
+.switch .sw-th .ic{width:calc(var(--du)*3);height:calc(var(--du)*3)}
+.switch .sw-th .sw-sp{width:calc(var(--du)*3.5);height:calc(var(--du)*3.5);border-width:calc(var(--du)*.375);display:none}
+.switch .sw-on{display:none}
+.switch .sw-off{display:block}
+.switch[aria-checked=true]{background:var(--switch-on)}
+.switch[aria-checked=true] .sw-th{transform:translateX(calc(var(--du)*5));background:var(--switch-thumb-on)}
+.switch[aria-checked=true] .sw-on{display:block}
+.switch[aria-checked=true] .sw-off{display:none}
 .switch[data-state=pending]{background:var(--surface-alt)}
-.switch[data-state=pending] i{left:calc(var(--du)*3.25);background:none;border:calc(var(--du)*.375) solid var(--pending);border-top-color:transparent;
-  animation:spin .8s linear infinite}
-.switch[data-state=ok]{animation:swok .4s var(--fast) 3 alternate}
-.switch[data-state=err]{animation:swerr .4s var(--fast) 3 alternate}
-@keyframes swok{to{border-color:var(--success);box-shadow:0 0 0 calc(var(--du)*.5) var(--success)}}
-@keyframes swerr{to{border-color:var(--error);box-shadow:0 0 0 calc(var(--du)*.5) var(--error)}}
-
+.switch[data-state=pending] .sw-th{transform:translateX(calc(var(--du)*2.5));animation:sw-th-wait 0s linear .7s forwards}
+@keyframes sw-th-wait{to{background-color:transparent;box-shadow:none;color:transparent}}
+.switch[data-state=pending] .sw-th .sw-sp{display:block;opacity:0;animation:spin-fade .2s linear .7s forwards,spin .9s linear infinite}
+.switch[data-state=pending] .sw-on,.switch[data-state=pending] .sw-off{animation:hide-label 0s linear .7s forwards}
+.switch[data-state=ok]{border-color:var(--success);animation:pulse .4s var(--fast) infinite alternate}
+.switch[data-state=err]{border-color:var(--error);animation:pulse .4s var(--fast) infinite alternate}
 
 .power{display:flex;align-items:center;gap:calc(var(--du)*3);min-height:calc(var(--du)*14)}
-.power b{font-size:20px;line-height:26px;display:block}
-.meter{height:calc(var(--du)*2);margin-top:calc(var(--du)*3);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--border)}
-.meter i{display:block;height:100%;width:0;background:var(--accent)}
+.power b{font-size:calc(var(--tu)*20);line-height:calc(var(--tu)*26);display:block}
+.meter{height:calc(var(--du)*1);margin-top:calc(var(--du)*3);background:color-mix(in srgb,var(--pending) 20%,var(--surface-alt))}
+.meter i{display:block;height:100%;width:0;background:var(--pending);transition:width .15s var(--fast)}
 .result{display:flex;gap:calc(var(--du)*3);align-items:flex-start}
 .result .badge{margin-top:calc(var(--du)*1)}
-.result b{display:block;font-size:15px;line-height:20px}
+.result b{display:block;font-size:calc(var(--tu)*15);line-height:calc(var(--tu)*20)}
 .address{display:flex;align-items:center;min-height:calc(var(--du)*13.5);background:var(--surface-alt)}
-.address a{flex:1;min-width:0;padding:0 calc(var(--du)*3);font-size:20px;line-height:26px;font-weight:700;white-space:nowrap;
+.address a{flex:1;min-width:0;padding:0 calc(var(--du)*3);font-size:calc(var(--tu)*20);line-height:calc(var(--tu)*26);font-weight:700;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;text-decoration:none}
 
 /* OperatorConfirmDialog */
-dialog{width:clamp(calc(var(--du)*60),90vw,calc(var(--du)*75));max-width:calc(100vw - var(--du)*8);padding:calc(var(--du)*4);border:0;
+dialog{width:clamp(calc(var(--du)*75),90vw,calc(var(--du)*140));max-width:calc(100vw - var(--du)*8);padding:calc(var(--du)*4);border:0;
   background:var(--surface);color:var(--text);animation:show .15s var(--fast)}
-dialog::backdrop{background:rgba(0,0,0,.5)}
-dialog .actions{margin-top:calc(var(--du)*4)}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog h2{font-size:calc(var(--tu)*18);line-height:calc(var(--tu)*24);font-weight:500}
+dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) solid var(--divider);padding-top:calc(var(--du)*3)}
 @keyframes show{from{opacity:0;transform:scale(.95)}}
 </style>
 </head>
@@ -369,7 +388,7 @@ dialog .actions{margin-top:calc(var(--du)*4)}
     <div class="power"><span class="badge big" id="remote-badge"></span>
       <div><b id="remote-title"></b><span class="muted small" id="remote-sub"></span></div></div>
     <div class="switchrow"><span>Дозволити віддалене підключення</span>
-      <button class="switch" type="button" role="switch" aria-checked="false" id="remote-switch" aria-label="Дозволити віддалене підключення"><i></i></button></div>
+      <button class="switch" type="button" role="switch" aria-checked="false" id="remote-switch" aria-label="Дозволити віддалене підключення"><i class="sw-th"><svg class="ic sw-on" viewBox="0 -960 960 960" aria-hidden="true"><path d="M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z"/></svg><svg class="ic sw-off" viewBox="0 -960 960 960" aria-hidden="true"><path d="m291-240-51-51 189-189-189-189 51-51 189 189 189-189 51 51-189 189 189 189-51 51-189-189-189 189Z"/></svg><span class="spin sw-sp"></span></i></button></div>
     <label class="cap" for="remote-server">Сервер підтримки</label>
     <div class="field" data-field><input id="remote-server" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://example.com"></div>
     <p class="small muted">Пристрій сам звертається до сервера раз на годину; порти назовні не відкриваються.
@@ -492,19 +511,19 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
-/* ---------- OperatorIcons (Material paths, 24×24) ---------- */
+/* ---------- OperatorIcons (Material Sharp paths, 960×960) ---------- */
 const ICONS = {
-  check: "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
-  close: "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
-  back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
-  lock: "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z",
-  eye: "M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z",
-  eyeOff: "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z",
+  check: "M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z",
+  close: "m291-240-51-51 189-189-189-189 51-51 189 189 189-189 51 51-189 189 189 189-51 51-189-189-189 189Z",
+  back: "m330-444 201 201-51 51-288-288 288-288 51 51-201 201h438v72H330Z",
+  lock: "M160-80v-560h120v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h120v560H160Zm320-200q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80Z",
+  eye: "M480-312q70 0 119-49t49-119q0-70-49-119t-119-49q-70 0-119 49t-49 119q0 70 49 119t119 49Zm0-72q-40 0-68-28t-28-68q0-40 28-68t68-28q40 0 68 28t28 68q0 40-28 68t-68 28Zm0 192q-142.6 0-259.8-78.5Q103-349 48-480q55-131 172.2-209.5Q337.4-768 480-768q142.6 0 259.8 78.5Q857-611 912-480q-55 131-172.2 209.5Q622.6-192 480-192Zm0-288Zm0 216q112 0 207-58t146-158q-51-100-146-158t-207-58q-112 0-207 58T127-480q51 100 146 158t207 58Z",
+  eyeOff: "m637-425-62-62q4-38-23-65.5T487-576l-62-62q13-5 27-7.5t28-2.5q70 0 119 49t49 119q0 14-2.5 28t-8.5 27Zm133 133-52-52q36-28 65.5-61.5T833-480q-49-101-144.5-158.5T480-696q-26 0-51 3t-49 10l-58-58q38-15 77.5-21t80.5-6q143 0 261.5 77.5T912-480q-22 57-58.5 103.5T770-292Zm-2 202L638-220q-38 14-77.5 21t-80.5 7q-143 0-261.5-77.5T48-480q22-57 58-104t84-85L90-769l51-51 678 679-51 51ZM241-617q-35 28-65 61.5T127-480q49 101 144.5 158.5T480-264q26 0 51-3.5t50-9.5l-45-45q-14 5-28 7.5t-28 2.5q-70 0-119-49t-49-119q0-14 3.5-28t6.5-28l-81-81Zm287 89Zm-96 96Z",
 };
 const SVG = "http://www.w3.org/2000/svg";
 function icon(name) {
   const svg = document.createElementNS(SVG, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("viewBox", "0 -960 960 960");
   svg.setAttribute("class", "ic");
   svg.setAttribute("aria-hidden", "true");
   const path = document.createElementNS(SVG, "path");
@@ -584,7 +603,7 @@ function ripple(node) {
     const release = () => {
       node.classList.remove("pressed");
       dot.classList.add("out");
-      setTimeout(() => dot.remove(), 300);
+      setTimeout(() => dot.remove(), 250);
       ["pointerup", "pointercancel", "pointerleave"].forEach(t => node.removeEventListener(t, release));
     };
     ["pointerup", "pointercancel", "pointerleave"].forEach(t => node.addEventListener(t, release));
@@ -643,6 +662,7 @@ function textField(node) {
       const hidden = input.type === "password";
       input.type = hidden ? "text" : "password";
       eye.replaceChildren(icon(hidden ? "eyeOff" : "eye"));
+      eye.classList.toggle("act", hidden);
       input.focus();
     };
     node.append(eye);
