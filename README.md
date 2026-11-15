@@ -143,6 +143,14 @@ espup install          # створить ~/export-esp.sh
 
 - Тести логіки: `cd power-core && cargo test`.
 - Схеми перемальовує `python3 hardware/build.py`.
+- Вигляд сторінки — дизайн-система [Operator UI](https://github.com/pavver/operator-design-system), перенесена вручну
+  в один HTML-файл без Leptos/WASM, щоб заощадити флеш. Звідти беруться кольори й розміри
+  ([tokens/tokens.toml](https://github.com/pavver/operator-design-system/blob/65712c5/tokens/tokens.toml)), правила станів
+  ([docs/foundations](https://github.com/pavver/operator-design-system/tree/65712c5/docs/foundations)), специфікації
+  компонентів ([docs/components](https://github.com/pavver/operator-design-system/tree/65712c5/docs/components)) та іконки
+  Material Symbols Sharp ([tokens/icons](https://github.com/pavver/operator-design-system/tree/65712c5/tokens/icons)).
+  Сторінка відповідає коміту `65712c5` (після v0.6.0); адмінка сервера (`server/src/admin.css`) —
+  старішій версії.
 - Шрифт сторінки — Cascadia Code, урізаний до латиниці, кирилиці, цифр і розділових знаків
   (≈26 КБ у прошивці). За ліцензією OFL змінену версію перейменовано на «Operator Mono». Після зміни
   тексту сторінки: `python3 firmware/ui/make-font.py` (скрипт зупиниться, якщо на сторінці є символ

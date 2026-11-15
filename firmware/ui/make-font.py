@@ -31,7 +31,7 @@ CHARS = (
 )
 
 
-# Emoji are drawn by the system's emoji font (design_system/typography.md
+# Emoji are drawn by the system's emoji font (operator-design-system docs/foundations/typography.md
 # allows it as the fallback), so they are not part of the subset:
 # pictographs, zero-width joiner, variation selector, gender signs.
 EMOJI = set(range(0x1F000, 0x1FB00)) | {0x200D, 0xFE0F, 0x2640, 0x2642}

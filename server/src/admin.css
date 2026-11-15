@@ -1,4 +1,4 @@
-/* Operator UI (design_system/), as on the device's panel (firmware/ui/index.html):
+/* Operator UI (github.com/pavver/operator-design-system), older than on the device's panel (firmware/ui/index.html):
    1 DU = 4px, sharp corners, monospace, ControlState frames drawn as inset vector strokes. */
 :root{
   --du:4px;--smooth:cubic-bezier(.5,0,.5,1);--fast:cubic-bezier(.4,0,.2,1);
