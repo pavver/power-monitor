@@ -4,6 +4,8 @@
 //! channel the station is most likely to join, and the station connects to a
 //! known channel instead of sweeping all of them.
 
+use std::time::Duration;
+
 use crate::api::{tidy_networks, Network};
 
 /// One access point heard in a scan.
@@ -30,6 +32,18 @@ pub fn setup_channel(seen: &[Seen], preferred: Option<&str>) -> u8 {
         .and_then(|ssid| strongest(seen, ssid))
         .or_else(|| seen.iter().filter(|s| !s.ssid.is_empty()).max_by_key(|s| s.rssi))
         .map_or(FALLBACK_CHANNEL, |s| s.channel)
+}
+
+/// While the setup network is up the station joins only a network heard in
+/// the last scan. A scan this old is repeated, so a router that starts after
+/// the device (both powered back on together) is still found. Scans disturb
+/// phones on the setup network, hence the long interval.
+const RESCAN_UNHEARD_AFTER: Duration = Duration::from_secs(60);
+
+/// Whether to scan again for a saved network the last scan did not hear,
+/// given how long ago that scan was (`None`: never).
+pub fn rescan_due(last_scan_age: Option<Duration>) -> bool {
+    last_scan_age.is_none_or(|age| age >= RESCAN_UNHEARD_AFTER)
 }
 
 /// The list the page shows.
@@ -75,6 +89,13 @@ mod tests {
     #[test]
     fn setup_channel_on_empty_air_is_one() {
         assert_eq!(setup_channel(&[], None), 1);
+    }
+
+    #[test]
+    fn an_unheard_network_is_looked_for_again_once_the_scan_is_old() {
+        assert!(rescan_due(None));
+        assert!(!rescan_due(Some(Duration::from_secs(59))));
+        assert!(rescan_due(Some(Duration::from_secs(60))));
     }
 
     #[test]

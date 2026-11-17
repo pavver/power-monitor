@@ -181,18 +181,27 @@ impl Radio {
 
     /// Reconnects to the saved network after a drop. While phones may be on
     /// the setup network, only when the saved network was heard, so the radio
-    /// does not sweep every channel each time.
+    /// does not sweep every channel each time; now and then it listens again.
     fn keep_connected(&mut self) {
         let Some(saved) = self.settings.wifi() else { return };
         if self.wifi.is_connected().unwrap_or(false) {
             return;
         }
-        if self.setup_ap && radio::strongest(&self.seen, saved.ssid()).is_none() {
+        if self.setup_ap && !self.heard(saved.ssid()) {
             return;
         }
         if self.aim_station(&saved).is_ok() {
             let _ = self.connect(&saved);
         }
+    }
+
+    /// Whether `ssid` is on the air, scanning again when the last scan that
+    /// missed it is old.
+    fn heard(&mut self, ssid: &str) -> bool {
+        if radio::strongest(&self.seen, ssid).is_none() && radio::rescan_due(self.last_scan.map(|at| at.elapsed())) {
+            self.scan();
+        }
+        radio::strongest(&self.seen, ssid).is_some()
     }
 
     /// Points the station at `credentials`, on the channel and access point
