@@ -46,6 +46,24 @@ pub fn rescan_due(last_scan_age: Option<Duration>) -> bool {
     last_scan_age.is_none_or(|age| age >= RESCAN_UNHEARD_AFTER)
 }
 
+/// What to do with the setup network on a check of the link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupApStep {
+    Open,
+    Close,
+    Keep,
+}
+
+/// The setup network is up while the device has no home network to be
+/// reached through, or while a phone is still on it.
+pub fn setup_ap_step(up: bool, linked: bool, phones: usize) -> SetupApStep {
+    match (up, linked) {
+        (false, false) => SetupApStep::Open,
+        (true, true) if phones == 0 => SetupApStep::Close,
+        _ => SetupApStep::Keep,
+    }
+}
+
 /// The list the page shows.
 pub fn networks(seen: &[Seen]) -> Vec<Network> {
     tidy_networks(
@@ -96,6 +114,19 @@ mod tests {
         assert!(rescan_due(None));
         assert!(!rescan_due(Some(Duration::from_secs(59))));
         assert!(rescan_due(Some(Duration::from_secs(60))));
+    }
+
+    #[test]
+    fn setup_network_closes_once_linked_and_nobody_is_on_it() {
+        assert_eq!(setup_ap_step(true, true, 0), SetupApStep::Close);
+        assert_eq!(setup_ap_step(true, true, 1), SetupApStep::Keep);
+        assert_eq!(setup_ap_step(true, false, 0), SetupApStep::Keep);
+    }
+
+    #[test]
+    fn setup_network_opens_when_the_link_is_lost() {
+        assert_eq!(setup_ap_step(false, false, 0), SetupApStep::Open);
+        assert_eq!(setup_ap_step(false, true, 0), SetupApStep::Keep);
     }
 
     #[test]

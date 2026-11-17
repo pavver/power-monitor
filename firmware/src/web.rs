@@ -152,9 +152,6 @@ pub fn start(
         let reading = b.recent_reading(BMS_MAX_AGE);
         telegram::send(&bot, &test_text(&s.messages(), Readings { bms: reading.as_ref(), voltage_mv: v.battery_mv() }))?;
         s.save_bot(bot).map_err(|e| e.to_string())?;
-        if !s.stage().needs_setup_ap() {
-            let _ = network.send(Command::CloseSetup);
-        }
         json(&"saved")
     })?;
 

@@ -1,9 +1,10 @@
 //! Wi-Fi. One thread owns the driver; the web server sends it commands.
 //!
-//! Until the bot is set up (or when the saved network is unreachable at
-//! start-up) the setup access point runs alongside the station, with a DNS
-//! responder for the captive portal. It closes when the page asks (the user
-//! moves to the home network) or when the bot is saved.
+//! While the station has no link to the home network, or a phone is still on
+//! it, the setup access point runs alongside the station, with a DNS
+//! responder for the captive portal. It closes once the station is linked and
+//! nobody is on it (or when the page asks), and opens again when the link is
+//! lost and a reconnect fails.
 //!
 //! Once the setup access point runs, only the station's configuration is
 //! touched: re-applying the access point's restarts it and drops every phone,
@@ -25,8 +26,8 @@ use esp_idf_svc::netif::{EspNetif, NetifConfiguration, NetifStack};
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sys::{
     esp, esp_netif_dhcp_option_id_t_ESP_NETIF_CAPTIVEPORTAL_URI, esp_netif_dhcp_option_mode_t_ESP_NETIF_OP_SET,
-    esp_netif_dhcps_option, esp_netif_dhcps_start, esp_netif_dhcps_stop, esp_wifi_get_config, esp_wifi_set_config,
-    esp_wifi_set_mode, wifi_mode_t_WIFI_MODE_STA,
+    esp_netif_dhcps_option, esp_netif_dhcps_start, esp_netif_dhcps_stop, esp_wifi_ap_get_sta_list,
+    esp_wifi_get_config, esp_wifi_set_config, esp_wifi_set_mode, wifi_mode_t_WIFI_MODE_STA, wifi_sta_list_t,
     wifi_auth_mode_t_WIFI_AUTH_OPEN, wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK, wifi_config_t, wifi_interface_t_WIFI_IF_AP,
     wifi_interface_t_WIFI_IF_STA,
     ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED,
@@ -38,7 +39,7 @@ use power_core::api::{Link, SetupAp};
 use power_core::dns;
 use power_core::message::Notice;
 use power_core::portal::{portal_url, SETUP_IP};
-use power_core::radio::{self, Seen};
+use power_core::radio::{self, Seen, SetupApStep};
 use power_core::settings::WifiCredentials;
 
 use crate::settings::Settings;
@@ -61,6 +62,8 @@ type Wifi = BlockingWifi<EspWifi<'static>>;
 struct Radio {
     wifi: Wifi,
     setup_ap: bool,
+    /// The captive portal's DNS responder; it outlives the access point.
+    dns_running: bool,
     last_scan: Option<Instant>,
     /// Access points heard in the last scan.
     seen: Vec<Seen>,
@@ -80,7 +83,7 @@ pub fn start(
     let driver = WifiDriver::new(modem, sys_loop.clone(), Some(nvs))?;
     let esp_wifi = EspWifi::wrap_all(driver, EspNetif::new(NetifStack::Sta)?, setup_ap_netif()?)?;
     let wifi = BlockingWifi::wrap(esp_wifi, sys_loop)?;
-    let mut network = Radio { wifi, setup_ap: false, last_scan: None, seen: Vec::new(), settings, status, notices };
+    let mut network = Radio { wifi, setup_ap: false, dns_running: false, last_scan: None, seen: Vec::new(), settings, status, notices };
     network.boot()?;
     let (commands, inbox) = mpsc::channel();
     thread::Builder::new().stack_size(8 * 1024).spawn(move || network.run(inbox))?;
@@ -90,32 +93,68 @@ pub fn start(
 impl Radio {
     fn boot(&mut self) -> anyhow::Result<()> {
         let saved = self.settings.wifi();
-        // Without saved credentials the station only scans; an open threshold
-        // keeps the driver from warning about the empty password.
-        let idle = || ClientConfiguration { auth_method: AuthMethod::None, ..Default::default() };
-        let station = saved.as_ref().map(client).transpose()?.unwrap_or_else(idle);
-        self.wifi.set_configuration(&Configuration::Client(station.clone()))?;
+        self.wifi.set_configuration(&Configuration::Client(station(saved.as_ref())?))?;
         self.wifi.start()?;
         if let Some(saved) = &saved {
-            if !self.settings.stage().needs_setup_ap() && self.connect(saved).is_ok() {
+            if self.connect(saved).is_ok() {
                 return Ok(());
             }
         }
         // The access point comes first, on the saved network's channel, so
         // joining that network afterwards does not move it.
-        self.start_setup_ap(station)?;
-        self.keep_connected();
-        Ok(())
+        self.start_setup_ap()
     }
 
+    /// Commands as they come; the link is checked on a fixed beat, however
+    /// often the page asks for scans.
     fn run(mut self, inbox: Receiver<Command>) {
+        let mut next_check = Instant::now() + RECONNECT_EVERY;
         loop {
-            match inbox.recv_timeout(RECONNECT_EVERY) {
+            match inbox.recv_timeout(next_check.saturating_duration_since(Instant::now())) {
                 Ok(Command::Scan) => self.scan(),
                 Ok(Command::Connect(credentials)) => self.switch_to(credentials),
                 Ok(Command::CloseSetup) => self.close_setup(),
-                Err(RecvTimeoutError::Timeout) => self.keep_connected(),
+                Err(RecvTimeoutError::Timeout) => {
+                    self.check_link();
+                    next_check = Instant::now() + RECONNECT_EVERY;
+                }
                 Err(RecvTimeoutError::Disconnected) => return,
+            }
+        }
+    }
+
+    /// Reconnects if needed, then opens or closes the setup access point.
+    fn check_link(&mut self) {
+        self.keep_connected();
+        let linked = self.wifi.is_connected().unwrap_or(false);
+        match radio::setup_ap_step(self.setup_ap, linked, self.phones()) {
+            SetupApStep::Open => {
+                log::warn!("no link to the home network: opening the setup access point");
+                if let Err(error) = self.start_setup_ap() {
+                    log::error!("opening the setup access point: {error}");
+                }
+            }
+            SetupApStep::Close => {
+                log::info!("linked and nobody on the setup access point");
+                self.close_setup_ap();
+            }
+            SetupApStep::Keep => {}
+        }
+    }
+
+    /// Phones on the setup access point.
+    fn phones(&self) -> usize {
+        if !self.setup_ap {
+            return 0;
+        }
+        let mut list = wifi_sta_list_t::default();
+        // SAFETY: the driver runs with the access point up; the list is ours.
+        match esp!(unsafe { esp_wifi_ap_get_sta_list(&mut list) }) {
+            Ok(()) => list.num.max(0) as usize,
+            Err(error) => {
+                log::warn!("listing setup access point clients: {error}");
+                // Unknown counts as someone there: never cut a phone off.
+                1
             }
         }
     }
@@ -157,8 +196,8 @@ impl Radio {
         }
     }
 
-    /// Leaves only the station. Refused while it is not connected: the setup
-    /// network would be the only way back in.
+    /// The page asks: the user moves to the home network. Refused while the
+    /// station is not connected: the setup network would be the only way back in.
     fn close_setup(&mut self) {
         if !self.setup_ap {
             return;
@@ -169,6 +208,11 @@ impl Radio {
         }
         // Lets the page's reply reach the phone before its network goes away.
         thread::sleep(Duration::from_secs(1));
+        self.close_setup_ap();
+    }
+
+    /// Leaves only the station, which keeps its link.
+    fn close_setup_ap(&mut self) {
         // SAFETY: a mode change on the started driver; the station keeps its link.
         if let Err(error) = esp!(unsafe { esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA) }) {
             log::warn!("closing the setup access point: {error}");
@@ -271,19 +315,23 @@ impl Radio {
     /// Starts the setup network on the channel the station is most likely to
     /// join, so that joining it later does not move the phones' channel.
     /// Expects the station to be started (it scans first).
-    fn start_setup_ap(&mut self, station: ClientConfiguration) -> anyhow::Result<()> {
+    fn start_setup_ap(&mut self) -> anyhow::Result<()> {
         self.scan();
         let preferred = self.settings.wifi();
         let channel = radio::setup_channel(&self.seen, preferred.as_ref().map(|w| w.ssid()));
         self.wifi.stop()?;
         self.setup_ap = true;
-        self.wifi.set_configuration(&Configuration::Mixed(station, setup_ap(channel)))?;
+        self.wifi.set_configuration(&Configuration::Mixed(station(preferred.as_ref())?, setup_ap(channel)))?;
         announce_channel_switches()?;
         self.wifi.start()?;
         offer_portal_uri(self.wifi.wifi().ap_netif())?;
         log::info!("setup access point {SETUP_SSID} on channel {channel} at {}", portal_url());
         self.status.set_setup_ap(Some(SetupAp::new(SETUP_SSID)));
-        spawn_dns(SETUP_IP)
+        if !self.dns_running {
+            spawn_dns(SETUP_IP)?;
+            self.dns_running = true;
+        }
+        Ok(())
     }
 }
 
@@ -368,6 +416,14 @@ fn setup_ap(channel: u8) -> AccessPointConfiguration {
         max_connections: 4,
         ..Default::default()
     }
+}
+
+/// The station's configuration: the saved network, or none. Without saved
+/// credentials the station only scans; an open threshold keeps the driver
+/// from warning about the empty password.
+fn station(saved: Option<&WifiCredentials>) -> anyhow::Result<ClientConfiguration> {
+    let idle = || ClientConfiguration { auth_method: AuthMethod::None, ..Default::default() };
+    Ok(saved.map(client).transpose()?.unwrap_or_else(idle))
 }
 
 fn client(credentials: &WifiCredentials) -> anyhow::Result<ClientConfiguration> {

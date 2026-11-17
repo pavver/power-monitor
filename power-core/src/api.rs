@@ -15,14 +15,6 @@ pub enum Stage {
     Dashboard,
 }
 
-impl Stage {
-    /// The setup network stays up until the bot is set up: that step needs the
-    /// home network, and until then the setup network is the way back in.
-    pub fn needs_setup_ap(self) -> bool {
-        self != Stage::Dashboard
-    }
-}
-
 /// The setup access point while it is up, with the page's address on it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SetupAp {
@@ -135,15 +127,6 @@ mod tests {
         assert_eq!(stage(false, true), Stage::Wifi);
         assert_eq!(stage(true, false), Stage::Bot);
         assert_eq!(stage(true, true), Stage::Dashboard);
-    }
-
-    #[test]
-    fn setup_ap_runs_until_the_bot_is_set_up() {
-        // The bot is set up over the home network, so the setup network must
-        // stay reachable until then; afterwards it only exposes the panel.
-        assert!(Stage::Wifi.needs_setup_ap());
-        assert!(Stage::Bot.needs_setup_ap());
-        assert!(!Stage::Dashboard.needs_setup_ap());
     }
 
     #[test]
