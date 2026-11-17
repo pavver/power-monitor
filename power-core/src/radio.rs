@@ -55,11 +55,13 @@ pub enum SetupApStep {
 }
 
 /// The setup network is up while the device has no home network to be
-/// reached through, or while a phone is still on it.
-pub fn setup_ap_step(up: bool, linked: bool, phones: usize) -> SetupApStep {
+/// reached through, or while a phone is still on it. `held`: a join from the
+/// page just succeeded; its channel change may have dropped the phone, which
+/// comes back to read the result.
+pub fn setup_ap_step(up: bool, linked: bool, phones: usize, held: bool) -> SetupApStep {
     match (up, linked) {
         (false, false) => SetupApStep::Open,
-        (true, true) if phones == 0 => SetupApStep::Close,
+        (true, true) if phones == 0 && !held => SetupApStep::Close,
         _ => SetupApStep::Keep,
     }
 }
@@ -118,15 +120,21 @@ mod tests {
 
     #[test]
     fn setup_network_closes_once_linked_and_nobody_is_on_it() {
-        assert_eq!(setup_ap_step(true, true, 0), SetupApStep::Close);
-        assert_eq!(setup_ap_step(true, true, 1), SetupApStep::Keep);
-        assert_eq!(setup_ap_step(true, false, 0), SetupApStep::Keep);
+        assert_eq!(setup_ap_step(true, true, 0, false), SetupApStep::Close);
+        assert_eq!(setup_ap_step(true, true, 1, false), SetupApStep::Keep);
+        assert_eq!(setup_ap_step(true, false, 0, false), SetupApStep::Keep);
+    }
+
+    #[test]
+    fn setup_network_waits_for_a_phone_that_dropped_off_while_joining() {
+        // The channel change of a join drops phones; they come back to read the result.
+        assert_eq!(setup_ap_step(true, true, 0, true), SetupApStep::Keep);
     }
 
     #[test]
     fn setup_network_opens_when_the_link_is_lost() {
-        assert_eq!(setup_ap_step(false, false, 0), SetupApStep::Open);
-        assert_eq!(setup_ap_step(false, true, 0), SetupApStep::Keep);
+        assert_eq!(setup_ap_step(false, false, 0, false), SetupApStep::Open);
+        assert_eq!(setup_ap_step(false, true, 0, false), SetupApStep::Keep);
     }
 
     #[test]

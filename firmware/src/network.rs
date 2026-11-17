@@ -30,7 +30,7 @@ use esp_idf_svc::sys::{
     esp_wifi_get_config, esp_wifi_set_config, esp_wifi_set_mode, wifi_mode_t_WIFI_MODE_STA, wifi_sta_list_t,
     wifi_auth_mode_t_WIFI_AUTH_OPEN, wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK, wifi_config_t, wifi_interface_t_WIFI_IF_AP,
     wifi_interface_t_WIFI_IF_STA,
-    ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED,
+    EspError, ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED,
 };
 use esp_idf_svc::wifi::{
     AccessPointConfiguration, AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiDriver,
@@ -49,6 +49,14 @@ pub const SETUP_SSID: &str = "PowerMonitor-Setup";
 const RECONNECT_EVERY: Duration = Duration::from_secs(10);
 /// Scans disturb clients of the setup access point, so they are rationed.
 const SCAN_AT_MOST_EVERY: Duration = Duration::from_secs(8);
+/// The driver makes one association attempt per connect and does not retry;
+/// the first often fails while the access point moves to the router's
+/// channel. Attempts × wait plus the address wait stay within the page's 60 s.
+const JOIN_ATTEMPTS: u32 = 3;
+const JOIN_WAIT: Duration = Duration::from_secs(10);
+/// After a join from the page the setup network waits this long for the
+/// phone, which the channel change may have dropped, to come back.
+const HOLD_AFTER_JOIN: Duration = Duration::from_secs(180);
 
 pub enum Command {
     Scan,
@@ -64,6 +72,8 @@ struct Radio {
     setup_ap: bool,
     /// The captive portal's DNS responder; it outlives the access point.
     dns_running: bool,
+    /// Until when the setup network stays up for a phone to come back.
+    hold_until: Option<Instant>,
     last_scan: Option<Instant>,
     /// Access points heard in the last scan.
     seen: Vec<Seen>,
@@ -83,7 +93,7 @@ pub fn start(
     let driver = WifiDriver::new(modem, sys_loop.clone(), Some(nvs))?;
     let esp_wifi = EspWifi::wrap_all(driver, EspNetif::new(NetifStack::Sta)?, setup_ap_netif()?)?;
     let wifi = BlockingWifi::wrap(esp_wifi, sys_loop)?;
-    let mut network = Radio { wifi, setup_ap: false, dns_running: false, last_scan: None, seen: Vec::new(), settings, status, notices };
+    let mut network = Radio { wifi, setup_ap: false, dns_running: false, hold_until: None, last_scan: None, seen: Vec::new(), settings, status, notices };
     network.boot()?;
     let (commands, inbox) = mpsc::channel();
     thread::Builder::new().stack_size(8 * 1024).spawn(move || network.run(inbox))?;
@@ -127,7 +137,8 @@ impl Radio {
     fn check_link(&mut self) {
         self.keep_connected();
         let linked = self.wifi.is_connected().unwrap_or(false);
-        match radio::setup_ap_step(self.setup_ap, linked, self.phones()) {
+        let held = self.hold_until.is_some_and(|until| Instant::now() < until);
+        match radio::setup_ap_step(self.setup_ap, linked, self.phones(), held) {
             SetupApStep::Open => {
                 log::warn!("no link to the home network: opening the setup access point");
                 if let Err(error) = self.start_setup_ap() {
@@ -190,6 +201,7 @@ impl Radio {
             return;
         }
         if self.connect(&credentials).is_ok() {
+            self.hold_until = Some(Instant::now() + HOLD_AFTER_JOIN);
             if let Err(error) = self.settings.save_wifi(credentials) {
                 log::error!("saving wifi: {error}");
             }
@@ -213,6 +225,7 @@ impl Radio {
 
     /// Leaves only the station, which keeps its link.
     fn close_setup_ap(&mut self) {
+        self.hold_until = None;
         // SAFETY: a mode change on the started driver; the station keeps its link.
         if let Err(error) = esp!(unsafe { esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA) }) {
             log::warn!("closing the setup access point: {error}");
@@ -276,7 +289,7 @@ impl Radio {
     fn connect(&mut self, credentials: &WifiCredentials) -> anyhow::Result<()> {
         let ssid = credentials.ssid().to_string();
         self.status.set_link(Link::Connecting { ssid: ssid.clone() });
-        let result = self.wifi.connect().and_then(|()| self.wifi.wait_netif_up());
+        let result = self.join().and_then(|()| self.wifi.wait_netif_up());
         if let Err(error) = result {
             log::warn!("wifi connect {ssid}: {error}");
             let reason = if radio::strongest(&self.seen, &ssid).is_some() || self.seen.is_empty() {
@@ -292,6 +305,23 @@ impl Radio {
         self.report_if_new(&ip);
         self.status.set_link(Link::Connected { ssid, ip });
         Ok(())
+    }
+
+    /// Associates with the network the station is aimed at, retrying a
+    /// dropped attempt.
+    fn join(&mut self) -> Result<(), EspError> {
+        let mut result = Ok(());
+        for attempt in 1..=JOIN_ATTEMPTS {
+            self.wifi.wifi_mut().connect()?;
+            result = self.wifi.wifi_wait_while(|| self.wifi.is_connected().map(|c| !c), Some(JOIN_WAIT));
+            if result.is_ok() {
+                return result;
+            }
+            log::warn!("wifi join attempt {attempt} of {JOIN_ATTEMPTS} failed");
+            // Ends the attempt still in progress, so the next starts clean.
+            let _ = self.wifi.wifi_mut().disconnect();
+        }
+        result
     }
 
     /// Remembers the address and tells the chat when it differs from the last one.
