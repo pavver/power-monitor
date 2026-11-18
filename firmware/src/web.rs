@@ -2,6 +2,8 @@
 //! captive-portal checks land on the page. When a password is set, every API
 //! call except login needs an open session.
 
+mod routes;
+
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -10,31 +12,27 @@ use std::time::Duration;
 use embedded_svc::http::{Headers, Method};
 use embedded_svc::io::{Read, Write};
 use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer, Request};
-use power_core::api::Link;
-use power_core::auth::{expired_cookie, NewPassword, PasswordHash, Sessions};
+use power_core::auth::Sessions;
 use power_core::form;
-use power_core::message::{preview, test_text, Readings};
 use power_core::portal::redirect_target;
-use power_core::remote::RemoteSettings;
-use power_core::settings::{Battery, Bot, BotToken, Divider, Messages, WifiCredentials};
+use power_core::settings::BotToken;
 use serde::Serialize;
 
 use crate::bms::Bms;
-use crate::random;
 use crate::network::Command;
+use crate::random;
 use crate::remote::Remote;
-use crate::ota;
 use crate::settings::Settings;
 use crate::status::Status;
-use crate::telegram;
-use crate::notifier::BMS_MAX_AGE;
 use crate::voltmeter::Voltmeter;
 
 /// ui/index.html, gzipped at build time (see build.rs).
 const PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 /// Cascadia Code cut down to the page's characters (see ui/make-font.py).
 const FONT: &[u8] = include_bytes!("../ui/operator-mono.woff");
-const MAX_BODY: usize = 4096;
+/// The texts form is the largest: its defaults alone are some 3 KB, since
+/// the page sends each Cyrillic letter as 6 bytes.
+const MAX_BODY: usize = 8192;
 const MAX_SESSIONS: usize = 8;
 /// Slows down password guessing.
 const FAILED_LOGIN_DELAY: Duration = Duration::from_secs(1);
@@ -97,190 +95,12 @@ pub fn start(
         Ok(())
     })?;
 
-    let a = auth.clone();
-    server.fn_handler::<anyhow::Error, _>("/api/login", Method::Post, move |mut req| {
-        let reply = read_body(&mut req).and_then(|body| login(&a, &body));
-        respond(req, reply)
-    })?;
-
-    let a = auth.clone();
-    server.fn_handler::<anyhow::Error, _>("/api/logout", Method::Post, move |req| {
-        a.sessions.lock().unwrap().close(req.header("Cookie"));
-        respond(req, Ok(Answer { body: json_text(&"bye"), cookie: Some(expired_cookie()) }))
-    })?;
-
-    let (s, st, r) = (settings.clone(), status.clone(), remote.clone());
-    get(&mut server, &auth, "/api/state", move || {
-        let mut state: serde_json::Value = serde_json::from_str(&st.state_json(&s)).unwrap_or_default();
-        state["remote"] = r.view();
-        state["system"] = system_view();
-        json(&state)
-    })?;
-
-    let (st, net) = (status.clone(), network.clone());
-    get(&mut server, &auth, "/api/networks", move || {
-        let _ = net.send(Command::Scan);
-        json(&st.networks())
-    })?;
-
-    let net = network.clone();
-    post(&mut server, &auth, "/api/setup/close", move |_| {
-        net.send(Command::CloseSetup).map_err(|e| e.to_string())?;
-        json(&"closing")
-    })?;
-
-    let (st, net) = (status.clone(), network.clone());
-    post(&mut server, &auth, "/api/wifi", move |body| {
-        let credentials = WifiCredentials::from_form(body).map_err(|e| e.to_string())?;
-        // Set before replying, so the page never mistakes the previous
-        // attempt's result for this one's.
-        st.set_link(Link::Connecting { ssid: credentials.ssid().to_string() });
-        net.send(Command::Connect(credentials)).map_err(|e| e.to_string())?;
-        json(&"connecting")
-    })?;
-
-    post(&mut server, &auth, "/api/bot/check", |body| {
-        let username = telegram::bot_username(&token(body)?)?;
-        json(&serde_json::json!({ "username": username }))
-    })?;
-
-    post(&mut server, &auth, "/api/bot/chats", |body| json(&telegram::chats(&token(body)?)?))?;
-
-    let (s, b, v) = (settings.clone(), bms.clone(), voltmeter.clone());
-    post(&mut server, &auth, "/api/bot", move |body| {
-        let bot = Bot::from_form(body).map_err(|e| e.to_string())?;
-        let reading = b.recent_reading(BMS_MAX_AGE);
-        telegram::send(&bot, &test_text(&s.messages(), Readings { bms: reading.as_ref(), voltage_mv: v.battery_mv() }))?;
-        s.save_bot(bot).map_err(|e| e.to_string())?;
-        json(&"saved")
-    })?;
-
-    let s = settings.clone();
-    post(&mut server, &auth, "/api/messages", move |body| {
-        let messages = Messages::from_form(body).map_err(|e| e.to_string())?;
-        s.save_messages(messages).map_err(|e| e.to_string())?;
-        json(&"saved")
-    })?;
-
-    // The page asks while a text is edited, so the device's own rules fill it.
-    let (b, v) = (bms.clone(), voltmeter.clone());
-    post(&mut server, &auth, "/api/messages/preview", move |body| {
-        let reading = b.last_reading();
-        json(&preview(body, Readings { bms: reading.as_ref(), voltage_mv: v.battery_mv() })?)
-    })?;
-
-    let (s, b, v) = (settings.clone(), bms.clone(), voltmeter.clone());
-    post(&mut server, &auth, "/api/test", move |_| {
-        let bot = s.bot().ok_or("Спершу налаштуйте бота.")?;
-        let reading = b.recent_reading(BMS_MAX_AGE);
-        telegram::send(&bot, &test_text(&s.messages(), Readings { bms: reading.as_ref(), voltage_mv: v.battery_mv() }))?;
-        json(&"sent")
-    })?;
-
-    // Asking for the values is what keeps the BMS link up: the battery
-    // screen polls this while it is open.
-    let b = bms.clone();
-    get(&mut server, &auth, "/api/bms", move || json(&b.view()))?;
-
-    let (s, st, b) = (settings.clone(), status.clone(), bms.clone());
-    post(&mut server, &auth, "/api/bms/scan", move |_| {
-        if b.scan() {
-            return json(&"scanning");
-        }
-        // Bluetooth memory was given back at start-up: start again with it.
-        s.ask_bluetooth_once().map_err(|e| e.to_string())?;
-        planned_restart(&s, &st);
-        json(&"restarting")
-    })?;
-
-    let (s, b) = (settings.clone(), bms.clone());
-    post(&mut server, &auth, "/api/bms", move |body| {
-        let battery = Battery::from_form(body).map_err(|e| e.to_string())?;
-        s.save_battery(Some(battery)).map_err(|e| e.to_string())?;
-        b.forget();
-        json(&"saved")
-    })?;
-
-    let s = settings.clone();
-    post(&mut server, &auth, "/api/bms/forget", move |_| {
-        s.save_battery(None).map_err(|e| e.to_string())?;
-        bms.forget();
-        json(&"forgotten")
-    })?;
-
-    let s = settings.clone();
-    get(&mut server, &auth, "/api/divider", move || {
-        // `noisy`: the pin wanders, as it does with no divider fitted.
-        let pin = voltmeter.pin();
-        let noisy = pin.is_some_and(|pin| pin.steady_mv().is_none());
-        let spread_mv = pin.map(|pin| pin.spread_mv);
-        json(&serde_json::json!({ "divider": s.divider(), "voltage_mv": voltmeter.battery_mv(), "noisy": noisy, "spread_mv": spread_mv }))
-    })?;
-
-    // Both fields empty: no divider fitted.
-    let s = settings.clone();
-    post(&mut server, &auth, "/api/divider", move |body| {
-        let fields = form::parse(body);
-        let off = ["top", "bottom"].iter().all(|name| form::field(&fields, name).trim().is_empty());
-        let divider = if off { None } else { Some(Divider::from_form(body).map_err(|e| e.to_string())?) };
-        s.save_divider(divider).map_err(|e| e.to_string())?;
-        json(&"saved")
-    })?;
-
-    let (s, r) = (settings.clone(), remote.clone());
-    post(&mut server, &auth, "/api/remote", move |body| {
-        let settings = RemoteSettings::from_form(body).map_err(|e| e.to_string())?;
-        s.save_remote(settings).map_err(|e| e.to_string())?;
-        r.reconfigure();
-        json(&"saved")
-    })?;
-
-    let r = remote.clone();
-    post(&mut server, &auth, "/api/remote/connect", move |_| {
-        r.connect_now();
-        json(&"connecting")
-    })?;
-
-    post(&mut server, &auth, "/api/remote/end", move |_| {
-        remote.end();
-        json(&"ended")
-    })?;
-
-    let a = auth.clone();
-    post(&mut server, &auth, "/api/password", move |body| {
-        let password = NewPassword::from_form(body).map_err(|e| e.to_string())?;
-        a.settings.save_password(Some(PasswordHash::new(&password, random()))).map_err(|e| e.to_string())?;
-        // Everyone else has to log in with the new password; this browser stays in.
-        a.sessions.lock().unwrap().close_all();
-        Ok(Answer { body: json_text(&"saved"), cookie: Some(a.open_session()) })
-    })?;
-
-    let a = auth.clone();
-    post(&mut server, &auth, "/api/password/off", move |_| {
-        a.settings.save_password(None).map_err(|e| e.to_string())?;
-        a.sessions.lock().unwrap().close_all();
-        json(&"off")
-    })?;
-
-    let s = settings.clone();
-    post(&mut server, &auth, "/api/factory-reset", move |_| {
-        s.factory_reset().map_err(|e| e.to_string())?;
-        restart_soon();
-        json(&"reset")
-    })?;
-
-    let (a, st) = (auth.clone(), status.clone());
-    server.fn_handler::<anyhow::Error, _>("/api/ota", Method::Post, move |mut req| {
-        if !a.allows(req.header("Cookie")) {
-            return deny(req);
-        }
-        let size = req.content_len().unwrap_or(0) as usize;
-        let reply = ota::update(&mut req, size).and_then(|info| {
-            planned_restart(&a.settings, &st);
-            json(&serde_json::json!({ "version": info.version, "built": info.built }))
-        });
-        respond(req, reply)
-    })?;
+    let device = Arc::new(routes::Device { settings, status, network, bms, voltmeter, remote });
+    routes::setup(&mut server, &auth, &device)?;
+    routes::bot(&mut server, &auth, &device)?;
+    routes::battery(&mut server, &auth, &device)?;
+    routes::remote(&mut server, &auth, &device)?;
+    routes::access(&mut server, &auth, &device)?;
 
     // Connectivity probes (generate_204, hotspot-detect.html, …) land here.
     server.fn_handler::<anyhow::Error, _>("/*", Method::Get, |req| {
@@ -376,7 +196,7 @@ fn read_body(req: &mut Req) -> Result<String, String> {
     }
     let mut body = vec![0; len];
     req.read_exact(&mut body).map_err(|e| format!("{e:?}"))?;
-    Ok(String::from_utf8_lossy(&body).into_owned())
+    Ok(String::from_utf8(body).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
 }
 
 /// Health of a device that may be out of reach of a serial cable: memory,
