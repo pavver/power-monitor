@@ -8,14 +8,16 @@ publish = false
 
 [dependencies]
 leptos = { version = "0.8.22", default-features = false, features = ["csr"] }
-operator-ui = { git = "https://github.com/pavver/operator-design-system", rev = "65712c5", default-features = false, features = [
+operator-ui = { git = "https://github.com/pavver/operator-design-system", rev = "e59d5b4", default-features = false, features = [
     "action-button",
     "banner",
     "confirm-dialog",
     "empty-state",
     "header",
+    "icon-button",
     "list-item",
     "property-list",
+    "side-panel",
     "status-badge",
     "switch",
     "text-field",
@@ -30,6 +32,7 @@ web-sys = { version = "0.3.107", features = [
     "Element",
     "HtmlElement",
     "HtmlInputElement",
+    "HtmlIFrameElement",
     "Request",
     "RequestInit",
     "RequestMode",

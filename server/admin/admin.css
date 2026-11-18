@@ -9,13 +9,17 @@
 html, body {
   margin: 0;
   padding: 0;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .admin-app {
+  height: 100vh;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .admin-main {
@@ -27,6 +31,44 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: var(--op-dim-margin-screen);
+  overflow-y: auto;
+}
+
+.admin-workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.admin-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-dim-pad-tight);
+  padding: var(--op-dim-pad-card);
+}
+
+.admin-devices-empty {
+  padding: var(--op-dim-pad-card);
+}
+
+.admin-dev-card {
+  cursor: pointer;
+  border: var(--op-dim-border) solid var(--op-border);
+  background: var(--op-surface);
+  padding: var(--op-dim-pad-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-dim-pad-tight);
+  transition: background-color var(--op-motion-state-color) var(--op-ease-standard),
+              border-color var(--op-motion-state-color) var(--op-ease-standard);
+}
+
+.admin-dev-card[data-selected] {
+  background: var(--op-selection);
+  border-color: var(--op-accent);
 }
 
 .admin-card {
@@ -79,17 +121,26 @@ html, body {
 
 .admin-devhead {
   display: flex;
-  align-items: center;
-  gap: var(--op-dim-pad-card);
+  flex-direction: column;
+  gap: var(--op-dim-gap-micro);
+  cursor: pointer;
 }
 
-.admin-devhead-text {
-  flex: 1;
-  min-width: 0;
+.admin-devhead-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--op-dim-pad-small);
+}
+
+.admin-devhead-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--op-dim-pad-tight);
+  flex-shrink: 0;
 }
 
 .admin-devhead-title {
-  display: block;
   font-size: var(--op-type-row-title-size);
   line-height: var(--op-type-row-title-line);
   font-weight: 700;
@@ -126,4 +177,49 @@ html, body {
 .admin-small {
   font-size: var(--op-type-caption-size);
   line-height: var(--op-type-caption-line);
+}
+
+.admin-panel-container {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--op-background);
+  position: relative;
+}
+
+.admin-iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.admin-waiting-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--op-dim-margin-screen);
+  box-sizing: border-box;
+}
+
+.admin-workspace[data-narrow] .op-side-panel:not([data-collapsed]) {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100% !important;
+  z-index: 10;
+}
+
+.admin-workspace[data-narrow] .op-side-panel[data-collapsed] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  background: transparent;
+  box-shadow: none;
 }

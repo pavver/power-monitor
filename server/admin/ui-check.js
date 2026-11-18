@@ -1,11 +1,11 @@
 // Drives server/admin in headless Chromium against a fake JSON API.
-// Usage: node server/admin/ui-check.js
+// Usage: node server/admin/ui-check.js <out-dir>
 const { chromium } = require(process.env.PLAYWRIGHT_CORE || "/tmp/claude-1000/-home-pavver-rust-esp/5bfd559e-822e-4e5e-941a-e07d256d5099/scratchpad/pw/node_modules/playwright-core");
 const fs = require("fs");
 const path = require("path");
 
 const DIST = path.resolve(__dirname, "dist");
-const OUT = process.argv[2] || "/tmp/claude-1000/-home-pavver-rust-esp/5bfd559e-822e-4e5e-941a-e07d256d5099/scratchpad/admin-shots";
+const OUT = process.argv[2] || "/tmp/admin-screenshots";
 
 const exe = fs.readdirSync(path.join(process.env.HOME, ".cache/ms-playwright/chromium_headless_shell-1228"))
   .filter(d => d.startsWith("chrome"))
@@ -16,6 +16,8 @@ function createMockServer() {
     isLoggedIn: false,
     captchaCounter: 0,
     failWaitingOnce: false,
+    lastPostedView: null,
+    viewPostCount: 0,
     devices: [
       {
         id: "0123456789abcdef",
@@ -25,6 +27,8 @@ function createMockServer() {
         online: true,
         requested: false,
         waiting: false,
+        status: "session",
+        view: null,
       },
       {
         id: "fedcba9876543210",
@@ -34,6 +38,19 @@ function createMockServer() {
         online: false,
         requested: false,
         waiting: false,
+        status: "alive",
+        view: null,
+      },
+      {
+        id: "1122334455667788",
+        name: "Гараж",
+        version: "0.1.5",
+        seen: 7200,
+        online: false,
+        requested: false,
+        waiting: false,
+        status: "offline",
+        view: null,
       },
     ],
   };
@@ -54,6 +71,55 @@ async function setupRoutes(page, state) {
         contentType: "application/json",
         body: JSON.stringify(data),
       });
+
+    // Mock device panel page at /
+    if (pathname === "/" || pathname === "/index.html") {
+      const html = `<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Device Panel</title>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 24px;
+      background: #222;
+      color: #eee;
+    }
+    .screen-indicator {
+      font-size: 20px;
+      font-weight: bold;
+      color: #8CBF6E;
+      margin-bottom: 16px;
+    }
+    button {
+      padding: 8px 16px;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>Панель керування пристроєм</h2>
+  <div class="screen-indicator">Екран: <span id="current-view">login</span></div>
+  <div>
+    <button id="btn-login" onclick="show('login')">Вхід</button>
+    <button id="btn-wifi" onclick="show('wifi')">Wi-Fi</button>
+    <button id="btn-dashboard" onclick="show('dashboard')">Панель</button>
+    <button id="btn-bms" onclick="show('bms')">BMS</button>
+  </div>
+  <script>
+    window.recordedViews = ["login"];
+    function show(name) {
+      window.recordedViews.push(name);
+      const el = document.getElementById("current-view");
+      if (el) el.textContent = name;
+    }
+  </script>
+</body>
+</html>`;
+      return fulfill(200, "text/html; charset=utf-8", html);
+    }
 
     // Static assets from DIST
     if (pathname === "/admin" || pathname === "/admin/" || pathname === "/admin/index.html") {
@@ -95,7 +161,7 @@ async function setupRoutes(page, state) {
       if (captcha !== "12345") {
         return json(403, {
           field: "captcha",
-          error: "Цифри з картинки не збіглися. Введіть нові.",
+          error: "Циفري з картинки не збіглися. Введіть нові.",
         });
       }
       if (password !== "admin123") {
@@ -136,8 +202,25 @@ async function setupRoutes(page, state) {
       if (!state.isLoggedIn) return json(401, { login: true });
       const devId = openMatch[1];
       const dev = state.devices.find(d => d.id === devId);
-      if (dev) dev.requested = true;
-      return json(200, { online: false });
+      if (dev) {
+        if (!dev.online) dev.requested = true;
+        return json(200, { online: dev.online });
+      }
+      return json(404, { error: "Такого пристрою вже немає." });
+    }
+
+    const viewMatch = pathname.match(/^\/admin\/devices\/([^/]+)\/view$/);
+    if (viewMatch && method === "POST") {
+      if (!state.isLoggedIn) return json(401, { login: true });
+      const devId = viewMatch[1];
+      const postData = route.request().postData() || "";
+      const params = new URLSearchParams(postData);
+      const view = params.get("view");
+      state.lastPostedView = { devId, view };
+      state.viewPostCount++;
+      const dev = state.devices.find(d => d.id === devId);
+      if (dev) dev.view = view;
+      return route.fulfill({ status: 200, body: "ok" });
     }
 
     const endMatch = pathname.match(/^\/admin\/devices\/([^/]+)\/end$/);
@@ -148,6 +231,7 @@ async function setupRoutes(page, state) {
       if (dev) {
         dev.online = false;
         dev.requested = false;
+        dev.status = "alive";
       }
       return json(200, {});
     }
@@ -168,7 +252,7 @@ async function run() {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({ executablePath: exe });
   const context = await browser.newContext({
-    viewport: { width: 440, height: 900 },
+    viewport: { width: 1024, height: 768 },
     deviceScaleFactor: 2,
   });
   const page = await context.newPage();
@@ -192,9 +276,7 @@ async function run() {
 
   console.log("2. Submitting wrong captcha...");
   await page.fill("input[type=password]", "admin123");
-  // Find captcha input (the text input after password)
   const inputs = await page.$$("input.op-field-input");
-  // inputs[0] is password, inputs[1] is captcha
   await inputs[1].fill("00000");
 
   const loginBtn = await page.waitForSelector("button:has-text('Увійти')");
@@ -203,75 +285,182 @@ async function run() {
   // Verify error banner appears
   await page.waitForSelector(".op-banner");
   const bannerText = await page.$eval(".op-banner", el => el.textContent);
-  if (!bannerText.includes("Цифри з картинки не збіглися")) {
+  if (!bannerText.includes("Циفري з картинки не збіглися")) {
     throw new Error(`Expected captcha error, got: ${bannerText}`);
   }
   await page.screenshot({ path: path.join(OUT, "02-login-captcha-error.png") });
 
   console.log("3. Submitting correct captcha and logging in...");
-  // New captcha has been issued, so 12345 will match
   await inputs[1].fill("12345");
   await loginBtn.click();
 
-  // Wait for devices list to load
-  await page.waitForSelector(".admin-devhead");
-  await page.waitForFunction(() => document.querySelectorAll(".admin-devhead").length === 2);
-  await page.screenshot({ path: path.join(OUT, "03-devices-light.png") });
+  // Wait for devices list to load: 3 devices with session, alive, offline
+  await page.waitForSelector(".admin-dev-card");
+  await page.waitForFunction(() => document.querySelectorAll(".admin-dev-card").length === 3);
+
+  // Check badges for each status
+  const badges = await page.$$eval(".admin-devhead-badges .op-badge", els => els.map(e => e.textContent.trim()));
+  console.log("Detected badges:", badges);
+  if (!badges.some(b => b.includes("з'єднано"))) {
+    throw new Error("Missing 'з'єднано' status badge");
+  }
+  if (!badges.some(b => b.includes("на зв'язку"))) {
+    throw new Error("Missing 'на зв'язку' status badge");
+  }
+  if (!badges.some(b => b.includes("не на зв'язку"))) {
+    throw new Error("Missing 'не на зв'язку' status badge");
+  }
+
+  await page.screenshot({ path: path.join(OUT, "03-devices-light-wide.png") });
 
   console.log("4. Toggling theme to dark mode...");
   const themeToggle = await page.waitForSelector("button.op-theme-toggle");
   await themeToggle.click();
   await page.waitForTimeout(300);
-  await page.screenshot({ path: path.join(OUT, "04-devices-dark.png") });
+  await page.screenshot({ path: path.join(OUT, "04-devices-dark-wide.png") });
 
-  console.log("5. Toggling 'Чекаю пристрій' switch (success)...");
+  console.log("5. Testing narrow viewport...");
+  await page.setViewportSize({ width: 440, height: 900 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(OUT, "05-devices-dark-narrow.png") });
+
+  // Restore wide viewport
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.waitForTimeout(300);
+
+  console.log("6. Selecting non-online device ('Офіс', status: alive)...");
+  const devCards = await page.$$(".admin-dev-card");
+  // devCards[1] is 'Офіс'
+  await devCards[1].click();
+
+  // Verify empty state appears on the right
+  await page.waitForSelector(".admin-waiting-area .op-empty");
+  const emptyStateText = await page.$eval(".admin-waiting-area .op-empty", el => el.textContent);
+  if (!emptyStateText.includes("Сесію запитано") || !emptyStateText.includes("Чекаю пристрій")) {
+    throw new Error(`Expected waiting empty state, got: ${emptyStateText}`);
+  }
+  // Verify 'запитано' badge appears on device 2
+  await page.waitForFunction(() => {
+    const text = document.querySelectorAll(".admin-dev-card")[1].textContent;
+    return text.includes("запитано");
+  });
+  await page.screenshot({ path: path.join(OUT, "06-device-not-online-empty-state.png") });
+
+  console.log("7. Selecting online device ('Дім', status: session)...");
+  // devCards[0] is 'Дім'
+  await devCards[0].click();
+
+  // Verify iframe is shown
+  await page.waitForSelector("iframe.admin-iframe");
+  const iframeHandle = await page.$("iframe.admin-iframe");
+  const frame = await iframeHandle.contentFrame();
+  await frame.waitForSelector("#current-view");
+  const initialView = await frame.$eval("#current-view", el => el.textContent);
+  if (initialView !== "login") {
+    throw new Error(`Expected initial view 'login', got: ${initialView}`);
+  }
+  await page.screenshot({ path: path.join(OUT, "07-device-online-panel.png") });
+
+  console.log("8. Testing view sync: Admin to Server (iframe clicks Wi-Fi)...");
+  state.lastPostedView = null;
+  state.viewPostCount = 0;
+  await frame.click("#btn-wifi");
+
+  // Verify show was called in iframe and view was posted to server
+  await frame.waitForFunction(() => document.getElementById("current-view").textContent === "wifi");
+  const postStart = Date.now();
+  while (!state.lastPostedView && Date.now() - postStart < 5000) {
+    await page.waitForTimeout(50);
+  }
+  if (!state.lastPostedView) {
+    throw new Error("Timed out waiting for view POST from iframe wrapper");
+  }
+  if (state.lastPostedView.view !== "wifi" || state.lastPostedView.devId !== "0123456789abcdef") {
+    throw new Error(`Unexpected posted view: ${JSON.stringify(state.lastPostedView)}`);
+  }
+  console.log("View posted to server successfully:", state.lastPostedView);
+
+  console.log("9. Testing view sync: Server to Admin without echo (server switches to 'bms')...");
+  state.lastPostedView = null;
+  const postCountBefore = state.viewPostCount;
+  // Change device 1 view on server
+  state.devices[0].view = "bms";
+
+  // Wait for polled update in iframe
+  await frame.waitForFunction(() => document.getElementById("current-view").textContent === "bms", null, { timeout: 6000 });
+  // Ensure no extra POST was triggered (no echo)
+  if (state.viewPostCount !== postCountBefore) {
+    throw new Error("Server-to-admin view sync echoed back to server!");
+  }
+  await page.screenshot({ path: path.join(OUT, "08-view-sync-bms.png") });
+
+  console.log("10. Testing narrow viewport with panel active...");
+  await page.setViewportSize({ width: 440, height: 900 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(OUT, "09-panel-narrow.png") });
+
+  // Restore wide viewport
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.waitForTimeout(300);
+
+  console.log("11. Toggling 'Чекаю пристрій' switch (success)...");
   const switches = await page.$$("button.op-switch");
-  if (switches.length < 2) throw new Error("Expected at least 2 switches");
   await switches[0].click();
   await page.waitForFunction(() => document.querySelectorAll("button.op-switch")[0].getAttribute("aria-checked") === "true", null, { timeout: 5000 });
-  await page.screenshot({ path: path.join(OUT, "05-waiting-on.png") });
+  await page.screenshot({ path: path.join(OUT, "10-waiting-on.png") });
 
-  console.log("6. Toggling 'Чекаю пристрій' switch (simulated error)...");
+  console.log("12. Toggling 'Чекаю пристрій' switch (simulated error)...");
   state.failWaitingOnce = true;
   await switches[1].click();
-  // Wait for error banner on device 2
   await page.waitForSelector(".admin-card-msg .op-banner", { timeout: 5000 });
-  await page.screenshot({ path: path.join(OUT, "06-waiting-error.png") });
+  await page.screenshot({ path: path.join(OUT, "11-waiting-error.png") });
 
-  console.log("7. Opening forget dialog for device 2 ('Офіс')...");
+  console.log("13. Ending session on device 1 ('Дім')...");
+  const endBtn = await page.waitForSelector("button:has-text('Завершити сесію')");
+  await endBtn.click();
+
+  // Verify empty state appears after session ends
+  await page.waitForSelector(".admin-waiting-area .op-empty", { timeout: 5000 });
+  await page.screenshot({ path: path.join(OUT, "12-session-ended.png") });
+
+  console.log("14. Opening forget dialog for device 2 ('Офіс')...");
   const forgetButtons = await page.$$("button:has-text('Забути')");
   await forgetButtons[1].click();
 
-  // Wait for ConfirmDialog
   await page.waitForSelector(".op-dialog", { timeout: 5000 });
   const dialogMsg = await page.$eval(".op-dialog-message", el => el.textContent);
   if (!dialogMsg.includes("«Офіс» зникне зі списку")) {
     throw new Error(`Unexpected dialog message: ${dialogMsg}`);
   }
-  await page.screenshot({ path: path.join(OUT, "07-forget-dialog.png") });
+  await page.screenshot({ path: path.join(OUT, "13-forget-dialog.png") });
 
-  console.log("8. Confirming forget in dialog...");
+  console.log("15. Confirming forget in dialog...");
   const confirmBtn = await page.waitForSelector(".op-dialog-actions button.op-danger:has-text('Забути')");
   await confirmBtn.click();
+  await page.waitForSelector(".op-dialog", { state: "detached" });
 
-  // Wait for dialog to close and list to have 1 device
-  await page.waitForFunction(() => document.querySelectorAll(".admin-devhead").length === 1, null, { timeout: 5000 });
-  await page.screenshot({ path: path.join(OUT, "08-one-device-left.png") });
+  // Wait for dialog to close and list to have 2 devices
+  await page.waitForFunction(() => document.querySelectorAll(".admin-dev-card").length === 2, null, { timeout: 5000 });
+  await page.screenshot({ path: path.join(OUT, "14-two-devices-left.png") });
 
-  console.log("9. Forgetting remaining device to show empty state...");
-  const lastForgetBtn = await page.waitForSelector("button:has-text('Забути')");
-  await lastForgetBtn.click();
-  await page.waitForSelector(".op-dialog");
-  const lastConfirmBtn = await page.waitForSelector(".op-dialog-actions button.op-danger:has-text('Забути')");
-  await lastConfirmBtn.click();
+  console.log("16. Forgetting all remaining devices to show empty state...");
+  while ((await page.$$(".admin-dev-card button:has-text('Забути')")).length > 0) {
+    const btn = await page.waitForSelector(".admin-dev-card button:has-text('Забути')");
+    await btn.click();
+    await page.waitForSelector(".op-dialog");
+    const conf = await page.waitForSelector(".op-dialog-actions button.op-danger:has-text('Забути')");
+    await conf.click();
+    await page.waitForSelector(".op-dialog", { state: "detached" });
+    await page.waitForTimeout(200);
+  }
 
-  // Wait for empty state
-  await page.waitForSelector(".op-empty", { timeout: 5000 });
-  const emptyTitle = await page.$eval(".op-empty-title", el => el.textContent);
+  // Wait for empty state in both panels
+  await page.waitForSelector(".admin-devices-empty .op-empty", { timeout: 5000 });
+  const emptyTitle = await page.$eval(".admin-devices-empty .op-empty-title", el => el.textContent);
   if (!emptyTitle.includes("Пристроїв ще немає")) {
     throw new Error(`Unexpected empty title: ${emptyTitle}`);
   }
-  await page.screenshot({ path: path.join(OUT, "09-empty-state.png") });
+  await page.screenshot({ path: path.join(OUT, "15-empty-state.png") });
 
   await browser.close();
 
