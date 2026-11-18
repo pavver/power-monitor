@@ -9,6 +9,7 @@
 //! for the first. `\n` in the
 //! text is a line break, for fields where a real one is awkward to type.
 
+use std::cell::Cell;
 use std::fmt;
 
 use crate::jk;
@@ -64,15 +65,82 @@ pub fn validate(template: &str, own: &[&str]) -> Result<(), TemplateError> {
     if template.len() > MAX_BYTES {
         return Err(TemplateError::TooBig);
     }
-    names(&parse(template)).into_iter().try_for_each(|name| match name {
-        None => Err(TemplateError::Unclosed),
-        Some("device" | BATTERY_VOLTAGE) => Ok(()),
-        Some(name) if jk::VARIABLES.contains(&name) || own.contains(&name) => Ok(()),
-        Some(name) => match OWN.into_iter().find(|&other| other == name) {
-            Some(other) => Err(TemplateError::NotHere(other)),
-            None => Err(TemplateError::Unknown),
+    // The first fault in the text is the one reported.
+    let fault = Cell::new(None);
+    let check_name = |name: &str| match name {
+        "device" | BATTERY_VOLTAGE => None,
+        name if jk::VARIABLES.contains(&name) || own.contains(&name) => None,
+        name => match OWN.into_iter().find(|&other| other == name) {
+            Some(other) => Some(TemplateError::NotHere(other)),
+            None => Some(TemplateError::Unknown),
         },
-    })
+    };
+    walk(
+        template,
+        &mut |event| match event {
+            Event::Text(_) => {}
+            Event::Value(name) => {
+                if fault.get().is_none() {
+                    fault.set(check_name(name));
+                }
+            }
+            Event::Unclosed => {
+                if fault.get().is_none() {
+                    fault.set(Some(TemplateError::Unclosed));
+                }
+            }
+        },
+        &mut |name, _shown| {
+            if fault.get().is_none() {
+                fault.set(check_name(name));
+            }
+            true
+        },
+    );
+    fault.get().map_or(Ok(()), Err)
+}
+
+/// Fills the placeholders named in `values`, a missing (`None`) value as a
+/// shrug, and keeps the sections whose value is there; unnamed placeholders
+/// stay as written. Writes directly to `out`.
+pub fn render_to(template: &str, values: &[(&str, Option<&str>)], out: &mut dyn fmt::Write) -> fmt::Result {
+    let value = |name: &str| values.iter().find(|(key, _)| *key == name).map(|(_, value)| *value);
+    let mut result = Ok(());
+    walk(
+        template,
+        &mut |event| {
+            if result.is_err() {
+                return;
+            }
+            result = match event {
+                Event::Text(text) => write_text(text, out),
+                Event::Value(name) => match value(name) {
+                    Some(Some(val)) => out.write_str(val),
+                    Some(None) => out.write_str(UNKNOWN),
+                    None => {
+                        out.write_char('{')
+                            .and_then(|()| out.write_str(name))
+                            .and_then(|()| out.write_char('}'))
+                    }
+                },
+                Event::Unclosed => out.write_char('{'),
+            };
+        },
+        &mut |name, shown| {
+            let known = matches!(value(name), Some(Some(_)));
+            known == (shown == Shown::Known)
+        },
+    );
+    result
+}
+
+fn write_text(mut text: &str, out: &mut dyn fmt::Write) -> fmt::Result {
+    while let Some(pos) = text.find("\\n") {
+        out.write_str(&text[..pos])?;
+        out.write_char('\n')?;
+        text = &text[pos + 2..];
+    }
+    out.write_str(text)
 }
 
 /// Fills the placeholders named in `values`, a missing (`None`) value as a
@@ -80,22 +148,30 @@ pub fn validate(template: &str, own: &[&str]) -> Result<(), TemplateError> {
 /// stay as written.
 pub fn render(template: &str, values: &[(&str, Option<&str>)]) -> String {
     let mut out = String::with_capacity(template.len());
-    // Values are inserted after parsing, so one is never read as a placeholder.
-    write(&mut out, &parse(template), values);
+    let _ = render_to(template, values, &mut out);
     out
 }
 
 /// Whether `template` shows any battery value.
 pub fn uses_bms(template: &str) -> bool {
-    names(&parse(template)).into_iter().flatten().any(|name| jk::VARIABLES.contains(&name))
-}
-
-enum Part<'a> {
-    Text(&'a str),
-    Value(&'a str),
-    Section(&'a str, Shown, Vec<Part<'a>>),
-    /// A `{name?` never closed; shown as written.
-    Unclosed,
+    let uses = Cell::new(false);
+    walk(
+        template,
+        &mut |event| {
+            if let Event::Value(name) = event {
+                if jk::VARIABLES.contains(&name) {
+                    uses.set(true);
+                }
+            }
+        },
+        &mut |name, _shown| {
+            if jk::VARIABLES.contains(&name) {
+                uses.set(true);
+            }
+            true
+        },
+    );
+    uses.get()
 }
 
 /// When a section's text shows: `{name?` or `{!name?`.
@@ -105,40 +181,76 @@ enum Shown {
     Missing,
 }
 
-fn parse(template: &str) -> Vec<Part<'_>> {
-    parse_until(template, false).0
+enum Event<'a> {
+    Text(&'a str),
+    Value(&'a str),
+    Unclosed,
 }
 
-/// Parts up to the `}` that closes a section when `inside` one, and the text
-/// after that `}` (`None` if it never came).
-fn parse_until(mut rest: &str, inside: bool) -> (Vec<Part<'_>>, Option<&str>) {
-    let mut parts = Vec::new();
+/// Walks `template`; `section(name, shown) -> bool` says whether to enter a
+/// section's body (when false its body is skipped, still up to its `}`).
+fn walk<'a>(
+    template: &'a str,
+    on: &mut dyn FnMut(Event<'a>),
+    section: &mut dyn FnMut(&'a str, Shown) -> bool,
+) {
+    walk_until(template, false, true, on, section);
+}
+
+fn walk_until<'a>(
+    mut rest: &'a str,
+    inside: bool,
+    active: bool,
+    on: &mut dyn FnMut(Event<'a>),
+    section: &mut dyn FnMut(&'a str, Shown) -> bool,
+) -> Option<&'a str> {
     while let Some(at) = rest.find(|c| c == '{' || (inside && c == '}')) {
-        parts.push(Part::Text(&rest[..at]));
+        let text = &rest[..at];
+        if active && !text.is_empty() {
+            on(Event::Text(text));
+        }
         let after = &rest[at + 1..];
         if rest[at..].starts_with('}') {
-            return (parts, Some(after));
+            return Some(after);
         }
         if let Some((name, shown, body)) = section_start(after) {
-            if let (body, Some(tail)) = parse_until(body, true) {
-                parts.push(Part::Section(name, shown, body));
-                rest = tail;
+            // A dry walk first: an unclosed section's body is plain text, so
+            // nothing of it is shown before it is known to close.
+            let Some(tail) = walk_until(body, true, false, on, section) else {
+                // A section running to the end leaves every section around it
+                // unclosed too: each would read the same rest. Going back up at
+                // once keeps nested sections from multiplying the work.
+                if inside {
+                    return None;
+                }
+                if active {
+                    on(Event::Unclosed);
+                }
+                rest = after;
                 continue;
+            };
+            if active && section(name, shown) {
+                walk_until(body, true, true, on, section);
             }
-            parts.push(Part::Unclosed);
-            rest = after;
-            continue;
-        }
-        if let Some((name, tail)) = name_at(after).and_then(|(name, tail)| Some((name, tail.strip_prefix('}')?))) {
-            parts.push(Part::Value(name));
             rest = tail;
             continue;
         }
-        parts.push(Part::Text("{"));
+        if let Some((name, tail)) = name_at(after).and_then(|(name, tail)| Some((name, tail.strip_prefix('}')?))) {
+            if active {
+                on(Event::Value(name));
+            }
+            rest = tail;
+            continue;
+        }
+        if active {
+            on(Event::Text("{"));
+        }
         rest = after;
     }
-    parts.push(Part::Text(rest));
-    (parts, None)
+    if active && !rest.is_empty() {
+        on(Event::Text(rest));
+    }
+    None
 }
 
 /// The name, when it shows and the text after `?` of a section that starts
@@ -156,39 +268,6 @@ fn section_start(after: &str) -> Option<(&str, Shown, &str)> {
 fn name_at(text: &str) -> Option<(&str, &str)> {
     let (name, tail) = text.split_at(text.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(text.len()));
     name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic()).then_some((name, tail))
-}
-
-fn write(out: &mut String, parts: &[Part], values: &[(&str, Option<&str>)]) {
-    let value = |name: &str| values.iter().find(|(key, _)| *key == name).map(|(_, value)| *value);
-    for part in parts {
-        match part {
-            Part::Text(text) => *out += &text.replace("\\n", "\n"),
-            Part::Value(name) => match value(name) {
-                Some(value) => out.push_str(value.unwrap_or(UNKNOWN)),
-                None => *out += &format!("{{{name}}}"),
-            },
-            Part::Section(name, shown, body) => {
-                let known = matches!(value(name), Some(Some(_)));
-                if known == (*shown == Shown::Known) {
-                    write(out, body, values);
-                }
-            }
-            Part::Unclosed => out.push('{'),
-        }
-    }
-}
-
-/// Every name used, in values and sections; `None` for an unclosed section.
-fn names<'a>(parts: &[Part<'a>]) -> Vec<Option<&'a str>> {
-    parts
-        .iter()
-        .flat_map(|part| match part {
-            Part::Text(_) => vec![],
-            Part::Value(name) => vec![Some(*name)],
-            Part::Section(name, _, body) => [vec![Some(*name)], names(body)].concat(),
-            Part::Unclosed => vec![None],
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -213,6 +292,29 @@ mod tests {
     }
 
     const VALUES: [(&str, Option<&str>); 3] = [("device", Some("Дім")), ("duration", Some("5 хв")), ("bms_soc", Some("84"))];
+
+    #[test]
+    fn render_to_writes_to_output() {
+        let mut out = String::new();
+        render_to("⚡ {device}: {duration}", &VALUES, &mut out).unwrap();
+        assert_eq!(out, "⚡ Дім: 5 хв");
+    }
+
+    #[test]
+    fn an_unclosed_section_of_a_known_value_shows_once_as_written() {
+        assert_eq!(render("a {duration?b {device}", &VALUES), "a {duration?b Дім");
+        assert_eq!(render("{device?{duration?x}", &VALUES), "{device?x");
+    }
+
+    #[test]
+    fn the_worst_templates_take_no_time() {
+        let start = std::time::Instant::now();
+        for template in ["{device?".repeat(64), "{device?".repeat(32) + &"}".repeat(32), "{a?{".repeat(128)] {
+            let _ = validate(&template, CHANGE);
+            render(&template, &VALUES);
+        }
+        assert!(start.elapsed() < std::time::Duration::from_millis(200), "{:?}", start.elapsed());
+    }
 
     #[test]
     fn fills_placeholders() {
