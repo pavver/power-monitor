@@ -458,6 +458,46 @@ async fn admin_and_assets_are_served_with_correct_content_types() {
     }
 }
 
+/// Cloudflare keeps the code files for hours: the page names each one with a
+/// version of its content, so a new build is never paired with an old file.
+#[tokio::test]
+async fn the_page_asks_for_this_builds_code_files() {
+    let app = app();
+    let (_, _, page) = call(&app, Request::get("/admin").body(Body::empty()).unwrap()).await;
+    let page = String::from_utf8(page).unwrap();
+    for file in [
+        "/admin/admin.js",
+        "/admin/admin_bg.wasm",
+        "/admin/admin.css",
+    ] {
+        let (_, _, body) = call(&app, Request::get(file).body(Body::empty()).unwrap()).await;
+        let versioned = format!("{file}?v={:016x}", fnv1a(&body));
+        assert!(
+            page.contains(&format!("\"{versioned}\"")) || page.contains(&format!("'{versioned}'")),
+            "{file} not versioned in {page}"
+        );
+        assert!(
+            !page.contains(&format!("\"{file}\"")) && !page.contains(&format!("'{file}'")),
+            "{file} left unversioned"
+        );
+        let (status, _, served) = call(
+            &app,
+            Request::get(versioned.as_str())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!((status, served), (StatusCode::OK, body), "{versioned}");
+    }
+}
+
+/// FNV-1a, as the server versions its files.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| {
+        (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
 #[tokio::test]
 async fn the_device_list_needs_the_admin_and_follows_the_actions() {
     let app = app();

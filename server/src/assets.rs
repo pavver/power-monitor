@@ -1,5 +1,7 @@
 //! The admin Leptos CSR app and its static files, built into the binary.
 
+use std::sync::LazyLock;
+
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -58,13 +60,49 @@ static ASSETS: [Asset; 6] = [
     },
 ];
 
+/// The code files the page asks for. Cloudflare keeps them for hours, so
+/// the page names each with a version of its content (`?v=`): a new build's
+/// page never meets an old file, which its `integrity` check would refuse.
+const VERSIONED: [&str; 3] = [
+    "/admin/admin.js",
+    "/admin/admin_bg.wasm",
+    "/admin/admin.css",
+];
+
+/// The page with every `VERSIONED` file named by its version.
+static PAGE: LazyLock<String> = LazyLock::new(|| {
+    let page = String::from_utf8_lossy(ASSETS[0].body).into_owned();
+    VERSIONED.iter().fold(page, |page, path| {
+        let body = ASSETS
+            .iter()
+            .find(|asset| asset.paths.contains(path))
+            .expect("a versioned file is an asset")
+            .body;
+        let versioned = format!("{path}?v={:016x}", fnv1a(body));
+        page.replace(&format!("\"{path}\""), &format!("\"{versioned}\""))
+            .replace(&format!("'{path}'"), &format!("'{versioned}'"))
+    })
+});
+
+/// FNV-1a: a version that changes with the content, not a security check.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| {
+        (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
 impl Asset {
     fn response(&'static self) -> Response {
         let headers = [
             (header::CONTENT_TYPE, self.content_type),
             (header::CACHE_CONTROL, self.cache),
         ];
-        (headers, self.body).into_response()
+        let body = if std::ptr::eq(self, &ASSETS[0]) {
+            PAGE.as_bytes()
+        } else {
+            self.body
+        };
+        (headers, body).into_response()
     }
 }
 
