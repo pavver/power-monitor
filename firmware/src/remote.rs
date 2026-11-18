@@ -28,8 +28,9 @@ const FAILED_POLL_RETRY_MS: u64 = 5_000;
 const FAILURES_TO_END: u32 = 3;
 const MAX_ANSWER: usize = 4096;
 /// Relayed bodies pass through in pieces this big: a whole page does not
-/// fit in memory next to two HTTP clients.
-const CHUNK: usize = 4096;
+/// fit in memory next to two HTTP clients, and the heap is tight with TLS
+/// and Bluetooth up.
+const CHUNK: usize = 1024;
 
 type HttpClient = Client<EspHttpConnection>;
 

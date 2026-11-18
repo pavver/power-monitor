@@ -44,7 +44,8 @@ pub fn update<R: Read>(body: &mut R, size: usize) -> Result<ImageInfo, String> {
         .initiate_update_with_known_size(size)
         .map_err(|e| format!("Не вдалося підготувати слот: {e}"))?;
     update.write(&header).map_err(|e| format!("Помилка запису: {e}"))?;
-    let mut chunk = vec![0u8; 4096];
+    // Small pieces: the image goes to flash as it comes, never whole in memory.
+    let mut chunk = vec![0u8; 1024];
     let mut written = HEADER_LEN;
     while written < size {
         let len = chunk.len().min(size - written);
