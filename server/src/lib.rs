@@ -732,7 +732,11 @@ async fn set_waiting(
         return login_first();
     }
     match app.0.devices.lock().unwrap().get_mut(&id) {
-        Some(device) => device.waiting = form.on == "1",
+        Some(device) => {
+            device.waiting = form.on == "1";
+            // Nobody waits any more, so the session asked for is not wanted either.
+            device.want_session &= device.waiting;
+        }
         None => return unknown_device(),
     }
     app.save();

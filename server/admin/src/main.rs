@@ -324,8 +324,12 @@ fn App() -> impl IntoView {
                     devices.update(|list| {
                         if let Some(dev) = list.iter_mut().find(|d| d.id == id_val) {
                             dev.waiting = target;
+                            dev.requested &= target;
                         }
                     });
+                    if !target && opening.get_untracked().as_deref() == Some(id_val.as_str()) {
+                        opening.set(None);
+                    }
                     ActionResult::Success
                 }
                 Ok((401, json)) => {

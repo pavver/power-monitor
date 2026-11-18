@@ -528,3 +528,25 @@ async fn a_request_the_busy_device_never_takes_fails_fast_and_is_dropped() {
         "the browser stopped waiting, so the device is not asked"
     );
 }
+
+#[tokio::test]
+async fn no_longer_waiting_for_the_device_drops_the_session_request() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    let post = |path: &str, body: &'static str| {
+        browser(
+            "POST",
+            &format!("/admin/devices/{ID}/{path}"),
+            &cookies,
+            body,
+        )
+    };
+    call(&app, post("waiting", "on=1")).await;
+    call(&app, post("open", "")).await;
+    call(&app, post("waiting", "on=0")).await;
+
+    let (_, _, body) = call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await;
+    assert_eq!(json(&body)[0]["requested"], false);
+    assert_eq!(checkin(&app).await["session"], false);
+}
