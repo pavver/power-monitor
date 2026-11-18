@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use axum::body::{to_bytes, Body, Bytes};
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use power_core::remote::{self, TunnelRequest};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -226,36 +226,33 @@ pub fn split_head(body: &[u8]) -> Option<(String, usize)> {
     Some((String::from_utf8_lossy(&body[..end]).into_owned(), end + 1))
 }
 
-async fn run_flight(link: Arc<Link>, path: String, flight: Arc<Flight>) {
-    let rid = flight.rid.clone();
-    let (taken, picked) = oneshot::channel();
-    let (answer, answered) = oneshot::channel();
-
-    link.waiting.lock().unwrap().insert(
-        rid.clone(),
-        Pending {
-            taken: Some(taken),
-            answer,
-            waiters: Arc::clone(&flight.waiters),
-        },
-    );
-
-    let cookie = link
+/// Hands `job` to the device and waits for its answer: first for the
+/// device to take it, then for the answer. `body` waits for the device too.
+/// The panel session kept here goes with it.
+async fn ask(
+    link: &Link,
+    mut job: TunnelRequest,
+    body: Bytes,
+    waiters: Arc<AtomicUsize>,
+) -> RelayOutcome {
+    job.cookie = link
         .panel_session
         .lock()
         .unwrap()
         .as_ref()
         .map(|token| format!("{}={token}", remote::PANEL_COOKIE));
-
-    let job = TunnelRequest {
-        rid: rid.clone(),
-        method: remote::Method::Get,
-        path: path.clone(),
-        cookie,
-        content_type: None,
-        body_len: 0,
+    let rid = job.rid.clone();
+    let (taken, picked) = oneshot::channel();
+    let (answer, answered) = oneshot::channel();
+    let pending = Pending {
+        taken: Some(taken),
+        answer,
+        waiters,
     };
-
+    link.waiting.lock().unwrap().insert(rid.clone(), pending);
+    if !body.is_empty() {
+        link.bodies.lock().unwrap().insert(rid.clone(), body);
+    }
     let _ = link.jobs.send(job);
 
     let result = match tokio::time::timeout(PICKUP, picked).await {
@@ -263,166 +260,141 @@ async fn run_flight(link: Arc<Link>, path: String, flight: Arc<Flight>) {
         Ok(Err(ended)) => Ok(Err(ended)),
         Err(busy) => Err(busy),
     };
-
     link.waiting.lock().unwrap().remove(&rid);
-
-    let outcome = match result {
-        Ok(Ok(answer)) => {
-            // Do not cache a 504 / "device did not answer" result, and never cache when the session ended.
-            if !link.ending.load(Ordering::SeqCst) && answer.status != 504 {
-                link.cache
-                    .lock()
-                    .unwrap()
-                    .insert(path.clone(), (answer.clone(), Instant::now()));
-            }
-            RelayOutcome::Answer(answer)
-        }
+    link.bodies.lock().unwrap().remove(&rid);
+    match result {
+        Ok(Ok(answer)) => RelayOutcome::Answer(answer),
         Ok(Err(_ended)) => RelayOutcome::Ended,
         Err(_) => RelayOutcome::Timeout,
-    };
+    }
+}
 
+async fn run_flight(link: Arc<Link>, path: String, flight: Arc<Flight>) {
+    let job = TunnelRequest {
+        rid: flight.rid.clone(),
+        method: remote::Method::Get,
+        path: path.clone(),
+        cookie: None,
+        content_type: None,
+        body_len: 0,
+    };
+    let outcome = ask(&link, job, Bytes::new(), Arc::clone(&flight.waiters)).await;
+    if let RelayOutcome::Answer(answer) = &outcome {
+        // Do not cache a 504 / "device did not answer" result, and never cache when the session ended.
+        if !link.ending.load(Ordering::SeqCst) && answer.status != 504 {
+            link.cache
+                .lock()
+                .unwrap()
+                .insert(path.clone(), (answer.clone(), Instant::now()));
+        }
+    }
     link.flights.lock().unwrap().remove(&path);
     let _ = flight.tx.send(Some(outcome));
 }
 
+/// The browser's request for the panel of the device the admin picked.
 pub async fn relay(State(app): State<App>, request: Request) -> Response {
-    let headers = request.headers().clone();
-    if !app.is_admin(&headers) {
-        return Redirect::to("/admin").into_response();
-    }
-    let Some(id) = cookie(&headers, DEVICE_COOKIE).map(str::to_string) else {
-        return Redirect::to("/admin").into_response();
-    };
-    let link = app.link(&id);
-    if !link.online() {
-        return Redirect::to(&format!("/admin?open={id}")).into_response();
-    }
-    let method = match *request.method() {
-        Method::GET => remote::Method::Get,
-        Method::POST => remote::Method::Post,
-        _ => return StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    let (id, link) = match picked(&app, request.headers()) {
+        Ok(picked) => picked,
+        Err(redirect) => return redirect.into_response(),
     };
     let path = request
         .uri()
         .path_and_query()
         .map_or("/", |p| p.as_str())
         .to_string();
+    match *request.method() {
+        Method::GET => get(link, path, &id).await,
+        Method::POST => post(link, path, &id, request).await,
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    }
+}
 
-    if method == remote::Method::Get {
-        // 1. Check cache
-        {
-            let cache = link.cache.lock().unwrap();
-            if let Some((answer, created_at)) = cache.get(&path) {
-                if created_at.elapsed() < CACHE_TTL {
-                    return answer_to_response(answer.clone());
-                }
-            }
-        }
+/// The device picked by an admin and in a session, or where to go instead.
+fn picked(app: &App, headers: &HeaderMap) -> Result<(String, Arc<Link>), Redirect> {
+    let to_admin = || Redirect::to("/admin");
+    if !app.is_admin(headers) {
+        return Err(to_admin());
+    }
+    let id = cookie(headers, DEVICE_COOKIE)
+        .ok_or_else(to_admin)?
+        .to_string();
+    let link = app.link(&id);
+    if !link.online() {
+        return Err(Redirect::to(&format!("/admin?open={id}")));
+    }
+    Ok((id, link))
+}
 
-        // 2. Coalesce in-flight requests (single-flight)
-        let (flight, is_leader) = {
-            let mut flights = link.flights.lock().unwrap();
-            if let Some(flight) = flights.get(&path) {
-                flight.waiters.fetch_add(1, Ordering::SeqCst);
-                (flight.clone(), false)
-            } else {
-                let (tx, rx) = watch::channel(None);
-                let flight = Arc::new(Flight {
-                    rid: random_hex(8),
-                    tx,
-                    rx,
-                    waiters: Arc::new(AtomicUsize::new(1)),
-                });
-                flights.insert(path.clone(), flight.clone());
-                (flight, true)
-            }
-        };
-
-        if is_leader {
-            let link_clone = Arc::clone(&link);
-            let path_clone = path.clone();
-            let flight_clone = Arc::clone(&flight);
-            tokio::spawn(async move {
-                run_flight(link_clone, path_clone, flight_clone).await;
-            });
-        }
-
-        let _guard = WaiterGuard(Arc::clone(&flight.waiters));
-        let mut rx = flight.rx.clone();
-        loop {
-            if let Some(outcome) = rx.borrow().clone() {
-                return outcome_to_response(outcome, &id);
-            }
-            if rx.changed().await.is_err() {
-                return (StatusCode::GATEWAY_TIMEOUT, "Пристрій не відповів.").into_response();
-            }
+/// A read: from the cache, or one request to the device shared by every
+/// browser asking for the same path meanwhile.
+async fn get(link: Arc<Link>, path: String, id: &str) -> Response {
+    if let Some((answer, created_at)) = link.cache.lock().unwrap().get(&path) {
+        if created_at.elapsed() < CACHE_TTL {
+            return answer_to_response(answer.clone());
         }
     }
+    let flight = join_flight(&link, &path);
+    let _guard = WaiterGuard(Arc::clone(&flight.waiters));
+    let mut rx = flight.rx.clone();
+    loop {
+        if let Some(outcome) = rx.borrow().clone() {
+            return outcome_to_response(outcome, id);
+        }
+        if rx.changed().await.is_err() {
+            return outcome_to_response(RelayOutcome::Timeout, id);
+        }
+    }
+}
 
-    // POST request
-    let content_type = headers
+/// The request in flight for `path`, started if there is none; counts this
+/// browser among its waiters.
+fn join_flight(link: &Arc<Link>, path: &str) -> Arc<Flight> {
+    let mut flights = link.flights.lock().unwrap();
+    if let Some(flight) = flights.get(path) {
+        flight.waiters.fetch_add(1, Ordering::SeqCst);
+        return flight.clone();
+    }
+    let (tx, rx) = watch::channel(None);
+    let flight = Arc::new(Flight {
+        rid: random_hex(8),
+        tx,
+        rx,
+        waiters: Arc::new(AtomicUsize::new(1)),
+    });
+    flights.insert(path.to_string(), flight.clone());
+    tokio::spawn(run_flight(
+        Arc::clone(link),
+        path.to_string(),
+        Arc::clone(&flight),
+    ));
+    flight
+}
+
+/// A change: always its own request, and the cache is dropped after it.
+async fn post(link: Arc<Link>, path: String, id: &str, request: Request) -> Response {
+    let content_type = request
+        .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
-    let body = match to_bytes(request.into_body(), remote::MAX_BODY).await {
-        Ok(body) => body,
-        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "Завеликий запит.").into_response(),
+    let Ok(body) = to_bytes(request.into_body(), remote::MAX_BODY).await else {
+        return (StatusCode::PAYLOAD_TOO_LARGE, "Завеликий запит.").into_response();
     };
-    let rid = random_hex(8);
-    let (taken, picked) = oneshot::channel();
-    let (answer, answered) = oneshot::channel();
     let waiters = Arc::new(AtomicUsize::new(1));
     let _guard = WaiterGuard(Arc::clone(&waiters));
-
-    link.waiting.lock().unwrap().insert(
-        rid.clone(),
-        Pending {
-            taken: Some(taken),
-            answer,
-            waiters: Arc::clone(&waiters),
-        },
-    );
-    if !body.is_empty() {
-        link.bodies
-            .lock()
-            .unwrap()
-            .insert(rid.clone(), body.clone());
-    }
-
-    let cookie = link
-        .panel_session
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|token| format!("{}={token}", remote::PANEL_COOKIE));
-
     let job = TunnelRequest {
-        rid: rid.clone(),
+        rid: random_hex(8),
         method: remote::Method::Post,
         path,
-        cookie,
+        cookie: None,
         content_type,
         body_len: body.len(),
     };
-    let _ = link.jobs.send(job);
-
-    let result = match tokio::time::timeout(PICKUP, picked).await {
-        Ok(Ok(())) => tokio::time::timeout(ANSWER, answered).await,
-        Ok(Err(ended)) => Ok(Err(ended)),
-        Err(busy) => Err(busy),
-    };
-
-    link.waiting.lock().unwrap().remove(&rid);
-    link.bodies.lock().unwrap().remove(&rid);
-
+    let outcome = ask(&link, job, body, waiters).await;
     // After any POST, drop that device's cache so the next read is fresh.
     link.drop_cache();
-
-    match result {
-        Ok(Ok(answer)) => answer_to_response(answer),
-        Ok(Err(_ended)) => Redirect::to(&format!("/admin?open={id}")).into_response(),
-        Err(_) => (StatusCode::GATEWAY_TIMEOUT, "Пристрій не відповів.").into_response(),
-    }
+    outcome_to_response(outcome, id)
 }
 
 #[cfg(test)]

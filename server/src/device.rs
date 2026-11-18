@@ -121,33 +121,11 @@ async fn reply(
     let Some((head, rest)) = split_head(&body) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    let raw_headers: Vec<(String, String)> = head
-        .lines()
-        .filter_map(|line| line.split_once(": "))
-        .map(|(name, value)| (name.to_string(), value.to_string()))
-        .collect();
-
+    let (sessions, headers) = panel_headers(&head);
     let link = app.link(&id);
-    for (name, value) in &raw_headers {
-        if name.eq_ignore_ascii_case("set-cookie") {
-            link.update_panel_session(value);
-        }
+    for value in &sessions {
+        link.update_panel_session(value);
     }
-
-    // Do NOT pass that Set-Cookie to the browser.
-    let headers: Vec<(String, String)> = raw_headers
-        .into_iter()
-        .filter(|(name, val)| {
-            if name.eq_ignore_ascii_case("set-cookie") {
-                if let Some((k, _)) = val.split(';').next().and_then(|p| p.split_once('=')) {
-                    if k.trim() == remote::PANEL_COOKIE {
-                        return false;
-                    }
-                }
-            }
-            true
-        })
-        .collect();
 
     let answer = Answer {
         status,
@@ -161,5 +139,48 @@ async fn reply(
             StatusCode::NO_CONTENT.into_response()
         }
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// The header lines of the panel's answer: the values of the panel session
+/// cookie it sets, kept here and never shown to the browser, and the rest.
+fn panel_headers(head: &str) -> (Vec<String>, Vec<(String, String)>) {
+    let (sessions, rest): (Vec<_>, Vec<_>) = head
+        .lines()
+        .filter_map(|line| line.split_once(": "))
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .partition(|(name, value)| {
+            name.eq_ignore_ascii_case("set-cookie") && sets_panel_session(value)
+        });
+    (sessions.into_iter().map(|(_, value)| value).collect(), rest)
+}
+
+fn sets_panel_session(set_cookie: &str) -> bool {
+    set_cookie
+        .split(';')
+        .next()
+        .and_then(|pair| pair.split_once('='))
+        .is_some_and(|(name, _)| name.trim() == remote::PANEL_COOKIE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_panel_session_is_kept_apart_from_the_headers_for_the_browser() {
+        let session = format!("{}=abc; Path=/; HttpOnly", remote::PANEL_COOKIE);
+        let head = format!(
+            "content-type: text/plain\nSet-Cookie: {session}\nset-cookie: theme=dark\nbroken line\n"
+        );
+        let (sessions, rest) = panel_headers(&head);
+        assert_eq!(sessions, vec![session]);
+        assert_eq!(
+            rest,
+            vec![
+                ("content-type".to_string(), "text/plain".to_string()),
+                ("set-cookie".to_string(), "theme=dark".to_string()),
+            ]
+        );
     }
 }
