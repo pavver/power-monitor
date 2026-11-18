@@ -366,7 +366,7 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
   <form class="card" id="messages-form">
     <h2>Повідомлення</h2>
     <p class="small muted">Змінні: <code>{device}</code> — назва пристрою. У текстах «Світло зникло» і «Світло з'явилось»
-      ще <code>{duration}</code> — скільки тривав попередній стан, і <code>{delay}</code> — скільки тому це сталося, якщо
+      ще <code>{duration}</code> — скільки тривав попередній стан (у «Світла все ще немає» — скільки вже немає світла), і <code>{delay}</code> — скільки тому це сталося, якщо
       повідомлення доставлено пізніше ніж за хвилину; у «Новій адресі панелі» — <code>{ip}</code>.
       Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
     <p class="small muted">Умовний фрагмент <code>{duration?Не було {duration}.}</code> виводиться лише тоді, коли значення відоме,
@@ -380,6 +380,8 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
     <label class="cap" for="m-device_name">Назва пристрою</label>
     <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
     <div id="templates"></div>
+    <label class="cap" for="m-still_off_every">Нагадувати «Світла все ще немає» кожні, хв</label>
+    <div class="field" data-field><input id="m-still_off_every" name="still_off_every" type="number" min="1" max="1440" required></div>
     <div class="actions"><button class="btn" id="messages-btn">Зберегти</button></div>
     <div class="msg" id="messages-msg"></div>
   </form>
@@ -499,6 +501,7 @@ const TEXTS = [
   ["start_absent", "Запуск, світла немає"],
   ["lost", "Світло зникло"],
   ["returned", "Світло з'явилось"],
+  ["still_off", "Світла все ще немає"],
   ["address", "Нова адреса панелі"],
   ["test", "Тестове повідомлення"],
 ];
@@ -995,6 +998,7 @@ actionButton($("test-btn"), async () => {
 function fillMessages(messages) {
   messagesFilled = true;
   $("m-device_name").value = messages.device_name;
+  $("m-still_off_every").value = messages.still_off_every;
   $("templates").replaceChildren(...TEXTS.map(([key, title]) => {
     const area = el("textarea", {id: "m-" + key, name: key, maxlength: "500", rows: "3", class: "area"});
     area.value = messages[key];
@@ -1040,7 +1044,7 @@ function previewer(node, key, area) {
 }
 
 actionButton($("messages-btn"), async () => {
-  if (!$("messages-form").reportValidity()) throw new Error("Заповніть назву пристрою.");
+  if (!$("messages-form").reportValidity()) throw new Error("Заповніть назву пристрою й інтервал нагадування (1–1440 хв).");
   say("messages-msg", "");
   await api("/api/messages", Object.fromEntries(new FormData($("messages-form"))));
   say("messages-msg", "Збережено.", "ok");

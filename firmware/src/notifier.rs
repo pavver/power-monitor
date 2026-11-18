@@ -1,5 +1,5 @@
-//! Delivers notices (power events, new addresses) to Telegram in order,
-//! waiting for Wi-Fi and the bot, and retrying failed sends.
+//! Delivers notices (power events, reminders, new addresses) to Telegram in
+//! order, waiting for Wi-Fi and the bot, and retrying failed sends.
 
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
@@ -37,9 +37,9 @@ pub fn spawn(
         loop {
             if outbox.is_empty() {
                 let Ok(notice) = notices.recv() else { return };
-                outbox.push(notice);
+                queue(&mut outbox, notice);
             }
-            notices.try_iter().for_each(|notice| outbox.push(notice));
+            notices.try_iter().for_each(|notice| queue(&mut outbox, notice));
             status.set_pending(outbox.len());
             match deliver_next(&mut outbox, &settings, &status, &bms, &voltmeter) {
                 Delivery::Done => {}
@@ -49,6 +49,12 @@ pub fn spawn(
         }
     })?;
     Ok(())
+}
+
+/// Queues `notice` in place of what it makes old news.
+fn queue(outbox: &mut Outbox<Notice>, notice: Notice) {
+    outbox.retain(|older| !notice.outdates(older));
+    outbox.push(notice);
 }
 
 enum Delivery {

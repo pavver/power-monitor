@@ -16,6 +16,7 @@ pub enum SettingsError {
     ChatId,
     ThreadId,
     DeviceName,
+    StillOffEvery,
     Text(Text, TemplateError),
     BmsAddress,
     Divider,
@@ -34,6 +35,9 @@ impl fmt::Display for SettingsError {
             SettingsError::ChatId => f.write_str("Chat ID має бути цілим числом."),
             SettingsError::ThreadId => f.write_str("Номер гілки форуму має бути додатним цілим числом."),
             SettingsError::DeviceName => f.write_str("Назва пристрою має бути від 1 до 32 символів."),
+            SettingsError::StillOffEvery => {
+                f.write_str("Нагадування «Світла все ще немає» — ціле число хвилин від 1 до 1440.")
+            }
             SettingsError::Text(text, error) => write!(f, "{}: {error}.", text.label()),
             SettingsError::BmsAddress => f.write_str("Адреса BMS має вигляд AA:BB:CC:DD:EE:FF."),
             SettingsError::Divider => {
@@ -261,10 +265,12 @@ pub enum Text {
     Returned,
     Address,
     Test,
+    StillOff,
 }
 
 impl Text {
-    pub const ALL: [Text; 6] = [Text::StartPresent, Text::StartAbsent, Text::Lost, Text::Returned, Text::Address, Text::Test];
+    pub const ALL: [Text; 7] =
+        [Text::StartPresent, Text::StartAbsent, Text::Lost, Text::Returned, Text::StillOff, Text::Address, Text::Test];
 
     /// Form field, JSON key and settings key (at most 15 bytes).
     pub fn key(self) -> &'static str {
@@ -275,6 +281,7 @@ impl Text {
             Text::Returned => "returned",
             Text::Address => "address",
             Text::Test => "test",
+            Text::StillOff => "still_off",
         }
     }
 
@@ -286,6 +293,7 @@ impl Text {
             Text::Returned => "Світло з'явилось",
             Text::Address => "Нова адреса панелі",
             Text::Test => "Тестове повідомлення",
+            Text::StillOff => "Світла все ще немає",
         }
     }
 
@@ -293,7 +301,7 @@ impl Text {
     /// no previous state to measure and are never late.
     pub(crate) fn own(self) -> &'static [&'static str] {
         match self {
-            Text::Lost | Text::Returned => &["duration", "delay"],
+            Text::Lost | Text::Returned | Text::StillOff => &["duration", "delay"],
             Text::Address => &["ip"],
             Text::StartPresent | Text::StartAbsent | Text::Test => &[],
         }
@@ -313,6 +321,7 @@ impl Text {
             Text::Returned => concat!("⚡ {device}: світло з'явилось.{duration?\nНе було {duration}.}{delay?\n(сталося {delay} тому)}", battery!()),
             Text::Address => "🌐 {device}: нова адреса панелі http://{ip}/",
             Text::Test => concat!("🔔 {device}: тестове повідомлення, бот працює.", battery!()),
+            Text::StillOff => concat!("🔌 {device}: світла все ще немає.{duration?\nНемає вже {duration}.}{delay?\n(станом на {delay} тому)}", battery!()),
         }
     }
 
@@ -337,13 +346,24 @@ pub struct Messages {
     returned: String,
     address: String,
     test: String,
+    still_off: String,
+    /// Minutes between reminders that the power is still off.
+    still_off_every: u16,
 }
 
 const DEFAULT_DEVICE_NAME: &str = "Дім";
+const DEFAULT_STILL_OFF_EVERY: u16 = 60;
+const STILL_OFF_EVERY: &str = "still_off_every";
+
+/// Minutes between reminders: 1 to a day.
+fn still_off_every(value: &str) -> Option<u16> {
+    value.trim().parse().ok().filter(|minutes| (1..=1440).contains(minutes))
+}
 
 impl Default for Messages {
     fn default() -> Self {
-        Self::build(DEFAULT_DEVICE_NAME.to_string(), |text| Ok::<_, ()>(text.default_template().to_string())).unwrap()
+        let default = |text: Text| Ok::<_, ()>(text.default_template().to_string());
+        Self::build(DEFAULT_DEVICE_NAME.to_string(), DEFAULT_STILL_OFF_EVERY, default).unwrap()
     }
 }
 
@@ -352,22 +372,28 @@ impl Messages {
     pub fn from_form(body: &str) -> Result<Self, SettingsError> {
         let fields = form::parse(body);
         let device_name = device_name(form::field(&fields, "device_name")).ok_or(SettingsError::DeviceName)?;
-        Self::build(device_name, |text| text.parse(form::field(&fields, text.key())).map_err(|error| SettingsError::Text(text, error)))
+        let every = still_off_every(form::field(&fields, STILL_OFF_EVERY)).ok_or(SettingsError::StillOffEvery)?;
+        Self::build(device_name, every, |text| text.parse(form::field(&fields, text.key())).map_err(|error| SettingsError::Text(text, error)))
     }
 
     /// What `fields` stored, `get` giving each by its key; a missing or
     /// broken one, e.g. a text from a newer firmware, is the default.
     pub fn from_stored(get: impl Fn(&str) -> Option<String>) -> Self {
         let device_name = get("device_name").as_deref().and_then(device_name).unwrap_or(DEFAULT_DEVICE_NAME.to_string());
+        let every = get(STILL_OFF_EVERY).as_deref().and_then(still_off_every).unwrap_or(DEFAULT_STILL_OFF_EVERY);
         let text = |text: Text| get(text.key()).and_then(|value| text.parse(&value).ok());
-        Self::build(device_name, |t| Ok::<_, ()>(text(t).unwrap_or(t.default_template().to_string()))).unwrap()
+        Self::build(device_name, every, |t| Ok::<_, ()>(text(t).unwrap_or(t.default_template().to_string()))).unwrap()
     }
 
     /// Every value with its key, for storing.
-    pub fn fields(&self) -> Vec<(&'static str, &str)> {
-        let mut fields = vec![("device_name", self.device_name.as_str())];
-        fields.extend(Text::ALL.map(|text| (text.key(), self.template(text))));
+    pub fn fields(&self) -> Vec<(&'static str, String)> {
+        let mut fields = vec![("device_name", self.device_name.clone()), (STILL_OFF_EVERY, self.still_off_every.to_string())];
+        fields.extend(Text::ALL.map(|text| (text.key(), self.template(text).to_string())));
         fields
+    }
+
+    pub fn still_off_every_ms(&self) -> u64 {
+        u64::from(self.still_off_every) * 60_000
     }
 
     pub fn device_name(&self) -> &str {
@@ -382,18 +408,21 @@ impl Messages {
             Text::Returned => &self.returned,
             Text::Address => &self.address,
             Text::Test => &self.test,
+            Text::StillOff => &self.still_off,
         }
     }
 
-    fn build<E>(device_name: String, mut text: impl FnMut(Text) -> Result<String, E>) -> Result<Self, E> {
+    fn build<E>(device_name: String, still_off_every: u16, mut text: impl FnMut(Text) -> Result<String, E>) -> Result<Self, E> {
         Ok(Self {
             device_name,
+            still_off_every,
             start_present: text(Text::StartPresent)?,
             start_absent: text(Text::StartAbsent)?,
             lost: text(Text::Lost)?,
             returned: text(Text::Returned)?,
             address: text(Text::Address)?,
             test: text(Text::Test)?,
+            still_off: text(Text::StillOff)?,
         })
     }
 }
@@ -411,14 +440,15 @@ mod tests {
     const TOKEN: &str = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
 
     fn messages_form(overrides: &[(&str, &str)]) -> String {
-        let defaults = Messages::default();
-        let mut fields: Vec<(&str, String)> = vec![("device_name", defaults.device_name.clone())];
-        fields.extend(Text::ALL.map(|t| (t.key(), defaults.template(t).to_string())));
+        let mut fields = Messages::default().fields();
         for (key, value) in overrides {
             fields.iter_mut().find(|(k, _)| k == key).unwrap().1 = value.to_string();
         }
-        let pairs: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        form::encode(&pairs)
+        encode(&fields)
+    }
+
+    fn encode(fields: &[(&str, String)]) -> String {
+        form::encode(&fields.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>())
     }
 
     #[test]
@@ -496,7 +526,28 @@ mod tests {
         assert_eq!(m.device_name(), "Дача");
         assert_eq!(m.template(Text::Lost), "Нема {duration}");
         assert_eq!(m.template(Text::Returned), Text::Returned.default_template());
-        assert_eq!(Messages::from_form(&form::encode(&m.fields())), Ok(m));
+        assert_eq!(Messages::from_form(&encode(&m.fields())), Ok(m));
+    }
+
+    #[test]
+    fn messages_read_how_often_to_remind() {
+        let m = Messages::from_form(&messages_form(&[("still_off_every", " 30 ")])).unwrap();
+        assert_eq!(m.still_off_every_ms(), 30 * 60_000);
+        assert_eq!(Messages::default().still_off_every_ms(), 60 * 60_000);
+        for every in ["", "0", "1441", "x", "-5"] {
+            let body = messages_form(&[("still_off_every", every)]);
+            assert_eq!(Messages::from_form(&body), Err(SettingsError::StillOffEvery), "{every}");
+        }
+    }
+
+    #[test]
+    fn stored_reminder_interval_round_trips_or_is_the_default() {
+        let m = Messages::from_form(&messages_form(&[("still_off_every", "15")])).unwrap();
+        let stored = m.fields();
+        let back = Messages::from_stored(|key| stored.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string()));
+        assert_eq!(back.still_off_every_ms(), 15 * 60_000);
+        let broken = Messages::from_stored(|key| (key == "still_off_every").then(|| "0".to_string()));
+        assert_eq!(broken, Messages::default());
     }
 
     #[test]
@@ -569,7 +620,7 @@ mod tests {
         let m = Messages::from_form(&messages_form(&[("returned", " \n "), ("start_absent", "")])).unwrap();
         assert_eq!(m.template(Text::Returned), "");
         assert_eq!(m.template(Text::StartAbsent), "");
-        assert_eq!(Messages::from_form(&form::encode(&m.fields())), Ok(m));
+        assert_eq!(Messages::from_form(&encode(&m.fields())), Ok(m));
     }
 
     #[test]

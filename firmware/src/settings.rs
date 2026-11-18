@@ -92,6 +92,10 @@ impl Settings {
         self.messages.read().unwrap().clone()
     }
 
+    pub fn still_off_every_ms(&self) -> u64 {
+        self.messages.read().unwrap().still_off_every_ms()
+    }
+
     pub fn save_wifi(&self, wifi: WifiCredentials) -> anyhow::Result<()> {
         self.write(WIFI, &wifi.to_form())?;
         *self.wifi.write().unwrap() = Some(wifi);
@@ -248,7 +252,7 @@ fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, 
 
 fn write_messages(texts: &mut EspNvs<NvsDefault>, messages: &Messages) -> anyhow::Result<()> {
     for (key, value) in messages.fields() {
-        texts.set_str(key, value)?;
+        texts.set_str(key, &value)?;
     }
     Ok(())
 }

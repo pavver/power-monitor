@@ -3,11 +3,12 @@
 use crate::form;
 use crate::jk::{self, Reading};
 use crate::power::{Before, PowerEvent, PowerState};
+use crate::reminder::StillOff;
 use crate::settings::{Messages, Text};
 use crate::template;
 
-/// Power changes delivered later than this have `{delay}`, how long ago they
-/// happened, since Wi-Fi is often down together with the power. Start-up
+/// Power changes and reminders delivered later than this have `{delay}`, how
+/// long ago they happened, since Wi-Fi is often down together with the power. Start-up
 /// messages never do: they wait for Wi-Fi and the bot, so the delay is not
 /// the time of any event.
 const LATE_AFTER_MS: u64 = 60_000;
@@ -44,15 +45,22 @@ impl Readings<'_> {
 
 /// The message for `event`, written at monotonic time `now_ms`.
 pub fn event_text(messages: &Messages, event: &PowerEvent, now_ms: u64, readings: Readings) -> String {
-    let duration = match event.before {
-        Before::Lasted(ms) => Some(format_duration(ms)),
+    let lasted = match event.before {
+        Before::Lasted(ms) => Some(ms),
         _ => None,
     };
-    let delay = now_ms.saturating_sub(event.at_ms);
-    let late = event.before != Before::StartUp && delay >= LATE_AFTER_MS;
-    let delay = late.then(|| format_duration(delay));
+    let at_ms = (event.before != Before::StartUp).then_some(event.at_ms);
+    timed(messages, text_for(event), lasted, at_ms, now_ms, readings)
+}
+
+/// A text with `{duration}` of `lasted` ms and `{delay}` since `at_ms`, if
+/// it can be late at all.
+fn timed(messages: &Messages, text: Text, lasted: Option<u64>, at_ms: Option<u64>, now_ms: u64, readings: Readings) -> String {
+    let duration = lasted.map(format_duration);
+    let delay = at_ms.map(|at_ms| now_ms.saturating_sub(at_ms)).filter(|&delay| delay >= LATE_AFTER_MS);
+    let delay = delay.map(format_duration);
     let own = [("duration", duration.as_deref()), ("delay", delay.as_deref())];
-    fill(messages.template(text_for(event)), messages.device_name(), &own, readings)
+    fill(messages.template(text), messages.device_name(), &own, readings)
 }
 
 /// Stands in for `{duration}` in a preview, where nothing was measured.
@@ -102,6 +110,7 @@ fn text_for_notice(notice: &Notice) -> Text {
     match notice {
         Notice::Power(event) => text_for(event),
         Notice::Address(_) => Text::Address,
+        Notice::StillOff(_) => Text::StillOff,
     }
 }
 
@@ -116,6 +125,15 @@ pub enum Notice {
     Power(PowerEvent),
     /// The device got a new address on the home network.
     Address(String),
+    StillOff(StillOff),
+}
+
+impl Notice {
+    /// Whether `older`, still waiting, says nothing once this one is out:
+    /// a reminder is old news after any newer word on the power.
+    pub fn outdates(&self, older: &Notice) -> bool {
+        matches!(older, Notice::StillOff(_)) && !matches!(self, Notice::Address(_))
+    }
 }
 
 /// What to send for `notice`; `None` when the user left its text empty.
@@ -126,6 +144,10 @@ pub fn notice_text(messages: &Messages, notice: &Notice, now_ms: u64, readings: 
     Some(match notice {
         Notice::Power(event) => event_text(messages, event, now_ms, readings),
         Notice::Address(ip) => fill(messages.template(Text::Address), messages.device_name(), &[("ip", Some(ip))], readings),
+        Notice::StillOff(off) => {
+            let lasted = off.since_ms.map(|since| off.at_ms.saturating_sub(since));
+            timed(messages, Text::StillOff, lasted, Some(off.at_ms), now_ms, readings)
+        }
     })
 }
 
@@ -164,6 +186,33 @@ mod tests {
         assert_eq!(format_duration(3 * HOUR), "3 год");
         assert_eq!(format_duration(DAY + 3 * HOUR + 20 * MIN), "1 д 3 год");
         assert_eq!(format_duration(2 * DAY), "2 д");
+    }
+
+    fn still_off(since_ms: Option<u64>) -> Notice {
+        Notice::StillOff(StillOff { at_ms: 70 * MIN, since_ms })
+    }
+
+    #[test]
+    fn still_off_says_how_long_the_power_has_been_off() {
+        let send = |notice, now| notice_text(&Messages::default(), &notice, now, Readings::NONE);
+        assert_eq!(send(still_off(Some(10 * MIN)), 70 * MIN).as_deref(), Some("🔌 Дім: світла все ще немає.\nНемає вже 1 год."));
+        assert_eq!(send(still_off(None), 70 * MIN).as_deref(), Some("🔌 Дім: світла все ще немає."));
+        assert_eq!(
+            send(still_off(None), 82 * MIN).as_deref(),
+            Some("🔌 Дім: світла все ще немає.\n(станом на 12 хв тому)")
+        );
+        assert!(needs_bms(&Messages::default(), &still_off(None)));
+    }
+
+    #[test]
+    fn news_about_the_power_outdates_a_waiting_reminder() {
+        let lost = Notice::Power(event(Absent, Some(MIN)));
+        let address = Notice::Address("10.0.0.2".into());
+        assert!(still_off(None).outdates(&still_off(Some(MIN))));
+        assert!(lost.outdates(&still_off(None)));
+        assert!(!still_off(None).outdates(&lost));
+        assert!(!address.outdates(&still_off(None)));
+        assert!(!still_off(None).outdates(&address));
     }
 
     #[test]
@@ -216,12 +265,11 @@ mod tests {
 
     /// The default texts as the page would send them, some replaced.
     fn form_with(changes: &[(&str, &str)]) -> String {
-        let defaults = Messages::default();
-        let mut fields = defaults.fields();
+        let mut fields = Messages::default().fields();
         for &(key, value) in changes {
-            fields.iter_mut().find(|(k, _)| *k == key).unwrap().1 = value;
+            fields.iter_mut().find(|(k, _)| *k == key).unwrap().1 = value.to_string();
         }
-        form::encode(&fields)
+        form::encode(&fields.iter().map(|(k, v)| (*k, v.as_str())).collect::<Vec<_>>())
     }
 
     #[test]

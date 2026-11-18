@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     let bms = bms::Bms::start(settings.clone(), keep_bluetooth(&settings)?)?;
     let voltmeter = voltmeter::Voltmeter::new(peripherals.adc1, peripherals.pins.gpio34, settings.clone())?;
     let (notices, inbox) = mpsc::channel();
-    sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone(), kept_power(&settings)?)?;
+    sensor::spawn(peripherals.pins.gpio4, notices.clone(), status.clone(), settings.clone(), kept_power(&settings)?)?;
     notifier::spawn(inbox, settings.clone(), status.clone(), bms.clone(), voltmeter.clone())?;
     let network = network::start(peripherals.modem, sys_loop, nvs, settings.clone(), status.clone(), notices)?;
     let remote = remote::Remote::start(settings.clone(), status.clone())?;

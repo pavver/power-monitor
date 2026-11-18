@@ -26,6 +26,11 @@ impl<T> Outbox<T> {
         self.pending.front()
     }
 
+    /// Drops the waiting items `keep` says no to.
+    pub fn retain(&mut self, keep: impl FnMut(&T) -> bool) {
+        self.pending.retain(keep);
+    }
+
     pub fn delivered(&mut self) {
         self.pending.pop_front();
     }
@@ -67,6 +72,15 @@ mod tests {
         for at_ms in 1..=3 {
             outbox.push(event(at_ms));
         }
+        assert_eq!(outbox.len(), 2);
+        assert_eq!(outbox.next(), Some(&event(2)));
+    }
+
+    #[test]
+    fn retain_drops_only_what_is_not_kept() {
+        let mut outbox = Outbox::new(4);
+        (1..=4).for_each(|at_ms| outbox.push(event(at_ms)));
+        outbox.retain(|e| e.at_ms % 2 == 0);
         assert_eq!(outbox.len(), 2);
         assert_eq!(outbox.next(), Some(&event(2)));
     }

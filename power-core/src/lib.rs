@@ -2,6 +2,7 @@
 //! on the host under `cargo test`; the `firmware` crate only wires it to ESP-IDF.
 
 pub mod power;
+pub mod reminder;
 pub mod message;
 pub mod form;
 pub mod dns;
