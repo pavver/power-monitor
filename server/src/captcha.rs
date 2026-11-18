@@ -19,19 +19,100 @@ const HEIGHT: f32 = 64.0;
 
 /// Digit strokes on a 4×6 grid, y down; each digit is one or two polylines.
 const GLYPHS: [&[&[(f32, f32)]]; 10] = [
-    &[&[(1.0, 0.0), (3.0, 0.0), (4.0, 1.0), (4.0, 5.0), (3.0, 6.0), (1.0, 6.0), (0.0, 5.0), (0.0, 1.0), (1.0, 0.0)]],
-    &[&[(1.0, 1.0), (2.0, 0.0), (2.0, 6.0)], &[(1.0, 6.0), (3.0, 6.0)]],
-    &[&[(0.0, 1.0), (1.0, 0.0), (3.0, 0.0), (4.0, 1.0), (4.0, 2.0), (0.0, 6.0), (4.0, 6.0)]],
-    &[&[(0.0, 0.0), (4.0, 0.0), (2.0, 2.5), (3.0, 2.5), (4.0, 3.5), (4.0, 5.0), (3.0, 6.0), (1.0, 6.0), (0.0, 5.0)]],
+    &[&[
+        (1.0, 0.0),
+        (3.0, 0.0),
+        (4.0, 1.0),
+        (4.0, 5.0),
+        (3.0, 6.0),
+        (1.0, 6.0),
+        (0.0, 5.0),
+        (0.0, 1.0),
+        (1.0, 0.0),
+    ]],
+    &[
+        &[(1.0, 1.0), (2.0, 0.0), (2.0, 6.0)],
+        &[(1.0, 6.0), (3.0, 6.0)],
+    ],
+    &[&[
+        (0.0, 1.0),
+        (1.0, 0.0),
+        (3.0, 0.0),
+        (4.0, 1.0),
+        (4.0, 2.0),
+        (0.0, 6.0),
+        (4.0, 6.0),
+    ]],
+    &[&[
+        (0.0, 0.0),
+        (4.0, 0.0),
+        (2.0, 2.5),
+        (3.0, 2.5),
+        (4.0, 3.5),
+        (4.0, 5.0),
+        (3.0, 6.0),
+        (1.0, 6.0),
+        (0.0, 5.0),
+    ]],
     &[&[(3.0, 6.0), (3.0, 0.0), (0.0, 4.0), (4.0, 4.0)]],
-    &[&[(4.0, 0.0), (0.0, 0.0), (0.0, 2.5), (3.0, 2.5), (4.0, 3.5), (4.0, 5.0), (3.0, 6.0), (0.0, 6.0)]],
-    &[&[(3.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.0, 5.0), (1.0, 6.0), (3.0, 6.0), (4.0, 5.0), (4.0, 3.5), (3.0, 2.5), (0.0, 2.5)]],
+    &[&[
+        (4.0, 0.0),
+        (0.0, 0.0),
+        (0.0, 2.5),
+        (3.0, 2.5),
+        (4.0, 3.5),
+        (4.0, 5.0),
+        (3.0, 6.0),
+        (0.0, 6.0),
+    ]],
+    &[&[
+        (3.0, 0.0),
+        (1.0, 0.0),
+        (0.0, 1.0),
+        (0.0, 5.0),
+        (1.0, 6.0),
+        (3.0, 6.0),
+        (4.0, 5.0),
+        (4.0, 3.5),
+        (3.0, 2.5),
+        (0.0, 2.5),
+    ]],
     &[&[(0.0, 0.0), (4.0, 0.0), (1.5, 6.0)]],
     &[
-        &[(1.0, 0.0), (3.0, 0.0), (4.0, 1.0), (4.0, 2.0), (3.0, 3.0), (1.0, 3.0), (0.0, 2.0), (0.0, 1.0), (1.0, 0.0)],
-        &[(1.0, 3.0), (0.0, 4.0), (0.0, 5.0), (1.0, 6.0), (3.0, 6.0), (4.0, 5.0), (4.0, 4.0), (3.0, 3.0)],
+        &[
+            (1.0, 0.0),
+            (3.0, 0.0),
+            (4.0, 1.0),
+            (4.0, 2.0),
+            (3.0, 3.0),
+            (1.0, 3.0),
+            (0.0, 2.0),
+            (0.0, 1.0),
+            (1.0, 0.0),
+        ],
+        &[
+            (1.0, 3.0),
+            (0.0, 4.0),
+            (0.0, 5.0),
+            (1.0, 6.0),
+            (3.0, 6.0),
+            (4.0, 5.0),
+            (4.0, 4.0),
+            (3.0, 3.0),
+        ],
     ],
-    &[&[(4.0, 3.5), (1.0, 3.5), (0.0, 2.5), (0.0, 1.0), (1.0, 0.0), (3.0, 0.0), (4.0, 1.0), (4.0, 5.0), (3.0, 6.0), (1.0, 6.0)]],
+    &[&[
+        (4.0, 3.5),
+        (1.0, 3.5),
+        (0.0, 2.5),
+        (0.0, 1.0),
+        (1.0, 0.0),
+        (3.0, 0.0),
+        (4.0, 1.0),
+        (4.0, 5.0),
+        (3.0, 6.0),
+        (1.0, 6.0),
+    ]],
 ];
 
 struct Challenge {
@@ -49,14 +130,33 @@ pub struct Challenges {
 impl Challenges {
     /// A new challenge; returns its id.
     pub fn issue(&mut self, rng: &mut impl Rng, now: Instant) -> String {
-        self.open.retain(|_, c| now.duration_since(c.made) < LIFETIME);
+        self.open
+            .retain(|_, c| now.duration_since(c.made) < LIFETIME);
         while self.open.len() >= CAPACITY {
-            let Some(oldest) = self.open.iter().min_by_key(|(_, c)| c.made).map(|(id, _)| id.clone()) else { break };
+            let Some(oldest) = self
+                .open
+                .iter()
+                .min_by_key(|(_, c)| c.made)
+                .map(|(id, _)| id.clone())
+            else {
+                break;
+            };
             self.open.remove(&oldest);
         }
-        let id: String = (0..16).map(|_| format!("{:02x}", rng.random::<u8>())).collect();
-        let answer = (0..LENGTH).map(|_| char::from(b'0' + rng.random_range(0..10u8))).collect();
-        self.open.insert(id.clone(), Challenge { answer, seed: rng.random(), made: now });
+        let id: String = (0..16)
+            .map(|_| format!("{:02x}", rng.random::<u8>()))
+            .collect();
+        let answer = (0..LENGTH)
+            .map(|_| char::from(b'0' + rng.random_range(0..10u8)))
+            .collect();
+        self.open.insert(
+            id.clone(),
+            Challenge {
+                answer,
+                seed: rng.random(),
+                made: now,
+            },
+        );
         id
     }
 
@@ -97,7 +197,13 @@ fn draw(answer: &str, seed: u64) -> String {
             for (n, &(x, y)) in stroke.iter().enumerate() {
                 let x = (x - 2.0 + rng.random_range(-0.2..0.2)) * scale;
                 let y = (y - 3.0 + rng.random_range(-0.2..0.2)) * scale;
-                let _ = write!(d, "{}{:.1} {:.1}", if n == 0 { 'M' } else { 'L' }, cx + x * cos - y * sin, cy + x * sin + y * cos);
+                let _ = write!(
+                    d,
+                    "{}{:.1} {:.1}",
+                    if n == 0 { 'M' } else { 'L' },
+                    cx + x * cos - y * sin,
+                    cy + x * sin + y * cos
+                );
             }
         }
         let _ = write!(svg, "<path stroke-width='3' d='{d}'/>");
@@ -106,7 +212,11 @@ fn draw(answer: &str, seed: u64) -> String {
         let mut point = || (rng.random_range(0.0..WIDTH), rng.random_range(0.0..HEIGHT));
         let (a, b, c) = (point(), point(), point());
         let width = rng.random_range(1.0..1.8);
-        let _ = write!(svg, "<path stroke-width='{width:.1}' d='M{:.1} {:.1}Q{:.1} {:.1} {:.1} {:.1}'/>", a.0, a.1, b.0, b.1, c.0, c.1);
+        let _ = write!(
+            svg,
+            "<path stroke-width='{width:.1}' d='M{:.1} {:.1}Q{:.1} {:.1} {:.1} {:.1}'/>",
+            a.0, a.1, b.0, b.1, c.0, c.1
+        );
     }
     svg + "</g></svg>"
 }
@@ -128,7 +238,11 @@ mod tests {
         let (id, answer) = issued(&mut challenges, start);
         assert!(!challenges.check(&id, &answer, start + LIFETIME));
         let (id, answer) = issued(&mut challenges, start);
-        assert!(challenges.check(&id, &format!(" {answer} "), start + LIFETIME - Duration::from_secs(1)));
+        assert!(challenges.check(
+            &id,
+            &format!(" {answer} "),
+            start + LIFETIME - Duration::from_secs(1)
+        ));
     }
 
     #[test]
@@ -153,7 +267,9 @@ mod tests {
         assert_ne!(challenges.image(&a), challenges.image(&b));
         // Every digit is drawable.
         for digit in 0..10u8 {
-            assert!(draw(&char::from(b'0' + digit).to_string().repeat(LENGTH), 1).contains("<path"));
+            assert!(
+                draw(&char::from(b'0' + digit).to_string().repeat(LENGTH), 1).contains("<path")
+            );
         }
     }
 }

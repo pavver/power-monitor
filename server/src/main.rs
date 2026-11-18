@@ -19,11 +19,16 @@ async fn main() {
         eprintln!("DATA_DIR {}: {error}", data.display());
         std::process::exit(2);
     }
-    let app = App::new(Config { admin_password, data: Some(data) });
-    let listener = tokio::net::TcpListener::bind(&bind).await.unwrap_or_else(|error| {
-        eprintln!("BIND {bind}: {error}");
-        std::process::exit(2);
+    let app = App::new(Config {
+        admin_password,
+        data: Some(data),
     });
+    let listener = tokio::net::TcpListener::bind(&bind)
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("BIND {bind}: {error}");
+            std::process::exit(2);
+        });
     eprintln!("listening on {bind}");
     axum::serve(listener, app.router())
         .with_graceful_shutdown(async {

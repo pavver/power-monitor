@@ -1,0 +1,45 @@
+[package]
+name = "admin"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+leptos = { version = "0.8.22", default-features = false, features = ["csr"] }
+operator-ui = { git = "https://github.com/pavver/operator-design-system", rev = "65712c5", default-features = false, features = [
+    "action-button",
+    "banner",
+    "confirm-dialog",
+    "empty-state",
+    "header",
+    "list-item",
+    "property-list",
+    "status-badge",
+    "switch",
+    "text-field",
+    "theme-toggle",
+] }
+wasm-bindgen = "0.2.130"
+web-sys = { version = "0.3.107", features = [
+    "Window",
+    "Document",
+    "Location",
+    "History",
+    "Element",
+    "HtmlElement",
+    "HtmlInputElement",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Headers",
+] }
+js-sys = "0.3.107"
+wasm-bindgen-futures = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+console_error_panic_hook = "0.1"
+gloo-timers = { version = "0.4", features = ["futures"] }
+gloo-net = { version = "0.6", default-features = false, features = ["http", "json"] }

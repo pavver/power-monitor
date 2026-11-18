@@ -1,0 +1,129 @@
+@font-face {
+  font-family: "Cascadia Code";
+  src: local("Cascadia Code"), url("/admin/assets/fonts/CascadiaCode.ttf") format("truetype");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+.admin-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-main {
+  max-width: calc(var(--op-du) * 120);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--op-dim-margin-screen);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-dim-margin-screen);
+}
+
+.admin-card {
+  background: var(--op-surface);
+  border: var(--op-dim-border) solid var(--op-border);
+  padding: var(--op-dim-pad-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-dim-pad-card);
+}
+
+.admin-card-alt {
+  background: var(--op-surface-alt);
+}
+
+.admin-label {
+  display: block;
+  font-size: var(--op-type-caption-size);
+  line-height: var(--op-type-caption-line);
+  color: var(--op-text-secondary);
+}
+
+.admin-captcha-row {
+  display: flex;
+  gap: var(--op-dim-gutter);
+  align-items: stretch;
+}
+
+.admin-captcha-img {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  max-width: calc(var(--op-du) * 50);
+  height: auto;
+  aspect-ratio: 200 / 64;
+  background: var(--op-surface);
+  border: var(--op-dim-border) solid var(--op-border);
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--op-dim-gutter);
+  margin-top: var(--op-dim-pad-tight);
+}
+
+.admin-actions > * {
+  flex: 1 1 auto;
+}
+
+.admin-devhead {
+  display: flex;
+  align-items: center;
+  gap: var(--op-dim-pad-card);
+}
+
+.admin-devhead-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-devhead-title {
+  display: block;
+  font-size: var(--op-type-row-title-size);
+  line-height: var(--op-type-row-title-line);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-devhead-meta {
+  display: block;
+  font-size: var(--op-type-caption-size);
+  line-height: var(--op-type-caption-line);
+  color: var(--op-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.admin-session-ok {
+  color: var(--op-success);
+}
+
+.admin-session-pending {
+  color: var(--op-pending);
+}
+
+.admin-card-msg {
+  margin-top: var(--op-dim-pad-tight);
+}
+
+.admin-muted {
+  color: var(--op-text-secondary);
+  margin: 0;
+}
+
+.admin-small {
+  font-size: var(--op-type-caption-size);
+  line-height: var(--op-type-caption-line);
+}
