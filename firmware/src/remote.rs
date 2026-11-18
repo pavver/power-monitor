@@ -53,7 +53,7 @@ impl Remote {
         let remote = Self { shared: Arc::new((Mutex::new(state), Condvar::new())), settings, status };
         let worker = remote.clone();
         // TLS handshakes need a large stack.
-        crate::tasks::spawn(c"remote", 12 * 1024, move || worker.run())?;
+        crate::tasks::spawn("remote", 12 * 1024, move || worker.run())?;
         Ok(remote)
     }
 

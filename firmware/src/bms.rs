@@ -71,7 +71,7 @@ impl Bms {
         let bms = Self { shared, settings, bluetooth };
         if bluetooth {
             let worker = bms.clone();
-            crate::tasks::spawn(c"bms", 8 * 1024, move || block_on(worker.run()))?;
+            crate::tasks::spawn("bms", 8 * 1024, move || block_on(worker.run()))?;
         }
         Ok(bms)
     }

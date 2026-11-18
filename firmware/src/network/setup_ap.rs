@@ -80,7 +80,7 @@ pub(super) fn offer_portal_uri(netif: &EspNetif) -> anyhow::Result<()> {
 /// Answers every DNS query with our address so phones open the portal.
 pub(super) fn spawn_dns(ip: [u8; 4]) -> anyhow::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:53")?;
-    crate::tasks::spawn(c"dns", 4096, move || {
+    crate::tasks::spawn("dns", 4096, move || {
         let mut buf = [0u8; 512];
         loop {
             let Ok((len, peer)) = socket.recv_from(&mut buf) else { continue };

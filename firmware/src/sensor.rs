@@ -35,7 +35,7 @@ pub fn spawn(
         None => Detector::new(CONFIRM_WINDOWS),
     };
     let mut reminder = Reminder::resume(kept, now_ms());
-    crate::tasks::spawn(c"sensor", 4096, move || {
+    crate::tasks::spawn("sensor", 4096, move || {
         loop {
             let started_ms = now_ms();
             let low_samples = count_low_samples(&input);
