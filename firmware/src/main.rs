@@ -68,18 +68,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Bluetooth is kept only for a saved BMS or a search for one; otherwise
-/// the memory reserved for it (some 56 KB) goes back to the heap. That
-/// cannot be undone until the next start.
+/// Bluetooth runs only for a saved BMS or a search for one. Its memory is
+/// not given back to the heap when it does not: on this ESP32 the released
+/// controller memory was still written to (Wi-Fi coexistence state lives
+/// there), and the heap blocks placed over it, the network thread's among
+/// them, were corrupted. A device with a BMS never released it either.
 fn keep_bluetooth(settings: &Settings) -> anyhow::Result<bool> {
-    let keep = settings.battery().is_some() || settings.take_bluetooth_once()?;
-    if !keep {
-        // SAFETY: called before anything starts the Bluetooth controller,
-        // which is never started afterwards (see Bms::start).
-        esp_idf_svc::sys::esp!(unsafe { esp_idf_svc::sys::esp_bt_mem_release(esp_idf_svc::sys::esp_bt_mode_t_ESP_BT_MODE_BTDM) })?;
-        log::info!("bluetooth memory released: no BMS saved");
-    }
-    Ok(keep)
+    Ok(settings.battery().is_some() || settings.take_bluetooth_once()?)
 }
 
 /// The power state a planned restart kept. Only a software restart counts:

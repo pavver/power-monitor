@@ -133,7 +133,7 @@ pub(super) fn battery(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) ->
         if dev.bms.scan() {
             return json(&"scanning");
         }
-        // Bluetooth memory was given back at start-up: start again with it.
+        // Bluetooth was not started at start-up: start again with it.
         dev.settings.ask_bluetooth_once().map_err(|e| e.to_string())?;
         planned_restart(&dev.settings, &dev.status);
         json(&"restarting")
