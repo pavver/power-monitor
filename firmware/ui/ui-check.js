@@ -92,6 +92,10 @@ function route(page, dev) {
       dev.messagesSaved.push({ field: url.searchParams.get("field"), value: route.request().postData() });
       return json("saved");
     }
+    if (url.pathname === "/api/messages/about") {
+      const own = { lost: ["duration", "delay"], returned: ["duration", "delay"], still_off: ["duration", "delay"], address: ["ip"] }[url.searchParams.get("field")] || [];
+      return json({ standard: "стандарт " + url.searchParams.get("field"), variables: ["device", ...own, "battery_voltage", "bms_soc", "bms_voltage", "bms_energy"] });
+    }
     if (url.pathname === "/api/messages/preview") {
       // The device fills the text; the page only has to show its answer.
       const template = route.request().postData();
@@ -130,7 +134,11 @@ async function runBms() {
   // Plain http: the page copies through a hidden textarea; record what it copied.
   await page.addInitScript(() => {
     const copy = document.execCommand.bind(document);
-    document.execCommand = cmd => { if (cmd === "copy") window.copied = document.activeElement.value; return copy(cmd) || true; };
+    document.execCommand = (cmd, ...rest) => {
+      if (cmd !== "copy") return copy(cmd, ...rest);
+      window.copied = document.activeElement.value;
+      return copy(cmd) || true;
+    };
   });
   await page.goto("http://192.168.1.50/");
   await page.waitForFunction(() => document.querySelector("section.on").id === "s-dashboard");
@@ -158,32 +166,61 @@ async function runBms() {
   const pollsLeaving = dev.bmsPolls;
   await page.waitForTimeout(4000);
   const pollsAfter = dev.bmsPolls;
+  // The texts: a list on the dashboard, each edited and saved on its own screen.
+  await page.waitForTimeout(800);
+  const rows = await page.$$eval("#texts .item", n => n.map(r => r.textContent));
+  const openText = async title => {
+    await page.click(`#texts .item:has-text("${title}")`);
+    await page.waitForSelector("#s-text.on");
+    await page.waitForSelector("#t-vars .item");
+  };
+  await openText("Світло зникло");
+  const vars = await page.$$eval("#t-vars .item code", n => n.map(c => c.textContent));
+  const everyHidden = await page.$eval("#t-every-row", n => n.classList.contains("hidden"));
   const shownPreview = async () => {
     await page.waitForTimeout(800);
-    return page.$eval("#m-lost", a => { const p = a.closest("div").parentElement.querySelector(".preview"); return [p.textContent, p.classList.contains("bad")]; });
+    return page.$eval("#t-preview", p => [p.textContent, p.classList.contains("bad")]);
   };
-  await page.fill("#m-lost", "Батарея {bms_soc}%");
+  await page.fill("#t-area", "Батарея {bms_soc}%");
   const preview = await shownPreview();
-  await page.fill("#m-lost", "{nope}");
+  const lit = await page.$$eval("#t-hl .v", n => n.map(s => s.textContent));
+  await page.fill("#t-area", "{nope} {ip}");
   const rejected = await shownPreview();
-  const chips = await page.$$eval(".chip", n => n.length);
-  const texts = await page.$$eval("#templates textarea", n => n.map(a => a.name + "=" + a.value));
-  const every = await page.inputValue("#m-still_off_every");
+  const flagged = await page.$$eval("#t-hl .x", n => n.map(s => s.textContent));
+  await page.fill("#t-area", "Було ");
+  await page.click('#t-vars .item:has-text("{duration}")');
+  const inserted = await page.inputValue("#t-area");
+  await page.click("#t-standard");
+  await page.waitForTimeout(300);
+  const standard = await page.inputValue("#t-area");
+  await page.screenshot({ path: OUT + "/texts-0-editor.png", fullPage: true });
   const newLost = "Світло зникло: {duration}";
-  await page.fill("#m-lost", newLost);
-  await page.click("#messages-btn");
-  await page.waitForFunction(() => document.getElementById("messages-btn").dataset.state === "ok", null, { timeout: 3000 });
-  const msg = await page.$eval("#messages-msg", m => m.textContent);
+  await page.fill("#t-area", newLost);
+  await page.click("#t-save");
+  await page.waitForFunction(() => document.getElementById("t-save").dataset.state === "ok", null, { timeout: 3000 });
+  const msg = await page.$eval("#t-msg", m => m.textContent);
+  await page.click("#back");
+  await page.waitForSelector("#s-dashboard.on");
+  await openText("Світла все ще немає");
+  const every = await page.inputValue("#t-every");
+  await page.fill("#t-every", "30");
+  await page.click("#t-save");
+  await page.waitForFunction(() => document.getElementById("t-save").dataset.state === "ok", null, { timeout: 3000 });
+  await page.click("#back");
+  await page.waitForSelector("#s-dashboard.on");
+  await page.screenshot({ path: OUT + "/texts-1-list.png", fullPage: true });
   await browser.close();
   const ok = errors.length === 0 && pollsOnDashboard === 0 && pollsAfter === pollsLeaving && pollsLeaving > 0
     && dev.bmsSaved && dev.bmsSaved.address === "C8:47:8C:F2:7E:03" && dev.bmsSaved.random === ""
     && shown.includes("53.22 В") && preview[0] === "Дім|lost|Батарея {bms_soc}%" && !preview[1] && rejected[0] === "невідома змінна" && rejected[1]
-    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0 && scanButton === "pending" && noise[0] && noise[1]
-    && texts.includes("address={device}: http://{ip}/") && texts.includes("test={device}: тест")
-    && texts.includes("still_off={device}: світла все ще немає") && every === "60" && texts.length === 7
-    && dev.messagesSaved.length === 1 && dev.messagesSaved[0].field === "lost" && dev.messagesSaved[0].value === newLost && msg === "Збережено.";
+    && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && scanButton === "pending" && noise[0] && noise[1]
+    && rows.length === 7 && rows.some(r => r.includes("Нова адреса панелі") && r.includes("Дім|address|{device}: http://{ip}/"))
+    && vars.join() === "{device},{duration},{delay},{battery_voltage},{bms_soc},{bms_voltage},{bms_energy}" && everyHidden
+    && lit.join() === "{bms_soc}" && flagged.join() === "{nope},{ip}" && inserted === "Було {duration}" && standard === "стандарт lost"
+    && every === "60" && msg === "Збережено."
+    && JSON.stringify(dev.messagesSaved) === JSON.stringify([{ field: "lost", value: newLost }, { field: "still_off_every", value: "30" }]);
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ texts: texts.length, noise, scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, messagesSaved: dev.messagesSaved, preview, rejected, copied, copiedNote, chips, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ rows: rows.length, vars, everyHidden, lit, flagged, inserted, standard, every, msg, noise, scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, messagesSaved: dev.messagesSaved, preview, rejected, copied, copiedNote, errors }));
 }
 
 /* Remote support: switch on with a server, connect now, see the session, end it. */

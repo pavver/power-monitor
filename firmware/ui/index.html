@@ -15,6 +15,7 @@
   --badge-online:#477A2E;--badge-offline:#000;--badge-alarm:#B3361F;--badge-activity:#477A2E;--badge-border:#A0A0A0;
   --switch-on:#DCEBD3;--switch-off:#F5D9D3;--switch-thumb-on:#477A2E;--switch-thumb-off:#B3361F;
   --rip-op:.16;
+  --syn-var:#0451A5;--syn-sec:#A35C00;--syn-esc:#A6461F;
 }
 @media (prefers-color-scheme:dark){:root{
   --background:#181818;--surface:#1F1F1F;--surface-alt:#141414;--border:#3A3A3A;--border-strong:#6E6E6E;--divider:#2B2B2B;
@@ -23,6 +24,7 @@
   --badge-online:#8CBF6E;--badge-offline:#000;--badge-alarm:#E8664F;--badge-activity:#8CBF6E;--badge-border:#4A4A4A;
   --switch-on:#26331F;--switch-off:#3A221D;--switch-thumb-on:#8CBF6E;--switch-thumb-off:#E8664F;
   --rip-op:.24;
+  --syn-var:#8CB4E0;--syn-sec:#E8A75A;--syn-esc:#E08C6A;
 }}
 /* Cascadia Code subset, renamed per its OFL licence (ui/make-font.py). */
 @font-face{font-family:"Operator Mono";src:url(/operator-mono.woff) format("woff");font-weight:400 700;font-display:swap}
@@ -194,6 +196,26 @@ button.item{cursor:pointer}
 .preview{margin-top:calc(var(--du)*1);padding:calc(var(--du)*1.5) calc(var(--du)*2);background:var(--surface-alt);border:calc(var(--du)*.25) solid var(--divider);
   white-space:pre-wrap;overflow-wrap:anywhere}
 .preview.bad{border-color:var(--error);color:var(--error)}
+/* CodeField: a transparent textarea over the highlighted copy of its text. */
+.code{position:relative;background:var(--surface);border:calc(var(--du)*.25) solid var(--border)}
+.code:focus-within{border-color:var(--accent)}
+.code pre,.code textarea{margin:0;padding:calc(var(--du)*2.5) calc(var(--du)*3);border:0;font:inherit;font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;
+  white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
+.code pre{position:absolute;inset:0;pointer-events:none;color:var(--text);overflow:hidden}
+.code textarea{position:relative;display:block;width:100%;min-height:calc(var(--du)*16);resize:none;overflow:hidden;background:none;color:transparent;caret-color:var(--accent);outline:0}
+.code textarea::selection{background:var(--selection);color:transparent}
+.hl .v{color:var(--syn-var)}.hl .c{color:var(--syn-sec);font-weight:700}.hl .e{color:var(--syn-esc)}
+.hl .x{color:var(--error);text-decoration:underline wavy var(--error)}
+.count{margin-top:calc(var(--du)*1);text-align:right;font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*15);color:var(--text-2)}
+.count.warn{color:var(--accent)}.count.full{color:var(--error)}
+.tag{flex:none;padding:0 calc(var(--du)*2);font-size:calc(var(--tu)*12);line-height:calc(var(--du)*6);border:calc(var(--du)*.25) solid var(--border);color:var(--text-2);background:var(--surface-alt)}
+.item code{background:none;border:0;padding:0;color:var(--syn-var)}
+details.help{margin-top:calc(var(--du)*3);border:calc(var(--du)*.25) solid var(--border)}
+details.help summary{min-height:calc(var(--du)*10);padding:0 calc(var(--du)*3);display:flex;align-items:center;cursor:pointer;font-weight:500;list-style:none}
+details.help summary::before{content:"›";width:calc(var(--du)*4);color:var(--text-2);transition:transform .2s var(--smooth)}
+details.help[open] summary::before{transform:rotate(90deg);color:var(--accent)}
+details.help>div{padding:0 calc(var(--du)*3) calc(var(--du)*3)}
+details.help p{margin:calc(var(--du)*2) 0 0}
 
 /* OperatorAsyncSwitch: moves only once the device confirmed */
 .switchrow{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--du)*3);margin-top:calc(var(--du)*3)}
@@ -363,28 +385,15 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
     <button class="btn" type="button" data-go="bms" data-nav>Батарея</button>
   </div>
   <div class="msg" id="test-msg" style="margin:0 0 calc(var(--du)*4)"></div>
-  <form class="card" id="messages-form">
+  <div class="card" id="messages-card">
     <h2>Повідомлення</h2>
-    <p class="small muted">Змінні: <code>{device}</code> — назва пристрою. У текстах «Світло зникло» і «Світло з'явилось»
-      ще <code>{duration}</code> — скільки тривав попередній стан (у «Світла все ще немає» — скільки вже немає світла), і <code>{delay}</code> — скільки тому це сталося, якщо
-      повідомлення доставлено пізніше ніж за хвилину; у «Новій адресі панелі» — <code>{ip}</code>.
-      Час виводиться лише точно виміряний: тривалість стану, що був уже при ввімкненні пристрою, невідома — тоді замість <code>{duration}</code> буде 🤷‍♂️.</p>
-    <p class="small muted">Умовний фрагмент <code>{duration?Не було {duration}.}</code> виводиться лише тоді, коли значення відоме,
-      а інакше зникає разом із текстом. Так працює з будь-якою змінною, наприклад <code>{bms_soc?Заряд {bms_soc}%}</code>.
-      Навпаки, <code>{!bms_soc?…}</code> виводиться лише тоді, коли значення немає: так стандартні тексти показують
-      напругу з дільника, якщо BMS не відповіла. Новий рядок можна писати як <code>\n</code>: <code>{duration?\nНе було {duration}.}</code>.</p>
-    <p class="small muted">Значення батареї — <code>{battery_voltage}</code> (напруга через дільник) і значення BMS,
-      наприклад <code>{bms_soc}</code>, — копіюються одним натиском на рядок на екрані «Батарея». Пристрій
-      тримає з'єднання з BMS і бере останнє значення, не чекаючи; якщо воно старше хвилини, буде 🤷‍♂️.
-      Залиште текст порожнім, щоб це повідомлення не надсилалось; тестове надсилається завжди, ним перевіряється бот.</p>
-    <label class="cap" for="m-device_name">Назва пристрою</label>
-    <div class="field" data-field><input id="m-device_name" name="device_name" maxlength="32" required></div>
-    <div id="templates"></div>
-    <label class="cap" for="m-still_off_every">Нагадувати «Світла все ще немає» кожні, хв</label>
-    <div class="field" data-field><input id="m-still_off_every" name="still_off_every" type="number" min="1" max="1440" required></div>
-    <div class="actions"><button class="btn" id="messages-btn">Зберегти</button></div>
-    <div class="msg" id="messages-msg"></div>
-  </form>
+    <label class="cap" for="m-device_name">Назва пристрою — у текстах це <code>{device}</code></label>
+    <div class="field" data-field id="device-field"><input id="m-device_name" maxlength="32" autocomplete="off">
+      <button class="btn" type="button" id="device-save">Зберегти</button></div>
+    <div class="msg" id="device-msg"></div>
+    <p class="small muted">Натисніть повідомлення, щоб змінити його текст. Порожній текст вимикає повідомлення.</p>
+    <div class="list" id="texts"></div>
+  </div>
   <div class="card" id="remote-card">
     <h2>Віддалена підтримка</h2>
     <div class="power"><span class="badge big" id="remote-badge"></span>
@@ -442,6 +451,37 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
   </div>
 </section>
 
+<!-- One message text: its preview, the template with its values, saved on its own -->
+<section id="s-text">
+  <div class="card">
+    <h2 id="t-title"></h2>
+    <p class="small muted" id="t-when"></p>
+    <label class="cap">Так виглядатиме в Telegram</label>
+    <div class="preview" id="t-preview"></div>
+    <label class="cap" for="t-area">Текст</label>
+    <div class="code" id="t-code"><pre class="hl" id="t-hl" aria-hidden="true"></pre><textarea id="t-area" maxlength="256" rows="3" spellcheck="false"></textarea></div>
+    <div class="count" id="t-count"></div>
+    <div class="hidden" id="t-every-row">
+      <label class="cap" for="t-every">Повторювати кожні, хв (1–1440)</label>
+      <div class="field" data-field id="t-every-field"><input id="t-every" type="number" min="1" max="1440" inputmode="numeric"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" type="button" id="t-save">Зберегти</button>
+      <button class="btn" type="button" id="t-standard">Стандартний текст</button>
+    </div>
+    <div class="msg" id="t-msg"></div>
+  </div>
+  <div class="card">
+    <h2>Змінні</h2>
+    <p class="small muted">Натисніть змінну, щоб вставити її в текст там, де стоїть курсор.</p>
+    <div class="list" id="t-vars"></div>
+    <details class="help">
+      <summary>Як працюють умови</summary>
+      <div id="t-help"></div>
+    </details>
+  </div>
+</section>
+
 <!-- Battery: a JK BMS read over Bluetooth while this screen is open -->
 <section id="s-bms">
   <div class="card hidden" id="bms-live">
@@ -496,15 +536,27 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
 "use strict";
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+/* [key, title, when it is sent] */
 const TEXTS = [
-  ["start_present", "Запуск, світло є"],
-  ["start_absent", "Запуск, світла немає"],
-  ["lost", "Світло зникло"],
-  ["returned", "Світло з'явилось"],
-  ["still_off", "Світла все ще немає"],
-  ["address", "Нова адреса панелі"],
-  ["test", "Тестове повідомлення"],
+  ["start_present", "Запуск, світло є", "Коли пристрій увімкнувся, а світло є."],
+  ["start_absent", "Запуск, світла немає", "Коли пристрій увімкнувся, а світла немає."],
+  ["lost", "Світло зникло", "Щойно зникло світло."],
+  ["returned", "Світло з'явилось", "Щойно з'явилось світло."],
+  ["still_off", "Світла все ще немає", "Поки світла немає, через заданий проміжок часу."],
+  ["address", "Нова адреса панелі", "Коли роутер дав пристрою нову адресу."],
+  ["test", "Тестове повідомлення", "За кнопкою «Тестове повідомлення» і при виборі чату. Не вимикається: ним перевіряється бот."],
 ];
+/* What each value is; the device says which a text may use. */
+const VARS = {
+  device: "назва пристрою",
+  duration: "скільки тривав попередній стан (у «Світла все ще немає» — скільки вже немає світла); невідомо після ввімкнення",
+  delay: "на скільки запізнилось повідомлення; є лише коли понад хвилину",
+  ip: "нова адреса панелі",
+  battery_voltage: "напруга акумулятора через дільник, В",
+  bms_soc: "заряд за BMS, %",
+  bms_voltage: "напруга за BMS, В",
+  bms_energy: "енергія в батареї за BMS, кВт·год",
+};
 let state = null, view = null, picked = null, verifiedToken = null, messagesFilled = false, joining = false;
 
 function el(tag, attrs, ...children) {
@@ -718,11 +770,11 @@ async function copyText(text) {
 $("back").append(icon("back"));
 function show(name) {
   view = name;
-  ["login", "wifi", "move", "bot", "dashboard", "bms"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
-  const step = {login: 0, wifi: 1, move: 2, bot: 2, dashboard: 3, bms: 3}[name];
+  ["login", "wifi", "move", "bot", "dashboard", "bms", "text"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
+  const step = {login: 0, wifi: 1, move: 2, bot: 2, dashboard: 3, bms: 3, text: 3}[name];
   [...$("progress").children].forEach((bar, i) => bar.classList.toggle("lit", i < step));
   const configured = state && state.stage === "dashboard";
-  $("back").classList.toggle("hidden", !(configured && ["wifi", "bot", "bms"].includes(name)));
+  $("back").classList.toggle("hidden", !(configured && ["wifi", "bot", "bms", "text"].includes(name)));
   window.scrollTo(0, 0);
   if (name === "wifi") refreshNetworks();
   if (name === "bot") refreshChats();
@@ -1003,76 +1055,174 @@ actionButton($("test-btn"), async () => {
 let savedMessages = {};
 function fillMessages(messages) {
   messagesFilled = true;
-  savedMessages = {
-    device_name: String(messages.device_name),
-    still_off_every: String(messages.still_off_every),
-  };
+  savedMessages = {device_name: String(messages.device_name), still_off_every: String(messages.still_off_every)};
   for (const [key] of TEXTS) savedMessages[key] = String(messages[key] ?? "");
   $("m-device_name").value = messages.device_name;
-  $("m-still_off_every").value = messages.still_off_every;
-  $("templates").replaceChildren(...TEXTS.map(([key, title]) => {
-    const area = el("textarea", {id: "m-" + key, name: key, maxlength: "256", rows: "3", class: "area"});
-    area.value = messages[key];
-    const wrap = el("div", {class: "areawrap"}, area);
-    new Control(wrap);
-    const preview = el("div", {class: "preview"});
-    const update = previewer(preview, key, area);
-    area.addEventListener("input", update);
-    $("m-device_name").addEventListener("input", update);
-    update();
-    return el("div", {}, el("label", {class: "cap", for: "m-" + key}, title), wrap, preview);
+  renderTexts();
+}
+
+/* The list of texts, each with the start of its preview. */
+function renderTexts() {
+  $("texts").replaceChildren(...TEXTS.map(([key, title]) => {
+    const line = el("span", {class: "s"});
+    const off = !savedMessages[key].trim();
+    const row = el("button", {type: "button", class: "item two"},
+      el("span", {class: "txt"}, el("span", {class: "t"}, title), line),
+      off ? el("span", {class: "tag"}, "вимкнено") : el("span", {class: "trail"}, "›"));
+    row.onclick = () => openText(key);
+    ripple(row);
+    if (off) line.textContent = "не надсилається";
+    else previewInto(key, savedMessages[key], $("m-device_name").value, shown => { line.textContent = shown.split("\n")[0]; });
+    return row;
   }));
 }
 
-/* Live preview filled by the device itself, so it follows the same rules
-   and shows the values measured now; asked once typing pauses. */
-const PREVIEW_DELAY_MS = 300;
-function previewer(node, key, area) {
-  let timer, asked = 0;
-  return () => {
-    clearTimeout(timer);
-    const text = area.value;
-    if (!text.trim()) {
-      asked++;
-      node.classList.remove("bad");
-      node.textContent = "Поле порожнє: це повідомлення не надсилатиметься.";
-      return;
-    }
-    timer = setTimeout(async () => {
-      const mine = ++asked;
-      let shown, bad = false;
-      try {
-        shown = await api("/api/messages/preview?" + new URLSearchParams({device_name: $("m-device_name").value, text: key}), text);
-      } catch (e) {
-        shown = e.message;
-        bad = true;
-      }
-      if (mine !== asked) return;
-      node.classList.toggle("bad", bad);
-      node.textContent = shown;
-    }, PREVIEW_DELAY_MS);
-  };
+/* The device renders a preview by its own rules with the values measured now.
+   Asked one at a time, so the list does not flood the device. */
+let previews = Promise.resolve();
+function previewInto(key, text, device, done, failed) {
+  previews = previews.then(() => api("/api/messages/preview?" + new URLSearchParams({device_name: device, text: key}), text)
+    .then(done, e => failed?.(e.message)));
 }
 
-actionButton($("messages-btn"), async () => {
-  if (!$("messages-form").reportValidity()) throw new Error("Заповніть назву пристрою й інтервал нагадування (1–1440 хв).");
-  say("messages-msg", "");
-  const fields = [
-    ["device_name", $("m-device_name").value],
-    ["still_off_every", $("m-still_off_every").value],
-    ...TEXTS.map(([k]) => [k, $("m-" + k).value]),
-  ];
-  const changed = fields.filter(([k, v]) => v !== savedMessages[k]);
-  if (!changed.length) {
-    say("messages-msg", "Немає змін.", "ok");
+actionButton($("device-save"), async () => {
+  const name = $("m-device_name").value;
+  await api("/api/messages?" + new URLSearchParams({field: "device_name"}), name);
+  savedMessages.device_name = name.trim();
+  renderTexts();
+}, {msg: "device-msg", frame: fields["device-field"]});
+
+/* ---------- one text ---------- */
+let editing = null;
+const about = {};
+
+async function openText(key) {
+  editing = key;
+  const [, title, when] = TEXTS.find(([k]) => k === key);
+  $("t-title").textContent = title;
+  $("t-when").textContent = when;
+  $("t-area").value = savedMessages[key];
+  $("t-every-row").classList.toggle("hidden", key !== "still_off");
+  $("t-every").value = savedMessages.still_off_every;
+  say("t-msg", "");
+  show("text");
+  try {
+    about[key] ??= await api("/api/messages/about?" + new URLSearchParams({field: key}), "");
+  } catch (e) {
+    say("t-msg", e.message, "err");
     return;
   }
-  for (const [key, value] of changed) {
-    await api("/api/messages?" + new URLSearchParams({field: key}), value);
-    savedMessages[key] = value;
+  if (editing !== key) return;
+  renderVars(about[key].variables);
+  renderHelp(key, about[key].variables);
+  textChanged();
+}
+
+function renderVars(names) {
+  $("t-vars").replaceChildren(...names.map(name => {
+    const row = el("button", {type: "button", class: "item two"},
+      el("span", {class: "txt"}, el("span", {class: "t"}, el("code", {}, "{" + name + "}")), el("span", {class: "s"}, VARS[name] || "")));
+    row.onclick = () => insert("{" + name + "}");
+    ripple(row);
+    return row;
+  }));
+}
+
+/* Examples with a value this text has: its own one, else the battery's. */
+function renderHelp(key, names) {
+  const own = names.find(n => ["duration", "delay", "ip"].includes(n)) || "bms_soc";
+  const ex = (...parts) => el("p", {}, ...parts.map(p => p.startsWith("{") || p === "\\n" ? el("code", {}, p) : p));
+  $("t-help").replaceChildren(
+    ex("Змінна в дужках, ", "{" + own + "}", ", замінюється значенням. Якщо значення невідоме, буде 🤷‍♂️."),
+    ex("Умова ", "{" + own + "?текст}", " показує текст лише тоді, коли значення відоме, — разом зі змінною всередині: ",
+      "{" + own + "?Було {" + own + "}.}"),
+    ex("З ", "!", " навпаки: ", "{!bms_soc?…}", " показується, коли значення немає. Так стандартні тексти показують напругу з дільника, якщо BMS не відповіла."),
+    ex("Новий рядок — це Enter або ", "\\n", ", наприклад ", "{" + own + "?\\nБуло {" + own + "}.}"),
+    ex(key === "test" ? "Тестове повідомлення не може бути порожнім." : "Порожній текст вимикає це повідомлення."));
+}
+
+/* Puts `text` at the caret; through execCommand so Ctrl+Z undoes it. */
+function insert(text) {
+  const area = $("t-area");
+  area.focus();
+  if (!document.execCommand("insertText", false, text)) area.setRangeText(text, area.selectionStart, area.selectionEnd, "end");
+  textChanged();
+}
+
+/* Variables, sections and line breaks in colour; a name this text does not
+   have is underlined as an error. */
+function highlight(text, names) {
+  const out = [];
+  let plain = "", depth = 0;
+  const put = (cls, part) => { if (plain) out.push(plain); plain = ""; out.push(el("span", {class: cls}, part)); };
+  for (let i = 0; i < text.length;) {
+    const m = /^\{(!?)([a-z_]+)([?}])/.exec(text.slice(i, i + 40));
+    if (m) {
+      put(names.includes(m[2]) ? (m[3] === "?" ? "c" : "v") : "x", m[0]);
+      if (m[3] === "?") depth++;
+      i += m[0].length;
+    } else if (text[i] === "}" && depth) {
+      put("c", "}");
+      depth--;
+      i++;
+    } else if (text.startsWith("\\n", i)) {
+      put("e", "\\n");
+      i += 2;
+    } else plain += text[i++];
   }
-  say("messages-msg", "Збережено.", "ok");
-}, {msg: "messages-msg"});
+  out.push(plain + "\n");
+  return out;
+}
+
+const PREVIEW_DELAY_MS = 300;
+let previewTimer, previewAsked = 0;
+function textChanged() {
+  const key = editing, area = $("t-area"), text = area.value;
+  $("t-hl").replaceChildren(...highlight(text, about[key]?.variables || []));
+  area.style.height = "auto";
+  area.style.height = area.scrollHeight + "px";
+  const count = [...text].length;
+  $("t-count").textContent = count + " / 256";
+  $("t-count").className = "count" + (count >= 256 ? " full" : count >= 230 ? " warn" : "");
+  clearTimeout(previewTimer);
+  const node = $("t-preview"), mine = ++previewAsked;
+  if (!text.trim()) {
+    node.classList.remove("bad");
+    node.textContent = key === "test" ? "Тестове повідомлення не може бути порожнім." : "Порожній текст: це повідомлення не надсилатиметься.";
+    return;
+  }
+  previewTimer = setTimeout(() => previewInto(key, text, savedMessages.device_name, shown => {
+    if (mine !== previewAsked) return;
+    node.classList.remove("bad");
+    node.textContent = shown;
+  }, error => {
+    if (mine !== previewAsked) return;
+    node.classList.add("bad");
+    node.textContent = error;
+  }), PREVIEW_DELAY_MS);
+}
+$("t-area").addEventListener("input", textChanged);
+
+actionButton($("t-standard"), async () => {
+  const area = $("t-area");
+  area.focus();
+  area.select();
+  insert(about[editing].standard);
+}, {ring: false});
+
+actionButton($("t-save"), async () => {
+  const key = editing, text = $("t-area").value, every = $("t-every").value;
+  if (key === "still_off" && every !== savedMessages.still_off_every) {
+    await api("/api/messages?" + new URLSearchParams({field: "still_off_every"}), every);
+    savedMessages.still_off_every = every;
+  }
+  if (text !== savedMessages[key]) {
+    await api("/api/messages?" + new URLSearchParams({field: key}), text);
+    savedMessages[key] = text;
+  }
+  say("t-msg", "Збережено.", "ok");
+  renderTexts();
+}, {msg: "t-msg"});
 
 /* ---------- battery (JK BMS) ---------- */
 const BMS_VARS = [["bms_soc", "Заряд", "%"], ["bms_voltage", "Напруга", "В"], ["bms_energy", "Енергія в батареї", "кВт·год"]];
