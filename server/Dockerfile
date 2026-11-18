@@ -5,11 +5,18 @@
 # or `docker compose up -d --build` in server/ (see compose.yaml).
 
 FROM rust:1.98.1-slim-bookworm AS build
+# The admin is a Leptos app that server/build.rs builds with trunk to wasm;
+# trunk fetches wasm-bindgen and wasm-opt itself.
+ARG TRUNK=0.22.0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup target add wasm32-unknown-unknown \
+    && curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+    | tar -xz -C /usr/local/bin trunk
 WORKDIR /src
 COPY power-core power-core
 COPY server server
-# The admin pages share the panel's font.
-COPY firmware/ui/operator-mono.woff firmware/ui/
 RUN cd server && cargo build --release --locked
 
 FROM cloudflare/cloudflared:2026.9.3 AS cloudflared
