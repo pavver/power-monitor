@@ -10,7 +10,7 @@ use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
 use power_core::power::PowerState;
 use power_core::remote::{Identity, RemoteSettings};
-use power_core::settings::{Battery, Bot, Divider, Messages, WifiCredentials};
+use power_core::settings::{Battery, Bot, Divider, Messages, SettingsError, WifiCredentials};
 
 const NAMESPACE: &str = "monitor";
 /// One key per `Messages::fields`, each text in its own value: NVS caps one
@@ -108,10 +108,17 @@ impl Settings {
         Ok(())
     }
 
-    pub fn save_messages(&self, messages: Messages) -> anyhow::Result<()> {
-        write_messages(&mut self.texts.lock().unwrap(), &messages)?;
-        *self.messages.write().unwrap() = messages;
-        Ok(())
+    /// Changes one field of the texts (see Messages::set) and stores only it.
+    pub fn save_message_field(&self, body: &str) -> anyhow::Result<Result<(), SettingsError>> {
+        let mut messages = self.messages.write().unwrap();
+        let mut updated = messages.clone();
+        let (key, value) = match updated.set(body) {
+            Ok(stored) => stored,
+            Err(e) => return Ok(Err(e)),
+        };
+        self.texts.lock().unwrap().set_str(key, &value)?;
+        *messages = updated;
+        Ok(Ok(()))
     }
 
     pub fn password(&self) -> Option<PasswordHash> {
@@ -250,12 +257,6 @@ fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, 
     parse(stored).ok()
 }
 
-fn write_messages(texts: &mut EspNvs<NvsDefault>, messages: &Messages) -> anyhow::Result<()> {
-    for (key, value) in messages.fields() {
-        texts.set_str(key, &value)?;
-    }
-    Ok(())
-}
 
 fn built_in_remote() -> RemoteSettings {
     RemoteSettings::factory(BUILT_IN_SERVER)

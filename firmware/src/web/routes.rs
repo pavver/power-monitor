@@ -10,7 +10,7 @@ use power_core::auth::{expired_cookie, NewPassword, PasswordHash};
 use power_core::form;
 use power_core::message::{preview, test_text, Readings};
 use power_core::remote::RemoteSettings;
-use power_core::settings::{Battery, Bot, Divider, Messages, WifiCredentials};
+use power_core::settings::{Battery, Bot, Divider, WifiCredentials};
 
 use super::{
     deny, get, json, json_text, login, planned_restart, post, read_body, respond, restart_soon, system_view, token,
@@ -101,8 +101,7 @@ pub(super) fn bot(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> any
 
     let dev = d.clone();
     post(server, auth, "/api/messages", move |body| {
-        let messages = Messages::from_form(body).map_err(|e| e.to_string())?;
-        dev.settings.save_messages(messages).map_err(|e| e.to_string())?;
+        dev.settings.save_message_field(body).map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
         json(&"saved")
     })?;
 

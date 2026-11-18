@@ -13,6 +13,7 @@ function device() {
   const d = {
     link: { state: "idle" }, stage: "wifi", setupAp: true, closed: false,
     remote: { enabled: false, server: null, phase: "off", next_in_s: null, last_contact_s: null, error: null },
+    messagesSaved: [],
     state() {
       return {
         stage: this.stage, link: this.link, setup_ap: this.setupAp ? { ssid: "PowerMonitor-Setup", portal: "http://192.168.71.1/" } : null, power: { present: true, lasted: "5 хв" },
@@ -87,6 +88,11 @@ function route(page, dev) {
     if (url.pathname === "/api/remote/connect") { dev.remote = { ...dev.remote, phase: "session", next_in_s: null, last_contact_s: 0 }; return json("connecting"); }
     if (url.pathname === "/api/remote/end") { dev.remote = { ...dev.remote, phase: "waiting", next_in_s: 3600 }; dev.remoteEnded = true; return json("ended"); }
     if (url.pathname === "/api/divider") return json(dev.divider || { divider: null, voltage_mv: null, noisy: false, spread_mv: null });
+    if (url.pathname === "/api/messages") {
+      const form = new URLSearchParams(route.request().postData());
+      dev.messagesSaved.push({ field: form.get("field"), value: form.get("value") });
+      return json("saved");
+    }
     if (url.pathname === "/api/messages/preview") {
       // The device fills the text; the page only has to show its answer.
       const form = new URLSearchParams(route.request().postData());
@@ -165,15 +171,21 @@ async function runBms() {
   const chips = await page.$$eval(".chip", n => n.length);
   const texts = await page.$$eval("#templates textarea", n => n.map(a => a.name + "=" + a.value));
   const every = await page.inputValue("#m-still_off_every");
+  const newLost = "Світло зникло: {duration}";
+  await page.fill("#m-lost", newLost);
+  await page.click("#messages-btn");
+  await page.waitForFunction(() => document.getElementById("messages-btn").dataset.state === "ok", null, { timeout: 3000 });
+  const msg = await page.$eval("#messages-msg", m => m.textContent);
   await browser.close();
   const ok = errors.length === 0 && pollsOnDashboard === 0 && pollsAfter === pollsLeaving && pollsLeaving > 0
     && dev.bmsSaved && dev.bmsSaved.address === "C8:47:8C:F2:7E:03" && dev.bmsSaved.random === ""
     && shown.includes("53.22 В") && preview[0] === "Дім|lost|Батарея {bms_soc}%" && !preview[1] && rejected[0] === "невідома змінна" && rejected[1]
     && copied === "{bms_soc}" && copiedNote.includes("скопійовано") && chips === 0 && scanButton === "pending" && noise[0] && noise[1]
     && texts.includes("address={device}: http://{ip}/") && texts.includes("test={device}: тест")
-    && texts.includes("still_off={device}: світла все ще немає") && every === "60" && texts.length === 7;
+    && texts.includes("still_off={device}: світла все ще немає") && every === "60" && texts.length === 7
+    && dev.messagesSaved.length === 1 && dev.messagesSaved[0].field === "lost" && dev.messagesSaved[0].value === newLost && msg === "Збережено.";
   if (!ok) process.exitCode = 1;
-  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ texts: texts.length, noise, scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, preview, rejected, copied, copiedNote, chips, errors }));
+  console.log((ok ? "PASS " : "FAIL ") + "bms", JSON.stringify({ texts: texts.length, noise, scanButton, pollsOnDashboard, pollsLeaving, pollsAfter, saved: dev.bmsSaved, messagesSaved: dev.messagesSaved, preview, rejected, copied, copiedNote, chips, errors }));
 }
 
 /* Remote support: switch on with a server, connect now, see the session, end it. */

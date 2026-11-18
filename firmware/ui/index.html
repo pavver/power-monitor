@@ -995,8 +995,14 @@ actionButton($("test-btn"), async () => {
   say("test-msg", "Тестове повідомлення надіслано.", "ok");
 }, {msg: "test-msg"});
 
+let savedMessages = {};
 function fillMessages(messages) {
   messagesFilled = true;
+  savedMessages = {
+    device_name: String(messages.device_name),
+    still_off_every: String(messages.still_off_every),
+  };
+  for (const [key] of TEXTS) savedMessages[key] = String(messages[key] ?? "");
   $("m-device_name").value = messages.device_name;
   $("m-still_off_every").value = messages.still_off_every;
   $("templates").replaceChildren(...TEXTS.map(([key, title]) => {
@@ -1046,7 +1052,20 @@ function previewer(node, key, area) {
 actionButton($("messages-btn"), async () => {
   if (!$("messages-form").reportValidity()) throw new Error("Заповніть назву пристрою й інтервал нагадування (1–1440 хв).");
   say("messages-msg", "");
-  await api("/api/messages", Object.fromEntries(new FormData($("messages-form"))));
+  const fields = [
+    ["device_name", $("m-device_name").value],
+    ["still_off_every", $("m-still_off_every").value],
+    ...TEXTS.map(([k]) => [k, $("m-" + k).value]),
+  ];
+  const changed = fields.filter(([k, v]) => v !== savedMessages[k]);
+  if (!changed.length) {
+    say("messages-msg", "Немає змін.", "ok");
+    return;
+  }
+  for (const [key, value] of changed) {
+    await api("/api/messages", {field: key, value});
+    savedMessages[key] = value;
+  }
   say("messages-msg", "Збережено.", "ok");
 }, {msg: "messages-msg"});
 

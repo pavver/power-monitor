@@ -119,6 +119,43 @@ impl Default for Messages {
 }
 
 impl Messages {
+    /// Changes one field from a form `field=<key>&value=<text>`, the key being
+    /// "device_name", "still_off_every" or a `Text::key`; returns the key and
+    /// the value as it is to be stored (same as `fields()` would give).
+    pub fn set(&mut self, body: &str) -> Result<(&'static str, String), SettingsError> {
+        let fields = form::parse(body);
+        let field = form::field(&fields, "field");
+        let value = form::field(&fields, "value");
+        if field == "device_name" {
+            let name = device_name(value).ok_or(SettingsError::DeviceName)?;
+            self.device_name = name.clone();
+            return Ok(("device_name", name));
+        }
+        if field == STILL_OFF_EVERY {
+            let every = still_off_every(value).ok_or(SettingsError::StillOffEvery)?;
+            self.still_off_every = every;
+            return Ok((STILL_OFF_EVERY, every.to_string()));
+        }
+        if let Some(text) = Text::ALL.into_iter().find(|t| t.key() == field) {
+            let text_val = text.parse(value).map_err(|e| SettingsError::Text(text, e))?;
+            *self.text_mut(text) = text_val.clone();
+            return Ok((text.key(), text_val));
+        }
+        Err(SettingsError::UnknownField)
+    }
+
+    fn text_mut(&mut self, text: Text) -> &mut String {
+        match text {
+            Text::StartPresent => &mut self.start_present,
+            Text::StartAbsent => &mut self.start_absent,
+            Text::Lost => &mut self.lost,
+            Text::Returned => &mut self.returned,
+            Text::Address => &mut self.address,
+            Text::Test => &mut self.test,
+            Text::StillOff => &mut self.still_off,
+        }
+    }
+
     /// Reads `device_name` and one field per `Text::key`, as the page sends them.
     pub fn from_form(body: &str) -> Result<Self, SettingsError> {
         let fields = form::parse(body);
@@ -332,6 +369,74 @@ mod tests {
                 "Тестове повідомлення",
             ]
         );
+    }
+
+    #[test]
+    fn setting_one_text_changes_only_it() {
+        let mut m = Messages::default();
+        let initial = m.clone();
+        let res = m.set("field=lost&value=Світло+зникло%21+{duration}").unwrap();
+        assert_eq!(res, ("lost", "Світло зникло! {duration}".to_string()));
+        assert_eq!(m.template(Text::Lost), "Світло зникло! {duration}");
+        assert_eq!(m.device_name(), initial.device_name());
+        assert_eq!(m.still_off_every_ms(), initial.still_off_every_ms());
+        for text in Text::ALL {
+            if text != Text::Lost {
+                assert_eq!(m.template(text), initial.template(text));
+            }
+        }
+    }
+
+    #[test]
+    fn setting_device_name_is_trimmed_and_bad_name_leaves_messages_unchanged() {
+        let mut m = Messages::default();
+        let res = m.set("field=device_name&value=+Дача+").unwrap();
+        assert_eq!(res, ("device_name", "Дача".to_string()));
+        assert_eq!(m.device_name(), "Дача");
+
+        let before = m.clone();
+        for bad in ["", "   ", &"я".repeat(33)] {
+            let body = form::encode(&[("field", "device_name"), ("value", bad)]);
+            assert_eq!(m.set(&body), Err(SettingsError::DeviceName), "{bad}");
+            assert_eq!(m, before);
+        }
+    }
+
+    #[test]
+    fn setting_still_off_every() {
+        let mut m = Messages::default();
+        let res = m.set("field=still_off_every&value=15").unwrap();
+        assert_eq!(res, ("still_off_every", "15".to_string()));
+        assert_eq!(m.still_off_every_ms(), 15 * 60_000);
+
+        let before = m.clone();
+        for bad in ["0", "1441", "x", ""] {
+            let body = form::encode(&[("field", "still_off_every"), ("value", bad)]);
+            assert_eq!(m.set(&body), Err(SettingsError::StillOffEvery), "{bad}");
+            assert_eq!(m, before);
+        }
+    }
+
+    #[test]
+    fn setting_blank_text_stored_as_empty_and_blank_test_text_errors() {
+        let mut m = Messages::default();
+        let res = m.set("field=address&value=+").unwrap();
+        assert_eq!(res, ("address", "".to_string()));
+        assert_eq!(m.template(Text::Address), "");
+
+        let before = m.clone();
+        assert_eq!(m.set("field=test&value=+"), Err(SettingsError::Text(Text::Test, TemplateError::Blank)));
+        assert_eq!(m, before);
+    }
+
+    #[test]
+    fn setting_unknown_field_errors_and_leaves_messages_unchanged() {
+        let mut m = Messages::default();
+        let before = m.clone();
+        assert_eq!(m.set("field=unknown&value=test"), Err(SettingsError::UnknownField));
+        assert_eq!(m.set("field=&value=test"), Err(SettingsError::UnknownField));
+        assert_eq!(m.set("other=123"), Err(SettingsError::UnknownField));
+        assert_eq!(m, before);
     }
 
 }

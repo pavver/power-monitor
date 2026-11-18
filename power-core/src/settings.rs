@@ -23,6 +23,7 @@ pub enum SettingsError {
     Text(Text, TemplateError),
     BmsAddress,
     Divider,
+    UnknownField,
 }
 
 impl fmt::Display for SettingsError {
@@ -46,6 +47,7 @@ impl fmt::Display for SettingsError {
             SettingsError::Divider => {
                 f.write_str("Опір резисторів — ціле число ом від 1 до 100 000 000, наприклад 330000 і 10000.")
             }
+            SettingsError::UnknownField => f.write_str("Невідоме поле."),
         }
     }
 }
@@ -418,6 +420,7 @@ mod tests {
                 SettingsError::Divider,
                 "Опір резисторів — ціле число ом від 1 до 100 000 000, наприклад 330000 і 10000.",
             ),
+            (SettingsError::UnknownField, "Невідоме поле."),
         ];
         for (error, text) in cases {
             assert_eq!(error.to_string(), text);

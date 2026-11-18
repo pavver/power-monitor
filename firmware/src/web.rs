@@ -30,9 +30,9 @@ use crate::voltmeter::Voltmeter;
 const PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 /// Cascadia Code cut down to the page's characters (see ui/make-font.py).
 const FONT: &[u8] = include_bytes!("../ui/operator-mono.woff");
-/// The texts form is the largest: its defaults alone are some 3 KB, since
-/// the page sends each Cyrillic letter as 6 bytes.
-const MAX_BODY: usize = 8192;
+/// One text is the largest body: 500 chars, a Cyrillic letter is 6 bytes
+/// urlencoded, so ~3 KB.
+const MAX_BODY: usize = 4096;
 const MAX_SESSIONS: usize = 8;
 /// Slows down password guessing.
 const FAILED_LOGIN_DELAY: Duration = Duration::from_secs(1);
