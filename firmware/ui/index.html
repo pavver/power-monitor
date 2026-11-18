@@ -956,6 +956,9 @@ async function refreshChats() {
   let chats;
   try { chats = await api("/api/bot/chats", {token: verifiedToken}); } catch (e) { say("chat-msg", e.message, "err"); return; }
   if (choosingChat) return;
+  // An error stays until a chat shows up: with another program reading the
+  // bot, replies alternate between the conflict and an empty list.
+  if (chats.length && $("chat-msg").classList.contains("err")) say("chat-msg", "");
   if (chats.length) $("st-write").classList.add("done");
   $("chats").replaceChildren(...(chats.length ? chats.map(chatRow)
     : [el("div", {class: "empty"}, el("span", {class: "badge pending"}), "Чекаю на повідомлення боту…")]));

@@ -59,6 +59,11 @@ const KEPT: [&str; 21] = [
     "message_thread_id", "forum_topic_created", "forum_topic_edited", "name", "reply_to_message",
 ];
 
+/// Another program polls the same bot and takes its updates first, so the
+/// device never sees the messages written to the bot.
+pub const BOT_BUSY: &str = "Цього бота вже читає інша програма чи пристрій і забирає повідомлення першою. \
+     Вимкніть її, поки налаштовуєте, або створіть для пристрою окремого бота";
+
 /// Longer strings are dropped: no kept value is near it (names and titles
 /// are at most 128 characters).
 const MAX_KEPT_STRING: usize = 1024;
@@ -124,6 +129,7 @@ fn read_with(
             "Чат не знайдено — напишіть боту /start і перевірте Chat ID".to_string()
         }
         403 => "Бот не може писати в цей чат: його заблоковано або видалено з групи".to_string(),
+        409 if description.contains("other getUpdates request") => BOT_BUSY.to_string(),
         409 => "У бота ввімкнено webhook — вимкніть його (deleteWebhook)".to_string(),
         _ => format!("Telegram: {description}"),
     })
@@ -272,6 +278,7 @@ mod tests {
             (400, r#"{"ok":false,"description":"Bad Request: chat not found"}"#, "Чат не знайдено — напишіть боту /start і перевірте Chat ID"),
             (403, r#"{"ok":false,"description":"Forbidden: bot was blocked by the user"}"#, "Бот не може писати в цей чат: його заблоковано або видалено з групи"),
             (409, r#"{"ok":false,"description":"Conflict: can't use getUpdates method while webhook is active"}"#, "У бота ввімкнено webhook — вимкніть його (deleteWebhook)"),
+            (409, r#"{"ok":false,"error_code":409,"description":"Conflict: terminated by other getUpdates request; make sure that only one bot instance is running"}"#, BOT_BUSY),
             (429, r#"{"ok":false,"description":"Too Many Requests: retry after 5"}"#, "Telegram: Too Many Requests: retry after 5"),
         ];
         for (status, body, expected) in cases {
