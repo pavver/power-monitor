@@ -13,7 +13,8 @@ use power_core::remote::RemoteSettings;
 use power_core::settings::{Battery, Bot, Divider, WifiCredentials};
 
 use super::{
-    deny, get, json, json_text, login, planned_restart, post, read_body, respond, restart_soon, system_view, token,
+    deny, get, json, json_text, login, planned_restart, post, post_text, read_body, respond, restart_soon, system_view,
+    token,
     Answer, Auth,
 };
 use crate::bms::Bms;
@@ -100,16 +101,17 @@ pub(super) fn bot(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> any
     })?;
 
     let dev = d.clone();
-    post(server, auth, "/api/messages", move |body| {
-        dev.settings.save_message_field(body).map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    // `?field=<key>`, and the text as it is.
+    post_text(server, auth, "/api/messages", move |query, text| {
+        dev.settings.save_message_field(query, text).map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
         json(&"saved")
     })?;
 
     // The page asks while a text is edited, so the device's own rules fill it.
     let dev = d.clone();
-    post(server, auth, "/api/messages/preview", move |body| {
+    post_text(server, auth, "/api/messages/preview", move |query, template| {
         let reading = dev.bms.last_reading();
-        json(&preview(body, Readings { bms: reading.as_ref(), voltage_mv: dev.voltmeter.battery_mv() })?)
+        json(&preview(query, template, Readings { bms: reading.as_ref(), voltage_mv: dev.voltmeter.battery_mv() })?)
     })?;
 
     let dev = d.clone();

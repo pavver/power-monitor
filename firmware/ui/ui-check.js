@@ -89,16 +89,14 @@ function route(page, dev) {
     if (url.pathname === "/api/remote/end") { dev.remote = { ...dev.remote, phase: "waiting", next_in_s: 3600 }; dev.remoteEnded = true; return json("ended"); }
     if (url.pathname === "/api/divider") return json(dev.divider || { divider: null, voltage_mv: null, noisy: false, spread_mv: null });
     if (url.pathname === "/api/messages") {
-      const form = new URLSearchParams(route.request().postData());
-      dev.messagesSaved.push({ field: form.get("field"), value: form.get("value") });
+      dev.messagesSaved.push({ field: url.searchParams.get("field"), value: route.request().postData() });
       return json("saved");
     }
     if (url.pathname === "/api/messages/preview") {
       // The device fills the text; the page only has to show its answer.
-      const form = new URLSearchParams(route.request().postData());
-      const template = form.get("template");
+      const template = route.request().postData();
       if (template.includes("{nope}")) return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "невідома змінна" }) });
-      return json(form.get("device_name") + "|" + form.get("text") + "|" + template);
+      return json(url.searchParams.get("device_name") + "|" + url.searchParams.get("text") + "|" + template);
     }
     if (url.pathname === "/api/bot") {
       dev.saved = Object.fromEntries(new URLSearchParams(route.request().postData()));

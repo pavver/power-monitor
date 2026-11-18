@@ -30,9 +30,9 @@ use crate::voltmeter::Voltmeter;
 const PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 /// Cascadia Code cut down to the page's characters (see ui/make-font.py).
 const FONT: &[u8] = include_bytes!("../ui/operator-mono.woff");
-/// One text is the largest body: 500 chars, a Cyrillic letter is 6 bytes
-/// urlencoded, so ~3 KB.
-const MAX_BODY: usize = 4096;
+/// One message text is the largest body: up to 500 characters sent as
+/// plain UTF-8, at most 4 bytes each (emoji; Cyrillic takes 2).
+const MAX_BODY: usize = 2048;
 const MAX_SESSIONS: usize = 8;
 /// Slows down password guessing.
 const FAILED_LOGIN_DELAY: Duration = Duration::from_secs(1);
@@ -157,12 +157,22 @@ fn post<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, han
 where
     F: Fn(&str) -> Reply + Send + Sync + 'static,
 {
+    post_text(server, auth, uri, move |_, body| handler(body))
+}
+
+/// Like `post`, for a body that is plain text: the handler also gets the
+/// query string that names what the text is for.
+fn post_text<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, handler: F) -> anyhow::Result<()>
+where
+    F: Fn(&str, &str) -> Reply + Send + Sync + 'static,
+{
     let auth = auth.clone();
     server.fn_handler::<anyhow::Error, _>(uri, Method::Post, move |mut req| {
         if !auth.allows(req.header("Cookie")) {
             return deny(req);
         }
-        let reply = read_body(&mut req).and_then(|body| handler(&body));
+        let query = req.uri().split_once('?').map_or("", |(_, query)| query).to_string();
+        let reply = read_body(&mut req).and_then(|body| handler(&query, &body));
         respond(req, reply)
     })?;
     Ok(())

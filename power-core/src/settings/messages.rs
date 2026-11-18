@@ -119,13 +119,13 @@ impl Default for Messages {
 }
 
 impl Messages {
-    /// Changes one field from a form `field=<key>&value=<text>`, the key being
-    /// "device_name", "still_off_every" or a `Text::key`; returns the key and
-    /// the value as it is to be stored (same as `fields()` would give).
-    pub fn set(&mut self, body: &str) -> Result<(&'static str, String), SettingsError> {
-        let fields = form::parse(body);
+    /// Changes the field named by `query` (`field=<key>`, the key being
+    /// "device_name", "still_off_every" or a `Text::key`) to `value`, the
+    /// text as it came; returns the key and the value as it is to be stored
+    /// (same as `fields()` would give).
+    pub fn set(&mut self, query: &str, value: &str) -> Result<(&'static str, String), SettingsError> {
+        let fields = form::parse(query);
         let field = form::field(&fields, "field");
-        let value = form::field(&fields, "value");
         if field == "device_name" {
             let name = device_name(value).ok_or(SettingsError::DeviceName)?;
             self.device_name = name.clone();
@@ -375,7 +375,7 @@ mod tests {
     fn setting_one_text_changes_only_it() {
         let mut m = Messages::default();
         let initial = m.clone();
-        let res = m.set("field=lost&value=Світло+зникло%21+{duration}").unwrap();
+        let res = m.set("field=lost", "Світло зникло! {duration}").unwrap();
         assert_eq!(res, ("lost", "Світло зникло! {duration}".to_string()));
         assert_eq!(m.template(Text::Lost), "Світло зникло! {duration}");
         assert_eq!(m.device_name(), initial.device_name());
@@ -390,29 +390,34 @@ mod tests {
     #[test]
     fn setting_device_name_is_trimmed_and_bad_name_leaves_messages_unchanged() {
         let mut m = Messages::default();
-        let res = m.set("field=device_name&value=+Дача+").unwrap();
+        let res = m.set("field=device_name", " Дача ").unwrap();
         assert_eq!(res, ("device_name", "Дача".to_string()));
         assert_eq!(m.device_name(), "Дача");
 
         let before = m.clone();
         for bad in ["", "   ", &"я".repeat(33)] {
-            let body = form::encode(&[("field", "device_name"), ("value", bad)]);
-            assert_eq!(m.set(&body), Err(SettingsError::DeviceName), "{bad}");
+            assert_eq!(m.set("field=device_name", bad), Err(SettingsError::DeviceName), "{bad}");
             assert_eq!(m, before);
         }
     }
 
     #[test]
+    fn the_text_is_taken_as_it_came() {
+        let mut m = Messages::default();
+        m.set("field=lost", "50%+ & {duration}\n🔋").unwrap();
+        assert_eq!(m.template(Text::Lost), "50%+ & {duration}\n🔋");
+    }
+
+    #[test]
     fn setting_still_off_every() {
         let mut m = Messages::default();
-        let res = m.set("field=still_off_every&value=15").unwrap();
+        let res = m.set("field=still_off_every", "15").unwrap();
         assert_eq!(res, ("still_off_every", "15".to_string()));
         assert_eq!(m.still_off_every_ms(), 15 * 60_000);
 
         let before = m.clone();
         for bad in ["0", "1441", "x", ""] {
-            let body = form::encode(&[("field", "still_off_every"), ("value", bad)]);
-            assert_eq!(m.set(&body), Err(SettingsError::StillOffEvery), "{bad}");
+            assert_eq!(m.set("field=still_off_every", bad), Err(SettingsError::StillOffEvery), "{bad}");
             assert_eq!(m, before);
         }
     }
@@ -420,12 +425,12 @@ mod tests {
     #[test]
     fn setting_blank_text_stored_as_empty_and_blank_test_text_errors() {
         let mut m = Messages::default();
-        let res = m.set("field=address&value=+").unwrap();
+        let res = m.set("field=address", " \n ").unwrap();
         assert_eq!(res, ("address", "".to_string()));
         assert_eq!(m.template(Text::Address), "");
 
         let before = m.clone();
-        assert_eq!(m.set("field=test&value=+"), Err(SettingsError::Text(Text::Test, TemplateError::Blank)));
+        assert_eq!(m.set("field=test", " "), Err(SettingsError::Text(Text::Test, TemplateError::Blank)));
         assert_eq!(m, before);
     }
 
@@ -433,9 +438,9 @@ mod tests {
     fn setting_unknown_field_errors_and_leaves_messages_unchanged() {
         let mut m = Messages::default();
         let before = m.clone();
-        assert_eq!(m.set("field=unknown&value=test"), Err(SettingsError::UnknownField));
-        assert_eq!(m.set("field=&value=test"), Err(SettingsError::UnknownField));
-        assert_eq!(m.set("other=123"), Err(SettingsError::UnknownField));
+        assert_eq!(m.set("field=unknown", "test"), Err(SettingsError::UnknownField));
+        assert_eq!(m.set("field=", "test"), Err(SettingsError::UnknownField));
+        assert_eq!(m.set("other=123", ""), Err(SettingsError::UnknownField));
         assert_eq!(m, before);
     }
 

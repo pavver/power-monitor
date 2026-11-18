@@ -70,13 +70,12 @@ const SAMPLE_DURATION_MS: u64 = 2 * 3_600_000 + 15 * 60_000;
 const SAMPLE_IP: &str = "192.168.1.50";
 
 /// What the page shows while a text is edited: the unsaved `template` for
-/// the `text` named in the form, with `device_name`, a sample length and the
-/// values measured now; or why the template would not be saved.
-pub fn preview(body: &str, readings: Readings) -> Result<String, String> {
-    let fields = form::parse(body);
+/// the `text` named in `query`, with its `device_name`, a sample length and
+/// the values measured now; or why the template would not be saved.
+pub fn preview(query: &str, template: &str, readings: Readings) -> Result<String, String> {
+    let fields = form::parse(query);
     let key = form::field(&fields, "text");
     let text = Text::ALL.into_iter().find(|text| text.key() == key).ok_or("невідомий текст")?;
-    let template = form::field(&fields, "template");
     template::validate(template, text.own()).map_err(|error| error.to_string())?;
     // An on-time message: the usual case, so no `{delay}`.
     let duration = format_duration(SAMPLE_DURATION_MS);
@@ -299,8 +298,7 @@ mod tests {
 
     #[test]
     fn preview_of_the_address_fills_a_sample_one() {
-        let body = preview_form("address", "{device}: http://{ip}/");
-        assert_eq!(preview(&body, Readings::NONE), Ok("Дача: http://192.168.1.50/".to_string()));
+        assert_eq!(preview(&preview_query("address"), "{device}: http://{ip}/", Readings::NONE), Ok("Дача: http://192.168.1.50/".to_string()));
     }
 
     #[test]
@@ -472,28 +470,28 @@ mod tests {
         }
     }
 
-    fn preview_form(text: &str, template: &str) -> String {
-        form::encode(&[("device_name", "Дача"), ("text", text), ("template", template)])
+    fn preview_query(text: &str) -> String {
+        form::encode(&[("device_name", "Дача"), ("text", text)])
     }
 
     #[test]
     fn preview_fills_a_sample_length_and_the_measured_values() {
-        let body = preview_form("lost", "{device}{duration?: {duration}}, {battery_voltage} В");
+        let template = "{device}{duration?: {duration}}, {battery_voltage} В";
         let measured = Readings { voltage_mv: Some(52_020), ..Readings::NONE };
-        assert_eq!(preview(&body, measured), Ok("Дача: 2 год 15 хв, 52.02 В".to_string()));
+        assert_eq!(preview(&preview_query("lost"), template, measured), Ok("Дача: 2 год 15 хв, 52.02 В".to_string()));
     }
 
     #[test]
     fn preview_shows_what_is_missing_as_the_message_would() {
-        let body = preview_form("start_absent", "{device}{bms_soc?, заряд {bms_soc}%}, {battery_voltage} В");
-        assert_eq!(preview(&body, Readings::NONE), Ok("Дача, 🤷‍♂️ В".to_string()));
+        let template = "{device}{bms_soc?, заряд {bms_soc}%}, {battery_voltage} В";
+        assert_eq!(preview(&preview_query("start_absent"), template, Readings::NONE), Ok("Дача, 🤷‍♂️ В".to_string()));
     }
 
     #[test]
     fn preview_explains_a_bad_template() {
-        let error = preview(&preview_form("start_present", "{duration}"), Readings::NONE).unwrap_err();
+        let error = preview(&preview_query("start_present"), "{duration}", Readings::NONE).unwrap_err();
         assert!(error.contains("{duration}"), "{error}");
-        assert!(preview(&preview_form("nope", "x"), Readings::NONE).is_err());
+        assert!(preview(&preview_query("nope"), "x", Readings::NONE).is_err());
     }
 
     #[test]

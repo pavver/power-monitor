@@ -688,8 +688,10 @@ function say(id, text, kind) {
   node.append(el("span", {}, text));
 }
 
+/* `fields` posts a form; a string posts itself as plain UTF-8 text. */
 async function api(path, fields) {
-  const init = fields ? {method: "POST", body: new URLSearchParams(fields)} : {};
+  const body = typeof fields === "string" ? fields : fields && new URLSearchParams(fields);
+  const init = fields === undefined ? {} : {method: "POST", body};
   let response;
   try { response = await fetch(path, init); } catch (e) { throw new Error("Немає зв'язку з пристроєм"); }
   const data = await response.json().catch(() => ({error: "Пристрій не відповів"}));
@@ -1037,7 +1039,7 @@ function previewer(node, key, area) {
       const mine = ++asked;
       let shown, bad = false;
       try {
-        shown = await api("/api/messages/preview", {device_name: $("m-device_name").value, text: key, template: text});
+        shown = await api("/api/messages/preview?" + new URLSearchParams({device_name: $("m-device_name").value, text: key}), text);
       } catch (e) {
         shown = e.message;
         bad = true;
@@ -1063,7 +1065,7 @@ actionButton($("messages-btn"), async () => {
     return;
   }
   for (const [key, value] of changed) {
-    await api("/api/messages", {field: key, value});
+    await api("/api/messages?" + new URLSearchParams({field: key}), value);
     savedMessages[key] = value;
   }
   say("messages-msg", "Збережено.", "ok");

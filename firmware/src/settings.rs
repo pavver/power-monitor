@@ -109,10 +109,10 @@ impl Settings {
     }
 
     /// Changes one field of the texts (see Messages::set) and stores only it.
-    pub fn save_message_field(&self, body: &str) -> anyhow::Result<Result<(), SettingsError>> {
+    pub fn save_message_field(&self, query: &str, value: &str) -> anyhow::Result<Result<(), SettingsError>> {
         let mut messages = self.messages.write().unwrap();
         let mut updated = messages.clone();
-        let (key, value) = match updated.set(body) {
+        let (key, value) = match updated.set(query, value) {
             Ok(stored) => stored,
             Err(e) => return Ok(Err(e)),
         };
