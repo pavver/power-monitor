@@ -9,23 +9,25 @@
 //! picked with "Відкрити панель".
 
 pub mod captcha;
+pub mod relay;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::body::{to_bytes, Body, Bytes};
-use axum::extract::{Form, Path, Request, State};
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::body::Bytes;
+use axum::extract::{Form, Path, State};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use power_core::remote::{self, TunnelRequest};
+use power_core::remote;
+pub use relay::Link;
+use relay::{device_status, relay, split_head, Answer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::sync::{mpsc, oneshot};
 
 /// How long a long poll is held; well under Cloudflare's 100 s limit.
 pub const POLL: Duration = Duration::from_secs(25);
@@ -37,9 +39,9 @@ pub const PICKUP: Duration = Duration::from_secs(15);
 /// request (a firmware upload is the slowest).
 pub const ANSWER: Duration = Duration::from_secs(95);
 /// A device that polled this recently is in a session.
-const ONLINE: Duration = Duration::from_secs(40);
+pub const ONLINE: Duration = Duration::from_secs(40);
 const ADMIN_COOKIE: &str = "svitlo_admin";
-const DEVICE_COOKIE: &str = "svitlo_device";
+pub const DEVICE_COOKIE: &str = "svitlo_device";
 
 pub struct Config {
     pub admin_password: String,
@@ -59,82 +61,6 @@ struct Device {
     waiting: bool,
     /// Open a session at the next check-in.
     want_session: bool,
-}
-
-/// A browser request waiting on the device: told when the device takes it,
-/// then given the answer. Dropping it tells the browser the session ended.
-struct Pending {
-    taken: Option<oneshot::Sender<()>>,
-    answer: oneshot::Sender<Answer>,
-}
-
-/// The device's answer: status, headers, body.
-struct Answer {
-    status: u16,
-    headers: Vec<(String, String)>,
-    body: Bytes,
-}
-
-/// One device's session plumbing.
-struct Link {
-    jobs: mpsc::UnboundedSender<TunnelRequest>,
-    inbox: tokio::sync::Mutex<mpsc::UnboundedReceiver<TunnelRequest>>,
-    bodies: Mutex<HashMap<String, Bytes>>,
-    waiting: Mutex<HashMap<String, Pending>>,
-    last_poll: Mutex<Option<Instant>>,
-    /// The owner ended the session; the device's next poll learns it.
-    ending: AtomicBool,
-    /// Wakes a poll in progress when the session ends.
-    ended: tokio::sync::Notify,
-}
-
-impl Link {
-    fn new() -> Self {
-        let (jobs, inbox) = mpsc::unbounded_channel();
-        Self {
-            jobs,
-            inbox: tokio::sync::Mutex::new(inbox),
-            bodies: Mutex::default(),
-            waiting: Mutex::default(),
-            last_poll: Mutex::default(),
-            ending: AtomicBool::new(false),
-            ended: tokio::sync::Notify::new(),
-        }
-    }
-
-    fn polled(&self) {
-        *self.last_poll.lock().unwrap() = Some(Instant::now());
-    }
-
-    /// Ends the session: offline at once, every waiting browser let go, and
-    /// the device told at its poll.
-    fn end(&self) {
-        *self.last_poll.lock().unwrap() = None;
-        self.waiting.lock().unwrap().clear();
-        self.bodies.lock().unwrap().clear();
-        self.ending.store(true, Ordering::SeqCst);
-        self.ended.notify_waiters();
-    }
-
-    /// Marks a request taken by the device; `false` when no browser waits for it.
-    fn take(&self, rid: &str) -> bool {
-        match self.waiting.lock().unwrap().get_mut(rid) {
-            Some(pending) => {
-                if let Some(taken) = pending.taken.take() {
-                    let _ = taken.send(());
-                }
-                true
-            }
-            None => false,
-        }
-    }
-
-    fn online(&self) -> bool {
-        self.last_poll
-            .lock()
-            .unwrap()
-            .is_some_and(|at| at.elapsed() < ONLINE)
-    }
 }
 
 struct Inner {
@@ -191,11 +117,12 @@ impl App {
             .route("/admin/api/captcha", get(new_captcha))
             .route("/admin/devices/{id}/end", post(end_session))
             .route("/admin/devices/{id}/forget", post(forget))
+            .route("/admin/devices/{id}/view", post(set_view))
             .fallback(relay)
             .with_state(self)
     }
 
-    fn link(&self, id: &str) -> Arc<Link> {
+    pub(crate) fn link(&self, id: &str) -> Arc<Link> {
         self.0
             .links
             .lock()
@@ -252,7 +179,7 @@ impl App {
         self.0.captchas.lock().unwrap().answer(id)
     }
 
-    fn is_admin(&self, headers: &HeaderMap) -> bool {
+    pub(crate) fn is_admin(&self, headers: &HeaderMap) -> bool {
         cookie(headers, ADMIN_COOKIE)
             .is_some_and(|token| self.0.admins.lock().unwrap().contains(token))
     }
@@ -280,13 +207,13 @@ fn unix_now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-fn random_hex(bytes: usize) -> String {
+pub(crate) fn random_hex(bytes: usize) -> String {
     (0..bytes)
         .map(|_| format!("{:02x}", rand::random::<u8>()))
         .collect()
 }
 
-fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+pub(crate) fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers
         .get_all(header::COOKIE)
         .iter()
@@ -396,118 +323,46 @@ async fn reply(
     let Some((head, rest)) = split_head(&body) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    let headers = head
+    let raw_headers: Vec<(String, String)> = head
         .lines()
         .filter_map(|line| line.split_once(": "))
         .map(|(name, value)| (name.to_string(), value.to_string()))
         .collect();
+
+    let link = app.link(&id);
+    for (name, value) in &raw_headers {
+        if name.eq_ignore_ascii_case("set-cookie") {
+            link.update_panel_session(value);
+        }
+    }
+
+    // Do NOT pass that Set-Cookie to the browser.
+    let headers: Vec<(String, String)> = raw_headers
+        .into_iter()
+        .filter(|(name, val)| {
+            if name.eq_ignore_ascii_case("set-cookie") {
+                if let Some((k, _)) = val.split(';').next().and_then(|p| p.split_once('=')) {
+                    if k.trim() == remote::PANEL_COOKIE {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .collect();
+
     let answer = Answer {
         status,
         headers,
         body: body.slice(rest..),
     };
-    match app.link(&id).waiting.lock().unwrap().remove(&rid) {
+    let pending = link.waiting.lock().unwrap().remove(&rid);
+    match pending {
         Some(pending) => {
             let _ = pending.answer.send(answer);
             StatusCode::NO_CONTENT.into_response()
         }
         None => StatusCode::NOT_FOUND.into_response(),
-    }
-}
-
-/// The header block and where the body starts.
-fn split_head(body: &[u8]) -> Option<(String, usize)> {
-    let end = if body.first() == Some(&b'\n') {
-        0
-    } else {
-        body.windows(2).position(|w| w == b"\n\n")? + 1
-    };
-    Some((String::from_utf8_lossy(&body[..end]).into_owned(), end + 1))
-}
-
-/* ---------- the owner's browser ---------- */
-
-async fn relay(State(app): State<App>, request: Request) -> Response {
-    let headers = request.headers().clone();
-    if !app.is_admin(&headers) {
-        return Redirect::to("/admin").into_response();
-    }
-    let Some(id) = cookie(&headers, DEVICE_COOKIE).map(str::to_string) else {
-        return Redirect::to("/admin").into_response();
-    };
-    let link = app.link(&id);
-    if !link.online() {
-        return Redirect::to(&format!("/admin?open={id}")).into_response();
-    }
-    let method = match *request.method() {
-        Method::GET => remote::Method::Get,
-        Method::POST => remote::Method::Post,
-        _ => return StatusCode::METHOD_NOT_ALLOWED.into_response(),
-    };
-    let path = request
-        .uri()
-        .path_and_query()
-        .map_or("/", |p| p.as_str())
-        .to_string();
-    let content_type = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_string);
-    let body = match to_bytes(request.into_body(), remote::MAX_BODY).await {
-        Ok(body) => body,
-        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "Завеликий запит.").into_response(),
-    };
-    let rid = random_hex(8);
-    let (taken, picked) = oneshot::channel();
-    let (answer, answered) = oneshot::channel();
-    link.waiting.lock().unwrap().insert(
-        rid.clone(),
-        Pending {
-            taken: Some(taken),
-            answer,
-        },
-    );
-    if !body.is_empty() {
-        link.bodies
-            .lock()
-            .unwrap()
-            .insert(rid.clone(), body.clone());
-    }
-    let job = TunnelRequest {
-        rid: rid.clone(),
-        method,
-        path,
-        // Only the panel's own session cookie; this server's cookies stay here.
-        cookie: cookie(&headers, remote::PANEL_COOKIE)
-            .map(|token| format!("{}={token}", remote::PANEL_COOKIE)),
-        content_type,
-        body_len: body.len(),
-    };
-    let _ = link.jobs.send(job);
-    let result = match tokio::time::timeout(PICKUP, picked).await {
-        Ok(Ok(())) => tokio::time::timeout(ANSWER, answered).await,
-        Ok(Err(ended)) => Ok(Err(ended)),
-        Err(busy) => Err(busy),
-    };
-    link.waiting.lock().unwrap().remove(&rid);
-    link.bodies.lock().unwrap().remove(&rid);
-    match result {
-        Ok(Ok(answer)) => {
-            let mut response = Response::new(Body::from(answer.body));
-            *response.status_mut() =
-                StatusCode::from_u16(answer.status).unwrap_or(StatusCode::BAD_GATEWAY);
-            for (name, value) in answer.headers {
-                if let (Ok(name), Ok(value)) = (
-                    header::HeaderName::try_from(name),
-                    HeaderValue::try_from(value),
-                ) {
-                    response.headers_mut().append(name, value);
-                }
-            }
-            response
-        }
-        Ok(Err(_ended)) => Redirect::to(&format!("/admin?open={id}")).into_response(),
-        Err(_) => (StatusCode::GATEWAY_TIMEOUT, "Пристрій не відповів.").into_response(),
     }
 }
 
@@ -689,6 +544,8 @@ struct DeviceView {
     /// A session is asked for at the next check-in.
     requested: bool,
     waiting: bool,
+    status: &'static str,
+    view: Option<String>,
 }
 
 async fn device_list(State(app): State<App>, headers: HeaderMap) -> Response {
@@ -702,18 +559,52 @@ async fn device_list(State(app): State<App>, headers: HeaderMap) -> Response {
         .lock()
         .unwrap()
         .iter()
-        .map(|(id, d)| DeviceView {
-            id: id.clone(),
-            name: d.name.clone(),
-            version: d.version.clone(),
-            seen: now.saturating_sub(d.last_seen),
-            online: app.link(id).online(),
-            requested: d.want_session,
-            waiting: d.waiting,
+        .map(|(id, d)| {
+            let seen_secs = now.saturating_sub(d.last_seen);
+            let link = app.link(id);
+            let online = link.online();
+            DeviceView {
+                id: id.clone(),
+                name: d.name.clone(),
+                version: d.version.clone(),
+                seen: seen_secs,
+                online,
+                requested: d.want_session,
+                waiting: d.waiting,
+                status: device_status(online, Duration::from_secs(seen_secs)),
+                view: link.get_view(),
+            }
         })
         .collect();
     devices.sort_by_key(|d| d.seen);
     ([(header::CACHE_CONTROL, "no-store")], Json(devices)).into_response()
+}
+
+#[derive(Deserialize)]
+struct ViewForm {
+    #[serde(default)]
+    view: String,
+}
+
+const ALLOWED_VIEWS: [&str; 6] = ["login", "wifi", "move", "bot", "dashboard", "bms"];
+
+async fn set_view(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<ViewForm>,
+) -> Response {
+    if !app.is_admin(&headers) {
+        return login_first();
+    }
+    if !ALLOWED_VIEWS.contains(&form.view.as_str()) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    if !app.0.devices.lock().unwrap().contains_key(&id) {
+        return unknown_device();
+    }
+    app.link(&id).set_view(Some(form.view));
+    ok()
 }
 
 #[derive(Deserialize)]

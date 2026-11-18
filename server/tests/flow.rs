@@ -200,16 +200,44 @@ async fn browser_requests_reach_the_panel_and_come_back() {
     assert_eq!(job["method"], "POST");
     assert_eq!(job["path"], "/api/messages?x=1");
     assert_eq!(
-        job["cookie"], "session=panel-token",
-        "only the panel's cookie goes to the device"
+        job["cookie"],
+        Value::Null,
+        "browser cookies are ignored, server has no panel session yet"
     );
     assert_eq!(job["content_type"], "application/x-www-form-urlencoded");
     assert_eq!(job["body_len"], 13);
     assert_eq!(relayed_body, b"device_name=a");
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(headers[header::SET_COOKIE], "session=new; Path=/");
+    assert!(
+        headers.get(header::SET_COOKIE).is_none(),
+        "panel Set-Cookie never reaches the browser"
+    );
     assert_eq!(headers[header::CONTENT_TYPE], "application/octet-stream");
     assert_eq!(body, [0, 10, 10, 255]);
+
+    // Next request carries the stored session token
+    let device_side2 = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            let reply = b"content-type: text/plain\n\nok".to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+            job
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let (status, _, _) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(status, StatusCode::OK);
+    let job2 = device_side2.await.unwrap();
+    assert_eq!(job2["cookie"], "session=new");
 }
 
 #[tokio::test]
@@ -549,4 +577,442 @@ async fn no_longer_waiting_for_the_device_drops_the_session_request() {
     let (_, _, body) = call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await;
     assert_eq!(json(&body)[0]["requested"], false);
     assert_eq!(checkin(&app).await["session"], false);
+}
+
+#[tokio::test(start_paused = true)]
+async fn device_status_and_view_in_device_list() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+
+    // Initially checked in, no poll: status is "alive", view is null.
+    let (_, _, body) = call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await;
+    let list = json(&body);
+    assert_eq!(list[0]["status"], "alive");
+    assert_eq!(list[0]["view"], Value::Null);
+
+    // Device starts polling: status becomes "session".
+    let (status, _, _) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, _, body) = call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await;
+    let list = json(&body);
+    assert_eq!(list[0]["status"], "session");
+}
+
+#[tokio::test]
+async fn device_view_endpoint_validation_and_reset() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+
+    // Needs admin
+    let (status, _, _) = call(
+        &app,
+        browser(
+            "POST",
+            &format!("/admin/devices/{ID}/view"),
+            "",
+            "view=login",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // Invalid view value
+    let (status, _, _) = call(
+        &app,
+        browser(
+            "POST",
+            &format!("/admin/devices/{ID}/view"),
+            &cookies,
+            "view=invalid",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Unknown device
+    let (status, _, _) = call(
+        &app,
+        browser(
+            "POST",
+            "/admin/devices/nonexistent/view",
+            &cookies,
+            "view=login",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Valid views: login, wifi, move, bot, dashboard, bms
+    for v in ["login", "wifi", "move", "bot", "dashboard", "bms"] {
+        let (status, _, _) = call(
+            &app,
+            browser(
+                "POST",
+                &format!("/admin/devices/{ID}/view"),
+                &cookies,
+                format!("view={v}"),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, _, body) = call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await;
+        assert_eq!(json(&body)[0]["view"], v);
+    }
+
+    // Ending the session resets the view to null
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/end"), &cookies, ""),
+    )
+    .await;
+    let (_, _, body) = call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await;
+    assert_eq!(json(&body)[0]["view"], Value::Null);
+}
+
+#[tokio::test]
+async fn panel_cookie_is_stored_on_server_and_not_sent_to_browser() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+
+    // Start session
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, ""),
+    )
+    .await;
+
+    // Fake device answers first request (login) and sets session cookie
+    let device_task = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            // First call has no stored session cookie
+            assert_eq!(job["cookie"], Value::Null);
+
+            let reply = b"content-type: text/plain\nset-cookie: session=secret123; Path=/; HttpOnly; SameSite=Strict\n\nok".to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let (status, headers, body) =
+        call(&app, browser("POST", "/api/login", &cookies, "pass=123")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, b"ok");
+    // Set-Cookie: session=... must NOT be passed to the browser!
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    device_task.await.unwrap();
+
+    // Next request to device: browser sends a fake session cookie, but server sends its stored token!
+    let device_task2 = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            // Must carry stored token "session=secret123"
+            assert_eq!(job["cookie"], "session=secret123");
+
+            // Logout reply
+            let reply = b"content-type: text/plain\nset-cookie: session=; Path=/; Max-Age=0\n\nbye"
+                .to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let (status, headers, body) = call(&app, browser("POST", "/api/logout", &cookies, "")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, b"bye");
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    device_task2.await.unwrap();
+
+    // After logout, next request carries no cookie
+    let device_task3 = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            assert_eq!(job["cookie"], Value::Null);
+
+            let reply = b"content-type: text/plain\n\nstate".to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let (status, _, _) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(status, StatusCode::OK);
+    device_task3.await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn coalesced_get_requests_send_single_job_to_device() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, ""),
+    )
+    .await;
+
+    // Fake device receives only ONE job and answers it
+    let device_task = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            assert_eq!(job["path"], "/api/state");
+
+            // Delay reply slightly so both browsers are concurrently in-flight
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            let reply = b"content-type: application/json\n\n{\"voltage\":230}".to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+        })
+    };
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    // Two browsers GET /api/state at once
+    let b1 = {
+        let app = app.clone();
+        let cookies = cookies.clone();
+        tokio::spawn(async move { call(&app, browser("GET", "/api/state", &cookies, "")).await })
+    };
+    let b2 = {
+        let app = app.clone();
+        let cookies = cookies.clone();
+        tokio::spawn(async move { call(&app, browser("GET", "/api/state", &cookies, "")).await })
+    };
+
+    let (res1, res2) = tokio::join!(b1, b2);
+    let (s1, _, body1) = res1.unwrap();
+    let (s2, _, body2) = res2.unwrap();
+
+    assert_eq!(s1, StatusCode::OK);
+    assert_eq!(s2, StatusCode::OK);
+    assert_eq!(body1, b"{\"voltage\":230}");
+    assert_eq!(body2, b"{\"voltage\":230}");
+    device_task.await.unwrap();
+
+    // Confirm device has no more pending jobs: poll returns NO_CONTENT after timeout
+    let (status, _, _) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cached_get_requests_served_without_device_poll_and_post_invalidates() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, ""),
+    )
+    .await;
+
+    // Device serves first GET
+    let device_task = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            let reply = b"content-type: application/json\n\n{\"c\":1}".to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    let (s, _, body) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(body, b"{\"c\":1}");
+    device_task.await.unwrap();
+
+    // Within 1.5s (say 500ms later), next GET should be served from cache without device poll
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let (s, _, body) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(body, b"{\"c\":1}");
+
+    // POST request arrives: goes to device, and invalidates cache
+    let device_post = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            assert_eq!(job["method"], "POST");
+            let reply = b"content-type: text/plain\n\nok".to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    let (s, _, body) = call(&app, browser("POST", "/api/switch", &cookies, "on=1")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(body, b"ok");
+    device_post.await.unwrap();
+
+    // Now GET /api/state should NOT come from cache even though < 1.5s since last GET, because POST invalidated it!
+    let device_get2 = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            let reply = b"content-type: application/json\n\n{\"c\":2}".to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    let (s, _, body) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(body, b"{\"c\":2}");
+    device_get2.await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn gateway_timeout_is_not_cached_and_next_request_goes_to_device() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, ""),
+    )
+    .await;
+
+    // Device starts polling to be online
+    let (status, _, _) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Browser requests GET /api/state, but device does not pick it up -> 504 Gateway Timeout
+    let (s, _, _) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(s, StatusCode::GATEWAY_TIMEOUT);
+
+    // Immediately after 504, next GET /api/state must NOT return cached 504; it must go to device!
+    let device_task = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, _, job) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+            assert_eq!(status, StatusCode::OK);
+            let job: Value = serde_json::from_slice(&job).unwrap();
+            let rid = job["rid"].as_str().unwrap().to_string();
+            let reply = b"content-type: application/json\n\n{\"fresh\":true}".to_vec();
+            let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+            request
+                .headers_mut()
+                .insert("x-status", "200".parse().unwrap());
+            call(&app, request).await;
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    let (s, _, body) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(body, b"{\"fresh\":true}");
+    device_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn ending_session_releases_coalesced_browsers_at_once() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, ""),
+    )
+    .await;
+
+    // Start poll to be online
+    let _device_poll = {
+        let app = app.clone();
+        tokio::spawn(async move { call(&app, device("GET", "/device/next", SECRET, "")).await })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Two browsers GET /api/state at once
+    let b1 = {
+        let app = app.clone();
+        let cookies = cookies.clone();
+        tokio::spawn(async move { call(&app, browser("GET", "/api/state", &cookies, "")).await })
+    };
+    let b2 = {
+        let app = app.clone();
+        let cookies = cookies.clone();
+        tokio::spawn(async move { call(&app, browser("GET", "/api/state", &cookies, "")).await })
+    };
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // End session
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/end"), &cookies, ""),
+    )
+    .await;
+
+    let (res1, res2) = tokio::join!(b1, b2);
+    let (s1, h1, _) = res1.unwrap();
+    let (s2, h2, _) = res2.unwrap();
+
+    assert_eq!(s1, StatusCode::SEE_OTHER);
+    assert_eq!(h1[header::LOCATION], format!("/admin?open={ID}"));
+    assert_eq!(s2, StatusCode::SEE_OTHER);
+    assert_eq!(h2[header::LOCATION], format!("/admin?open={ID}"));
+
+    // Next poll by device learns the session ended
+    let (status, _, _) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+    assert_eq!(status, StatusCode::GONE);
 }
