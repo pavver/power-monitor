@@ -70,8 +70,8 @@ impl Status {
         self.pending.store(count, Ordering::Relaxed);
     }
 
-    /// The page state as JSON.
-    pub fn state_json(&self, settings: &Settings) -> String {
+    /// The page state as JSON, written in one go.
+    pub fn state_json(&self, settings: &Settings, remote: &serde_json::Value, system: &serde_json::Value) -> String {
         let bot = settings.bot();
         let link = self.link();
         let telegram = self.telegram.lock().unwrap().clone();
@@ -96,6 +96,8 @@ impl Status {
                 messages,
                 firmware: &self.firmware,
                 password_set,
+                remote,
+                system,
             };
             serde_json::to_string(&state).unwrap_or_default()
         })

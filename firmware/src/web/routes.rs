@@ -52,12 +52,11 @@ impl Device {
 /// Wi-Fi and the state the page shows.
 pub(super) fn setup(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> anyhow::Result<()> {
     let dev = d.clone();
+    // Asked every 2 s while the panel is open: serialized once, not read
+    // back into a tree to add to it.
     get(server, auth, "/api/state", move || {
-        let mut state: serde_json::Value =
-            serde_json::from_str(&dev.status.state_json(&dev.settings)).unwrap_or_default();
-        state["remote"] = dev.remote.view();
-        state["system"] = system_view();
-        json(&state)
+        let body = dev.status.state_json(&dev.settings, &dev.remote.view(), &system_view());
+        Ok(Answer { body, cookie: None })
     })?;
 
     let dev = d.clone();
