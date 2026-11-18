@@ -349,7 +349,9 @@ mod tests {
     #[test]
     fn errors_explain_which_text_is_wrong() {
         let error = SettingsError::Text(Text::Lost, TemplateError::TooLong);
-        assert_eq!(error.to_string(), "Світло зникло: текст довший за 500 символів.");
+        assert_eq!(error.to_string(), "Світло зникло: текст довший за 256 символів.");
+        let error = SettingsError::Text(Text::Lost, TemplateError::TooBig);
+        assert_eq!(error.to_string(), "Світло зникло: текст займає понад 512 байтів (емодзі — по 4 байти).");
         let error = SettingsError::Text(Text::Test, TemplateError::Blank);
         assert_eq!(error.to_string(), "Тестове повідомлення: цей текст не можна залишити порожнім — ним перевіряється бот.");
     }

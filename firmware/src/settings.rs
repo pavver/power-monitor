@@ -252,7 +252,8 @@ impl Settings {
 }
 
 fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, E>) -> Option<T> {
-    let mut buf = vec![0u8; 4096];
+    // Exactly as big as the value, with its terminating zero.
+    let mut buf = vec![0u8; nvs.str_len(key).ok().flatten()?];
     let stored = nvs.get_str(key, &mut buf).ok().flatten()?;
     parse(stored).ok()
 }

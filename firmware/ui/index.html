@@ -1008,7 +1008,7 @@ function fillMessages(messages) {
   $("m-device_name").value = messages.device_name;
   $("m-still_off_every").value = messages.still_off_every;
   $("templates").replaceChildren(...TEXTS.map(([key, title]) => {
-    const area = el("textarea", {id: "m-" + key, name: key, maxlength: "500", rows: "3", class: "area"});
+    const area = el("textarea", {id: "m-" + key, name: key, maxlength: "256", rows: "3", class: "area"});
     area.value = messages[key];
     const wrap = el("div", {class: "areawrap"}, area);
     new Control(wrap);

@@ -13,7 +13,10 @@ use std::fmt;
 
 use crate::jk;
 
-const MAX_CHARS: usize = 500;
+/// A text is sent to the device as plain UTF-8 and kept whole in memory
+/// and in NVS, so it is held to both: Cyrillic takes 2 bytes, emoji 4.
+pub const MAX_CHARS: usize = 256;
+pub const MAX_BYTES: usize = 512;
 
 /// The battery voltage measured through the divider.
 pub const BATTERY_VOLTAGE: &str = "battery_voltage";
@@ -29,6 +32,8 @@ pub const UNKNOWN: &str = "🤷‍♂️";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemplateError {
     TooLong,
+    /// Within `MAX_CHARS` but over `MAX_BYTES`, i.e. many emoji.
+    TooBig,
     /// One of `OWN` in a text that does not have it, e.g. `{duration}` at start-up.
     NotHere(&'static str),
     Unknown,
@@ -41,7 +46,8 @@ pub enum TemplateError {
 impl fmt::Display for TemplateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TemplateError::TooLong => f.write_str("текст довший за 500 символів"),
+            TemplateError::TooLong => f.write_str("текст довший за 256 символів"),
+            TemplateError::TooBig => f.write_str("текст займає понад 512 байтів (емодзі — по 4 байти)"),
             TemplateError::NotHere(name) => write!(f, "змінна {{{name}}} у цьому тексті недоступна"),
             TemplateError::Unknown => f.write_str("невідома змінна — дивіться список змінних над полями"),
             TemplateError::Unclosed => f.write_str("умовний фрагмент {змінна?текст} не закрито дужкою }"),
@@ -54,6 +60,9 @@ impl fmt::Display for TemplateError {
 pub fn validate(template: &str, own: &[&str]) -> Result<(), TemplateError> {
     if template.chars().count() > MAX_CHARS {
         return Err(TemplateError::TooLong);
+    }
+    if template.len() > MAX_BYTES {
+        return Err(TemplateError::TooBig);
     }
     names(&parse(template)).into_iter().try_for_each(|name| match name {
         None => Err(TemplateError::Unclosed),
@@ -325,8 +334,11 @@ mod tests {
 
     #[test]
     fn rejects_long_text() {
-        assert_eq!(validate(&"я".repeat(501), CHANGE), Err(TemplateError::TooLong));
-        assert_eq!(validate(&"я".repeat(500), CHANGE), Ok(()));
+        assert_eq!(validate(&"я".repeat(257), CHANGE), Err(TemplateError::TooLong));
+        assert_eq!(validate(&"я".repeat(256), CHANGE), Ok(()));
+        // 4 bytes each: 128 fit in 512 bytes, 129 do not.
+        assert_eq!(validate(&"🔋".repeat(129), CHANGE), Err(TemplateError::TooBig));
+        assert_eq!(validate(&"🔋".repeat(128), CHANGE), Ok(()));
     }
 
     #[test]

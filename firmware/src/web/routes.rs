@@ -15,7 +15,7 @@ use power_core::settings::{Battery, Bot, Divider, WifiCredentials};
 use super::{
     deny, get, json, json_text, login, planned_restart, post, post_text, read_body, respond, restart_soon, system_view,
     token,
-    Answer, Auth,
+    Answer, Auth, MAX_FORM,
 };
 use crate::bms::Bms;
 use crate::network::Command;
@@ -203,7 +203,7 @@ pub(super) fn remote(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> 
 pub(super) fn access(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> anyhow::Result<()> {
     let a = auth.clone();
     server.fn_handler::<anyhow::Error, _>("/api/login", Method::Post, move |mut req| {
-        let reply = read_body(&mut req).and_then(|body| login(&a, &body));
+        let reply = read_body(&mut req, MAX_FORM).and_then(|body| login(&a, &body));
         respond(req, reply)
     })?;
 

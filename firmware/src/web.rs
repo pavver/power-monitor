@@ -14,6 +14,7 @@ use embedded_svc::io::{Read, Write};
 use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer, Request};
 use power_core::auth::Sessions;
 use power_core::form;
+use power_core::template;
 use power_core::portal::redirect_target;
 use power_core::settings::BotToken;
 use serde::Serialize;
@@ -30,9 +31,9 @@ use crate::voltmeter::Voltmeter;
 const PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 /// Cascadia Code cut down to the page's characters (see ui/make-font.py).
 const FONT: &[u8] = include_bytes!("../ui/operator-mono.woff");
-/// One message text is the largest body: up to 500 characters sent as
-/// plain UTF-8, at most 4 bytes each (emoji; Cyrillic takes 2).
-const MAX_BODY: usize = 2048;
+/// A form: the largest is a new password typed twice, 64 characters each,
+/// which the page sends as %XX, up to 12 bytes a character.
+pub(super) const MAX_FORM: usize = 2048;
 const MAX_SESSIONS: usize = 8;
 /// Slows down password guessing.
 const FAILED_LOGIN_DELAY: Duration = Duration::from_secs(1);
@@ -157,12 +158,20 @@ fn post<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, han
 where
     F: Fn(&str) -> Reply + Send + Sync + 'static,
 {
-    post_text(server, auth, uri, move |_, body| handler(body))
+    accept(server, auth, uri, MAX_FORM, move |_, body| handler(body))
 }
 
 /// Like `post`, for a body that is plain text: the handler also gets the
 /// query string that names what the text is for.
+/// The text is a message text, so it is held to `template::MAX_BYTES`.
 fn post_text<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, handler: F) -> anyhow::Result<()>
+where
+    F: Fn(&str, &str) -> Reply + Send + Sync + 'static,
+{
+    accept(server, auth, uri, template::MAX_BYTES, handler)
+}
+
+fn accept<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, limit: usize, handler: F) -> anyhow::Result<()>
 where
     F: Fn(&str, &str) -> Reply + Send + Sync + 'static,
 {
@@ -172,7 +181,7 @@ where
             return deny(req);
         }
         let query = req.uri().split_once('?').map_or("", |(_, query)| query).to_string();
-        let reply = read_body(&mut req).and_then(|body| handler(&query, &body));
+        let reply = read_body(&mut req, limit).and_then(|body| handler(&query, &body));
         respond(req, reply)
     })?;
     Ok(())
@@ -199,9 +208,9 @@ fn respond(req: Req, reply: Reply) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read_body(req: &mut Req) -> Result<String, String> {
+fn read_body(req: &mut Req, limit: usize) -> Result<String, String> {
     let len = req.content_len().unwrap_or(0) as usize;
-    if len > MAX_BODY {
+    if len > limit {
         return Err("Запит завеликий.".to_string());
     }
     let mut body = vec![0; len];
