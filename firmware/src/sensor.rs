@@ -3,7 +3,6 @@
 
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
-use std::thread;
 
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::gpio::{Input, InputPin, PinDriver, Pull};
@@ -36,7 +35,7 @@ pub fn spawn(
         None => Detector::new(CONFIRM_WINDOWS),
     };
     let mut reminder = Reminder::resume(kept, now_ms());
-    thread::Builder::new().stack_size(4096).spawn(move || {
+    crate::tasks::spawn(c"sensor", 4096, move || {
         loop {
             let started_ms = now_ms();
             let low_samples = count_low_samples(&input);

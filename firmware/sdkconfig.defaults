@@ -43,3 +43,6 @@ CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
 # logs, nothing prints 64-bit numbers or floats.
 CONFIG_LOG_DEFAULT_LEVEL_NONE=y
 CONFIG_NEWLIB_NANO_FORMAT=y
+# Lets the page list every task with its untouched stack (stack_free_min in
+# /api/state), to size the stacks by measurement.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y

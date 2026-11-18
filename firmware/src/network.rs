@@ -90,7 +90,7 @@ pub fn start(
     let mut network = Radio { wifi, setup_ap: false, dns_running: false, hold_until: None, last_scan: None, seen: Vec::new(), settings, status, notices };
     network.boot()?;
     let (commands, inbox) = mpsc::channel();
-    thread::Builder::new().stack_size(8 * 1024).spawn(move || network.run(inbox))?;
+    crate::tasks::spawn(c"network", 8 * 1024, move || network.run(inbox))?;
     Ok(commands)
 }
 

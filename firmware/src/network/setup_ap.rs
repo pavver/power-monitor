@@ -4,7 +4,6 @@
 use std::ffi::CString;
 use std::net::UdpSocket;
 use std::sync::OnceLock;
-use std::thread;
 
 use esp_idf_svc::handle::RawHandle;
 use esp_idf_svc::ipv4::{self, Ipv4Addr};
@@ -81,7 +80,7 @@ pub(super) fn offer_portal_uri(netif: &EspNetif) -> anyhow::Result<()> {
 /// Answers every DNS query with our address so phones open the portal.
 pub(super) fn spawn_dns(ip: [u8; 4]) -> anyhow::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:53")?;
-    thread::Builder::new().stack_size(4096).spawn(move || {
+    crate::tasks::spawn(c"dns", 4096, move || {
         let mut buf = [0u8; 512];
         loop {
             let Ok((len, peer)) = socket.recv_from(&mut buf) else { continue };

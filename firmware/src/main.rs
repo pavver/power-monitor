@@ -12,6 +12,7 @@ mod remote;
 mod sensor;
 mod settings;
 mod status;
+mod tasks;
 mod telegram;
 mod voltmeter;
 mod web;

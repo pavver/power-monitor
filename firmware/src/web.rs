@@ -237,6 +237,7 @@ fn system_view() -> serde_json::Value {
         "heap_free": free,
         "heap_min_free": min_free,
         "heap_largest_block": largest,
+        "stack_free_min": crate::tasks::stack_reserve(),
         "reset_reason": format!("{:?}", esp_idf_svc::hal::reset::ResetReason::get()),
         "uptime_s": crate::status::now_ms() / 1000,
     })

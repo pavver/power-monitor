@@ -32,7 +32,7 @@ pub fn spawn(
     voltmeter: Voltmeter,
 ) -> anyhow::Result<()> {
     // TLS handshakes need a large stack.
-    thread::Builder::new().stack_size(12 * 1024).spawn(move || {
+    crate::tasks::spawn(c"notifier", 12 * 1024, move || {
         let mut outbox = Outbox::new(OUTBOX_CAPACITY);
         loop {
             if outbox.is_empty() {

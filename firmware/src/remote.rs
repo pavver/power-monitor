@@ -4,7 +4,6 @@
 //! firmware uploads included, works remotely exactly as it does at home.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::thread;
 use std::time::Duration;
 
 use embedded_svc::http::client::{Client, Response};
@@ -54,7 +53,7 @@ impl Remote {
         let remote = Self { shared: Arc::new((Mutex::new(state), Condvar::new())), settings, status };
         let worker = remote.clone();
         // TLS handshakes need a large stack.
-        thread::Builder::new().stack_size(12 * 1024).spawn(move || worker.run())?;
+        crate::tasks::spawn(c"remote", 12 * 1024, move || worker.run())?;
         Ok(remote)
     }
 

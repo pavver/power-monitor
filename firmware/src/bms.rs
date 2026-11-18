@@ -4,7 +4,6 @@
 //! else talks to it through `Bms`. The Bluetooth stack starts on first demand.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use esp32_nimble::{BLEClient, BLEDevice};
@@ -72,7 +71,7 @@ impl Bms {
         let bms = Self { shared, settings, bluetooth };
         if bluetooth {
             let worker = bms.clone();
-            thread::Builder::new().stack_size(8 * 1024).spawn(move || block_on(worker.run()))?;
+            crate::tasks::spawn(c"bms", 8 * 1024, move || block_on(worker.run()))?;
         }
         Ok(bms)
     }
