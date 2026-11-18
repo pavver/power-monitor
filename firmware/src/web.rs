@@ -140,16 +140,24 @@ fn plain(body: String) -> Reply {
     Ok(Answer { body, cookie: None })
 }
 
+/// A route's own work. Boxed, so that the wrapper around it (password
+/// check, body, answer) is compiled once, not once per route.
+type Handler = Box<dyn Fn(&str, &str) -> Reply + Send + Sync>;
+
 fn get<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, handler: F) -> anyhow::Result<()>
 where
     F: Fn() -> Reply + Send + Sync + 'static,
 {
+    serve_get(server, auth, uri, Box::new(move |_, _| handler()))
+}
+
+fn serve_get(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, handler: Handler) -> anyhow::Result<()> {
     let auth = auth.clone();
     server.fn_handler::<anyhow::Error, _>(uri, Method::Get, move |req| {
         if !auth.allows(req.header("Cookie")) {
             return deny(req);
         }
-        respond(req, handler())
+        respond(req, handler("", ""))
     })?;
     Ok(())
 }
@@ -158,7 +166,7 @@ fn post<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, han
 where
     F: Fn(&str) -> Reply + Send + Sync + 'static,
 {
-    accept(server, auth, uri, MAX_FORM, move |_, body| handler(body))
+    accept(server, auth, uri, MAX_FORM, Box::new(move |_, body| handler(body)))
 }
 
 /// Like `post`, for a body that is plain text: the handler also gets the
@@ -168,13 +176,10 @@ fn post_text<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str
 where
     F: Fn(&str, &str) -> Reply + Send + Sync + 'static,
 {
-    accept(server, auth, uri, template::MAX_BYTES, handler)
+    accept(server, auth, uri, template::MAX_BYTES, Box::new(handler))
 }
 
-fn accept<F>(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, limit: usize, handler: F) -> anyhow::Result<()>
-where
-    F: Fn(&str, &str) -> Reply + Send + Sync + 'static,
-{
+fn accept(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, limit: usize, handler: Handler) -> anyhow::Result<()> {
     let auth = auth.clone();
     server.fn_handler::<anyhow::Error, _>(uri, Method::Post, move |mut req| {
         if !auth.allows(req.header("Cookie")) {
