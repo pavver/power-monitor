@@ -402,4 +402,26 @@ mod tests {
             assert_eq!(Battery::from_form(&body), Err(SettingsError::BmsAddress), "{address}");
         }
     }
+
+    #[test]
+    fn errors_read_as_the_page_shows_them() {
+        let cases = [
+            (SettingsError::Ssid, "Назва Wi-Fi мережі має бути від 1 до 32 байт."),
+            (SettingsError::WifiPassword, "Пароль Wi-Fi має бути порожнім або від 8 до 63 символів."),
+            (SettingsError::BotToken, "Токен бота має вигляд 123456789:AAH… — скопіюйте його з @BotFather."),
+            (SettingsError::ChatId, "Chat ID має бути цілим числом."),
+            (SettingsError::ThreadId, "Номер гілки форуму має бути додатним цілим числом."),
+            (SettingsError::DeviceName, "Назва пристрою має бути від 1 до 32 символів."),
+            (SettingsError::StillOffEvery, "Нагадування «Світла все ще немає» — ціле число хвилин від 1 до 1440."),
+            (SettingsError::BmsAddress, "Адреса BMS має вигляд AA:BB:CC:DD:EE:FF."),
+            (
+                SettingsError::Divider,
+                "Опір резисторів — ціле число ом від 1 до 100 000 000, наприклад 330000 і 10000.",
+            ),
+        ];
+        for (error, text) in cases {
+            assert_eq!(error.to_string(), text);
+        }
+    }
+
 }

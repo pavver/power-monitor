@@ -316,4 +316,22 @@ mod tests {
         let error = SettingsError::Text(Text::Test, TemplateError::Blank);
         assert_eq!(error.to_string(), "Тестове повідомлення: цей текст не можна залишити порожнім — ним перевіряється бот.");
     }
+
+    #[test]
+    fn every_text_is_named_as_the_page_names_it() {
+        let labels = Text::ALL.map(Text::label);
+        assert_eq!(
+            labels,
+            [
+                "Запуск, світло є",
+                "Запуск, світла немає",
+                "Світло зникло",
+                "Світло з'явилось",
+                "Світла все ще немає",
+                "Нова адреса панелі",
+                "Тестове повідомлення",
+            ]
+        );
+    }
+
 }

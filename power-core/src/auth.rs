@@ -241,4 +241,11 @@ mod tests {
         assert!(!sessions.is_open(Some(&first)));
         assert!(sessions.is_open(Some(&third)));
     }
+
+    #[test]
+    fn errors_read_as_the_page_shows_them() {
+        assert_eq!(AuthError::Length.to_string(), "Пароль має бути від 4 до 64 символів.");
+        assert_eq!(AuthError::Mismatch.to_string(), "Паролі не збігаються.");
+    }
+
 }

@@ -207,6 +207,19 @@ pub enum Next {
     Request(TunnelRequest),
 }
 
+impl TunnelRequest {
+    /// A name fit for the calls, a path on the panel itself, nothing that
+    /// could split headers, and a body the device can take.
+    fn is_safe(&self) -> bool {
+        let rid_ok = (1..=64).contains(&self.rid.len())
+            && self.rid.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        let path_ok =
+            self.path.starts_with('/') && !self.path.starts_with("//") && self.path.bytes().all(|b| b.is_ascii_graphic());
+        let headers_ok = [&self.cookie, &self.content_type].iter().all(|h| h.as_deref().is_none_or(header_safe));
+        rid_ok && path_ok && headers_ok && self.body_len <= MAX_BODY
+    }
+}
+
 pub fn next_answer(status: u16, body: &str) -> Result<Next, RemoteError> {
     match status {
         204 => return Ok(Next::Wait),
@@ -215,14 +228,7 @@ pub fn next_answer(status: u16, body: &str) -> Result<Next, RemoteError> {
         _ => return Err(RemoteError::Refused(status)),
     }
     let request: TunnelRequest = serde_json::from_str(body).map_err(|_| RemoteError::BadAnswer)?;
-    let rid_ok = (1..=64).contains(&request.rid.len())
-        && request.rid.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    // Only a path on the panel itself, and nothing that could split headers.
-    let path_ok = request.path.starts_with('/')
-        && !request.path.starts_with("//")
-        && request.path.bytes().all(|b| b.is_ascii_graphic());
-    let headers_ok = [&request.cookie, &request.content_type].iter().all(|h| h.as_deref().is_none_or(header_safe));
-    if !rid_ok || !path_ok || !headers_ok || request.body_len > MAX_BODY {
+    if !request.is_safe() {
         return Err(RemoteError::BadAnswer);
     }
     Ok(Next::Request(request))
@@ -510,4 +516,14 @@ mod tests {
         schedule.set_enabled(true, 5 * MIN);
         assert_eq!(schedule.phase(), Phase::Waiting { at_ms: 4 * MIN + FIRST_CHECKIN_MS });
     }
+
+    #[test]
+    fn errors_read_as_the_page_shows_them() {
+        let text = |error: RemoteError| error.to_string();
+        assert_eq!(text(RemoteError::ServerUrl), "Адреса сервера має вигляд https://example.com");
+        assert_eq!(text(RemoteError::Refused(403)), "сервер не впізнав пристрій (403)");
+        assert_eq!(text(RemoteError::Refused(500)), "сервер відповів помилкою 500");
+        assert_eq!(text(RemoteError::BadAnswer), "незрозуміла відповідь сервера");
+    }
+
 }
