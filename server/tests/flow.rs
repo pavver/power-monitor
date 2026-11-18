@@ -429,7 +429,33 @@ async fn admin_and_assets_are_served_with_correct_content_types() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[header::CONTENT_TYPE], "font/ttf");
+    assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=86400");
     assert!(!font.is_empty());
+
+    let (status, headers, ofl) = call(
+        &app,
+        Request::get("/admin/assets/fonts/CascadiaCode-OFL.txt")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "text/plain; charset=utf-8");
+    assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=86400");
+    assert!(!ofl.is_empty());
+
+    for (path, cache) in [
+        ("/admin", "no-store"),
+        ("/admin/index.html", "no-store"),
+        ("/admin/admin.js", "public, max-age=3600"),
+        ("/admin/admin_bg.wasm", "public, max-age=3600"),
+        ("/admin/admin.css", "public, max-age=3600"),
+    ] {
+        let (status, headers, _) =
+            call(&app, Request::get(path).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert_eq!(headers[header::CACHE_CONTROL], cache, "{path}");
+    }
 }
 
 #[tokio::test]

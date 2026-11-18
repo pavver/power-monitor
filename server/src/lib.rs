@@ -8,6 +8,7 @@
 //! admin cookie. Any path outside `/admin` and `/device` goes to the device
 //! picked with "Відкрити панель".
 
+mod assets;
 pub mod captcha;
 pub mod relay;
 
@@ -92,23 +93,11 @@ impl App {
     }
 
     pub fn router(self) -> Router {
-        Router::new()
+        assets::routes(Router::new())
             .route("/device/checkin", post(checkin))
             .route("/device/next", get(next))
             .route("/device/body/{rid}", get(body))
             .route("/device/reply/{rid}", post(reply))
-            .route("/admin", get(admin_index))
-            .route("/admin/", get(admin_index))
-            .route("/admin/index.html", get(admin_index))
-            .route("/admin/admin.js", get(admin_js))
-            .route("/admin/admin_bg.wasm", get(admin_wasm))
-            .route("/admin/admin.wasm", get(admin_wasm))
-            .route("/admin/admin.css", get(admin_css))
-            .route("/admin/assets/fonts/CascadiaCode.ttf", get(admin_font))
-            .route(
-                "/admin/assets/fonts/CascadiaCode-OFL.txt",
-                get(admin_font_ofl),
-            )
             .route("/admin/login", post(login))
             .route("/admin/captcha/{id}", get(captcha_image))
             .route("/admin/devices/{id}/waiting", post(set_waiting))
@@ -364,81 +353,6 @@ async fn reply(
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }
-}
-
-/* ---------- the admin Leptos CSR app and its static assets ---------- */
-
-const INDEX_HTML: &[u8] = include_bytes!("../admin/dist/index.html");
-const ADMIN_JS: &[u8] = include_bytes!("../admin/dist/admin.js");
-const ADMIN_WASM: &[u8] = include_bytes!("../admin/dist/admin_bg.wasm");
-const ADMIN_CSS: &[u8] = include_bytes!("../admin/dist/admin.css");
-const FONT_TTF: &[u8] = include_bytes!("../admin/dist/assets/fonts/CascadiaCode.ttf");
-const FONT_OFL: &[u8] = include_bytes!("../admin/dist/assets/fonts/CascadiaCode-OFL.txt");
-
-async fn admin_index() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-            (header::CACHE_CONTROL, "no-store"),
-        ],
-        INDEX_HTML,
-    )
-        .into_response()
-}
-
-async fn admin_js() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "application/javascript"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
-        ],
-        ADMIN_JS,
-    )
-        .into_response()
-}
-
-async fn admin_wasm() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "application/wasm"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
-        ],
-        ADMIN_WASM,
-    )
-        .into_response()
-}
-
-async fn admin_css() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
-        ],
-        ADMIN_CSS,
-    )
-        .into_response()
-}
-
-async fn admin_font() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "font/ttf"),
-            (header::CACHE_CONTROL, "public, max-age=86400"),
-        ],
-        FONT_TTF,
-    )
-        .into_response()
-}
-
-async fn admin_font_ofl() -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=86400"),
-        ],
-        FONT_OFL,
-    )
-        .into_response()
 }
 
 fn json_reply(status: StatusCode, body: serde_json::Value) -> Response {
