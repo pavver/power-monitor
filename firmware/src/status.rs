@@ -73,7 +73,6 @@ impl Status {
     /// The page state as JSON.
     pub fn state_json(&self, settings: &Settings) -> String {
         let bot = settings.bot();
-        let messages = settings.messages();
         let link = self.link();
         let telegram = self.telegram.lock().unwrap().clone();
         let power = self
@@ -82,19 +81,23 @@ impl Status {
             .unwrap()
             .map(|(state, since)| Power::new(state, since.map(|since| now_ms().saturating_sub(since))));
         let setup_ap = self.setup_ap.lock().unwrap().clone();
-        let state = api::State {
-            stage: settings.stage(),
-            power,
-            link: &link,
-            setup_ap: setup_ap.as_ref(),
-            telegram: &telegram,
-            pending: self.pending.load(Ordering::Relaxed),
-            chat_id: bot.as_ref().map(|b| b.destination().chat_id),
-            thread_id: bot.as_ref().and_then(|b| b.destination().thread_id),
-            messages: &messages,
-            firmware: &self.firmware,
-            password_set: settings.password().is_some(),
-        };
-        serde_json::to_string(&state).unwrap_or_default()
+        // Asked before the texts are locked: no other lock is taken under it.
+        let (stage, password_set) = (settings.stage(), settings.password().is_some());
+        settings.with_messages(|messages| {
+            let state = api::State {
+                stage,
+                power,
+                link: &link,
+                setup_ap: setup_ap.as_ref(),
+                telegram: &telegram,
+                pending: self.pending.load(Ordering::Relaxed),
+                chat_id: bot.as_ref().map(|b| b.destination().chat_id),
+                thread_id: bot.as_ref().and_then(|b| b.destination().thread_id),
+                messages,
+                firmware: &self.firmware,
+                password_set,
+            };
+            serde_json::to_string(&state).unwrap_or_default()
+        })
     }
 }

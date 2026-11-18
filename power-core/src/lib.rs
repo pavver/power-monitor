@@ -5,6 +5,7 @@ pub mod power;
 pub mod reminder;
 pub mod message;
 pub mod form;
+pub mod json;
 pub mod dns;
 pub mod outbox;
 pub mod telegram;

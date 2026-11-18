@@ -1,72 +1,158 @@
-//! HTTPS calls to the Telegram Bot API.
+//! HTTPS calls to the Telegram Bot API. Nothing is held whole in memory:
+//! a request body is written as it is made, in small pieces, and a reply is
+//! parsed as it is read, keeping only the fields asked for.
 
+use std::fmt;
+use std::io::BufReader;
 use std::time::Duration;
 
-use embedded_svc::http::client::Client;
-use embedded_svc::io::Write;
+use embedded_svc::http::client::{Client, Response};
+use embedded_svc::io::{Read, Write};
 use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
+use power_core::json::Count;
 use power_core::settings::{Bot, BotToken, Destination};
 use power_core::telegram::{self, Chat};
-use serde_json::Value;
 
-/// `getUpdates` can carry many messages; larger answers are cut and rejected.
-const MAX_RESPONSE: usize = 48 * 1024;
+/// Pieces a body is written and a reply is read in.
+const PIECE: usize = 256;
+
+type HttpClient = Client<EspHttpConnection>;
 
 pub fn send(bot: &Bot, text: &str) -> Result<(), String> {
     send_to(bot.token(), bot.destination(), text)
 }
 
 pub fn send_to(token: &BotToken, to: Destination, text: &str) -> Result<(), String> {
-    let request = telegram::send_message(token, to, text);
-    call(&request.url, Some(&request.body)).map(|_| ())
+    let body = |out: &mut dyn fmt::Write| telegram::write_send_message(to, text, &mut Dyn(out));
+    post(&telegram::send_message_url(token), body).map(|_| ())
 }
 
 /// The bot's `@username`, proving the token works.
 pub fn bot_username(token: &BotToken) -> Result<String, String> {
-    let me = call(&telegram::get_me(token), None)?;
-    telegram::bot_username(&me).ok_or_else(|| "Telegram не повернув ім'я бота".to_string())
+    get(&telegram::get_me(token), telegram::read_reply).and_then(|me| telegram::bot_username(&me))
 }
 
 pub fn chats(token: &BotToken) -> Result<Vec<Chat>, String> {
-    Ok(telegram::chats(&call(&telegram::get_updates(token), None)?))
+    get(&telegram::get_updates(token), telegram::read_chats)
 }
 
-/// POSTs `body` (or GETs without one) and returns the call's `result`.
-fn call(url: &str, body: Option<&str>) -> Result<Value, String> {
-    let (status, response) = exchange(url, body).map_err(|e| format!("немає зв'язку з Telegram ({e})"))?;
-    telegram::result(status, &response)
-}
-
-fn exchange(url: &str, body: Option<&str>) -> anyhow::Result<(u16, String)> {
+fn connect() -> Result<HttpClient, String> {
     let connection = EspHttpConnection::new(&Configuration {
         crt_bundle_attach: Some(esp_idf_svc::sys::esp_crt_bundle_attach),
         timeout: Some(Duration::from_secs(20)),
         ..Default::default()
-    })?;
-    let mut client = Client::wrap(connection);
-    let length = body.map_or(0, str::len).to_string();
-    let headers = [
-        ("content-type", "application/x-www-form-urlencoded"),
-        ("content-length", length.as_str()),
-    ];
-    let mut response = match body {
-        None => client.get(url)?.submit()?,
-        Some(body) => {
-            let mut post = client.post(url, &headers)?;
-            post.write_all(body.as_bytes())?;
-            post.flush()?;
-            post.submit()?
-        }
-    };
-    let status = response.status();
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 1024];
-    loop {
-        let read = response.read(&mut chunk)?;
-        if read == 0 || bytes.len() + read > MAX_RESPONSE {
-            break;
-        }
-        bytes.extend_from_slice(&chunk[..read]);
+    })
+    .map_err(unreachable)?;
+    Ok(Client::wrap(connection))
+}
+
+/// How a reply is read: `telegram::read_reply` or `telegram::read_chats`,
+/// from a small buffer filled off the socket.
+type ReadReply<T> = fn(u16, &mut dyn std::io::Read) -> Result<T, String>;
+
+fn get<T>(url: &str, read_reply: ReadReply<T>) -> Result<T, String> {
+    let mut client = connect()?;
+    let response = client.get(url).and_then(|request| request.submit()).map_err(unreachable)?;
+    read(response, read_reply)
+}
+
+/// POSTs the JSON `body`, written twice: once to count it, once to send it.
+fn post(url: &str, body: impl Fn(&mut dyn fmt::Write) -> fmt::Result) -> Result<serde_json::Value, String> {
+    let mut count = Count(0);
+    body(&mut count).map_err(|_| "Telegram: запит не сформовано".to_string())?;
+    let length = count.0.to_string();
+    let headers = [("content-type", "application/json"), ("content-length", length.as_str())];
+    let mut client = connect()?;
+    let response = submit(&mut client, url, &headers, body).map_err(unreachable)?;
+    read(response, telegram::read_reply)
+}
+
+fn submit<'a>(
+    client: &'a mut HttpClient,
+    url: &'a str,
+    headers: &'a [(&'a str, &'a str)],
+    body: impl Fn(&mut dyn fmt::Write) -> fmt::Result,
+) -> anyhow::Result<Response<&'a mut EspHttpConnection>> {
+    let mut request = client.post(url, headers)?;
+    let mut pieces = Pieces { out: &mut request, buf: [0; PIECE], len: 0, error: None };
+    if body(&mut pieces).is_err() || pieces.flush().is_err() {
+        return Err(pieces.error.unwrap_or_else(|| anyhow::anyhow!("запит не сформовано")));
     }
-    Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+    request.flush()?;
+    Ok(request.submit()?)
+}
+
+/// Parses the reply as it comes off the socket.
+fn read<T>(mut response: Response<&mut EspHttpConnection>, read_reply: ReadReply<T>) -> Result<T, String> {
+    let status = response.status();
+    read_reply(status, &mut BufReader::with_capacity(PIECE, Stream(&mut response)))
+}
+
+fn unreachable(error: impl fmt::Display) -> String {
+    format!("немає зв'язку з Telegram ({error})")
+}
+
+/// A reply as `std::io::Read`, for serde_json.
+struct Stream<'a, R>(&'a mut R);
+
+impl<R: Read> std::io::Read for Stream<'_, R>
+where
+    R::Error: fmt::Debug,
+{
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf).map_err(|e| std::io::Error::other(format!("{e:?}")))
+    }
+}
+
+/// Collects text into `PIECE`-byte pieces and writes each to `out`.
+struct Pieces<'a, W> {
+    out: &'a mut W,
+    buf: [u8; PIECE],
+    len: usize,
+    error: Option<anyhow::Error>,
+}
+
+impl<W: Write> Pieces<'_, W>
+where
+    W::Error: fmt::Debug,
+{
+    fn flush(&mut self) -> fmt::Result {
+        if self.len > 0 {
+            if let Err(e) = self.out.write_all(&self.buf[..self.len]) {
+                self.error = Some(anyhow::anyhow!("{e:?}"));
+                return Err(fmt::Error);
+            }
+            self.len = 0;
+        }
+        Ok(())
+    }
+}
+
+impl<W: Write> fmt::Write for Pieces<'_, W>
+where
+    W::Error: fmt::Debug,
+{
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        // Bytes, not a `str`: a piece may end inside a letter.
+        let mut bytes = text.as_bytes();
+        while !bytes.is_empty() {
+            if self.len == PIECE {
+                self.flush()?;
+            }
+            let take = (PIECE - self.len).min(bytes.len());
+            self.buf[self.len..self.len + take].copy_from_slice(&bytes[..take]);
+            self.len += take;
+            bytes = &bytes[take..];
+        }
+        Ok(())
+    }
+}
+
+/// `&mut dyn fmt::Write` where a sized writer is wanted.
+struct Dyn<'a>(&'a mut dyn fmt::Write);
+
+impl fmt::Write for Dyn<'_> {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        self.0.write_str(text)
+    }
 }

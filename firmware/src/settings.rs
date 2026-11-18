@@ -88,8 +88,9 @@ impl Settings {
         api::stage(self.wifi().is_some(), self.bot().is_some())
     }
 
-    pub fn messages(&self) -> Messages {
-        self.messages.read().unwrap().clone()
+    /// Runs `use_them` on the texts as they are, without copying them all.
+    pub fn with_messages<T>(&self, use_them: impl FnOnce(&Messages) -> T) -> T {
+        use_them(&self.messages.read().unwrap())
     }
 
     pub fn still_off_every_ms(&self) -> u64 {

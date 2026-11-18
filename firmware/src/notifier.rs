@@ -83,15 +83,14 @@ fn deliver_next(
         status.set_telegram("чекає на Wi-Fi");
         return Delivery::Offline;
     }
-    let messages = settings.messages();
     // Never waits for the BMS: a value too old to show is a shrug.
-    let battery = if needs_bms(&messages, notice) && settings.battery().is_some() {
+    let battery = if settings.with_messages(|messages| needs_bms(messages, notice)) && settings.battery().is_some() {
         bms.recent_reading(BMS_MAX_AGE)
     } else {
         None
     };
     let readings = Readings { bms: battery.as_ref(), voltage_mv: voltmeter.battery_mv() };
-    let Some(text) = notice_text(&messages, notice, now_ms(), readings) else {
+    let Some(text) = settings.with_messages(|messages| notice_text(messages, notice, now_ms(), readings)) else {
         // Its text is empty: the user turned this message off.
         outbox.delivered();
         status.set_pending(outbox.len());

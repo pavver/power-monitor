@@ -45,7 +45,7 @@ impl Device {
     fn send_test(&self, bot: &Bot) -> Result<(), String> {
         let reading = self.bms.recent_reading(BMS_MAX_AGE);
         let readings = Readings { bms: reading.as_ref(), voltage_mv: self.voltmeter.battery_mv() };
-        telegram::send(bot, &test_text(&self.settings.messages(), readings))
+        telegram::send(bot, &self.settings.with_messages(|messages| test_text(messages, readings)))
     }
 }
 
