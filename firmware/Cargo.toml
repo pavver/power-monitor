@@ -20,7 +20,7 @@ opt-level = "z"
 
 [dependencies]
 anyhow = "1"
-log = "0.4"
+log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
 embedded-svc = "0.29"
 serde = "1"
 serde_json = "1"

@@ -37,3 +37,9 @@ CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=5
 # certificate once it is checked: free it after the handshake.
 CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
+# Nothing reads the serial port: USB is only for flashing, and the device
+# reports over Wi-Fi. ESP-IDF logs are compiled out (the Rust side too, see
+# the log features in Cargo.toml), and printf is the small newlib one: with no
+# logs, nothing prints 64-bit numbers or floats.
+CONFIG_LOG_DEFAULT_LEVEL_NONE=y
+CONFIG_NEWLIB_NANO_FORMAT=y
