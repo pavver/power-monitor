@@ -40,6 +40,9 @@ jobs:
 
       - name: Install tools
         if: steps.tools.outputs.cache-hit != 'true'
+        env:
+          # espup asks the GitHub API for the toolchain; anonymous calls hit the rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           sudo apt-get update && sudo apt-get install -y libudev-dev
           curl -fsSL -o ~/.cargo/bin/espup \
