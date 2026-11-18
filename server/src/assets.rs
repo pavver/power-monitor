@@ -60,7 +60,10 @@ static ASSETS: [Asset; 6] = [
 
 impl Asset {
     fn response(&'static self) -> Response {
-        let headers = [(header::CONTENT_TYPE, self.content_type), (header::CACHE_CONTROL, self.cache)];
+        let headers = [
+            (header::CONTENT_TYPE, self.content_type),
+            (header::CACHE_CONTROL, self.cache),
+        ];
         (headers, self.body).into_response()
     }
 }
@@ -68,6 +71,8 @@ impl Asset {
 /// `router` with a route for every path of every asset.
 pub(crate) fn routes(router: Router<App>) -> Router<App> {
     ASSETS.iter().fold(router, |router, asset| {
-        asset.paths.iter().fold(router, |router, path| router.route(path, get(move || async move { asset.response() })))
+        asset.paths.iter().fold(router, |router, path| {
+            router.route(path, get(move || async move { asset.response() }))
+        })
     })
 }
