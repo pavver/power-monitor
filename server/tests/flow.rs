@@ -476,3 +476,55 @@ async fn the_device_list_needs_the_admin_and_follows_the_actions() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn after_ending_the_session_the_browser_goes_back_to_the_admin_at_once() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    let waiting = {
+        let app = app.clone();
+        tokio::spawn(async move { call(&app, device("GET", "/device/next", SECRET, "")).await })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/end"), &cookies, ""),
+    )
+    .await;
+    waiting.await.unwrap();
+    let (status, headers, _) = tokio::time::timeout(
+        Duration::from_secs(2),
+        call(&app, browser("GET", "/", &cookies, "")),
+    )
+    .await
+    .expect("the page answers instead of waiting for the device");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], format!("/admin?open={ID}"));
+}
+
+// Paused time: the device stops polling, as it does while it scans for a BMS.
+#[tokio::test(start_paused = true)]
+async fn a_request_the_busy_device_never_takes_fails_fast_and_is_dropped() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    let (status, _, _) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let started = tokio::time::Instant::now();
+    let (status, _, _) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "gave up after {:?}",
+        started.elapsed()
+    );
+
+    let (status, _, _) = call(&app, device("GET", "/device/next", SECRET, "")).await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "the browser stopped waiting, so the device is not asked"
+    );
+}

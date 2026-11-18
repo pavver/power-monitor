@@ -29,7 +29,12 @@ use tokio::sync::{mpsc, oneshot};
 
 /// How long a long poll is held; well under Cloudflare's 100 s limit.
 pub const POLL: Duration = Duration::from_secs(25);
-/// How long the browser waits for the device's answer (a firmware upload is the slowest).
+/// How long a browser request waits for the device to take it. A device that
+/// stopped polling (it is busy, e.g. scanning for a BMS, or gone) fails the
+/// request fast instead of holding the page until Cloudflare cuts it.
+pub const PICKUP: Duration = Duration::from_secs(15);
+/// How long the browser waits for the device's answer once it took the
+/// request (a firmware upload is the slowest).
 pub const ANSWER: Duration = Duration::from_secs(95);
 /// A device that polled this recently is in a session.
 const ONLINE: Duration = Duration::from_secs(40);
@@ -56,10 +61,11 @@ struct Device {
     want_session: bool,
 }
 
-/// A relayed request on its way to the device.
-enum Job {
-    Request(TunnelRequest),
-    End,
+/// A browser request waiting on the device: told when the device takes it,
+/// then given the answer. Dropping it tells the browser the session ended.
+struct Pending {
+    taken: Option<oneshot::Sender<()>>,
+    answer: oneshot::Sender<Answer>,
 }
 
 /// The device's answer: status, headers, body.
@@ -71,12 +77,15 @@ struct Answer {
 
 /// One device's session plumbing.
 struct Link {
-    jobs: mpsc::UnboundedSender<Job>,
-    inbox: tokio::sync::Mutex<mpsc::UnboundedReceiver<Job>>,
+    jobs: mpsc::UnboundedSender<TunnelRequest>,
+    inbox: tokio::sync::Mutex<mpsc::UnboundedReceiver<TunnelRequest>>,
     bodies: Mutex<HashMap<String, Bytes>>,
-    waiting: Mutex<HashMap<String, oneshot::Sender<Answer>>>,
+    waiting: Mutex<HashMap<String, Pending>>,
     last_poll: Mutex<Option<Instant>>,
+    /// The owner ended the session; the device's next poll learns it.
     ending: AtomicBool,
+    /// Wakes a poll in progress when the session ends.
+    ended: tokio::sync::Notify,
 }
 
 impl Link {
@@ -89,6 +98,34 @@ impl Link {
             waiting: Mutex::default(),
             last_poll: Mutex::default(),
             ending: AtomicBool::new(false),
+            ended: tokio::sync::Notify::new(),
+        }
+    }
+
+    fn polled(&self) {
+        *self.last_poll.lock().unwrap() = Some(Instant::now());
+    }
+
+    /// Ends the session: offline at once, every waiting browser let go, and
+    /// the device told at its poll.
+    fn end(&self) {
+        *self.last_poll.lock().unwrap() = None;
+        self.waiting.lock().unwrap().clear();
+        self.bodies.lock().unwrap().clear();
+        self.ending.store(true, Ordering::SeqCst);
+        self.ended.notify_waiters();
+    }
+
+    /// Marks a request taken by the device; `false` when no browser waits for it.
+    fn take(&self, rid: &str) -> bool {
+        match self.waiting.lock().unwrap().get_mut(rid) {
+            Some(pending) => {
+                if let Some(taken) = pending.taken.take() {
+                    let _ = taken.send(());
+                }
+                true
+            }
+            None => false,
         }
     }
 
@@ -296,26 +333,35 @@ async fn next(State(app): State<App>, headers: HeaderMap) -> Response {
         Err(status) => return status.into_response(),
     };
     let link = app.link(&id);
-    *link.last_poll.lock().unwrap() = Some(Instant::now());
+    link.polled();
     // The session it asked for has started.
     if let Some(device) = app.0.devices.lock().unwrap().get_mut(&id) {
         device.want_session = false;
     }
-    if link.ending.swap(false, Ordering::SeqCst) {
-        return StatusCode::GONE.into_response();
-    }
-    let job = {
-        let mut inbox = link.inbox.lock().await;
-        tokio::time::timeout(POLL, inbox.recv()).await
-    };
-    *link.last_poll.lock().unwrap() = Some(Instant::now());
-    match job {
-        Ok(Some(Job::Request(request))) => Json(request).into_response(),
-        Ok(Some(Job::End)) => {
-            link.ending.store(false, Ordering::SeqCst);
-            StatusCode::GONE.into_response()
+    let deadline = tokio::time::Instant::now() + POLL;
+    let mut inbox = link.inbox.lock().await;
+    loop {
+        let ended = link.ended.notified();
+        tokio::pin!(ended);
+        ended.as_mut().enable();
+        if link.ending.swap(false, Ordering::SeqCst) {
+            return StatusCode::GONE.into_response();
         }
-        _ => StatusCode::NO_CONTENT.into_response(),
+        tokio::select! {
+            () = &mut ended => continue,
+            job = tokio::time::timeout_at(deadline, inbox.recv()) => match job {
+                // A browser that stopped waiting is not worth the device's time.
+                Ok(Some(request)) if !link.take(&request.rid) => continue,
+                Ok(Some(request)) => {
+                    link.polled();
+                    return Json(request).into_response();
+                }
+                _ => {
+                    link.polled();
+                    return StatusCode::NO_CONTENT.into_response();
+                }
+            },
+        }
     }
 }
 
@@ -361,8 +407,8 @@ async fn reply(
         body: body.slice(rest..),
     };
     match app.link(&id).waiting.lock().unwrap().remove(&rid) {
-        Some(waiter) => {
-            let _ = waiter.send(answer);
+        Some(pending) => {
+            let _ = pending.answer.send(answer);
             StatusCode::NO_CONTENT.into_response()
         }
         None => StatusCode::NOT_FOUND.into_response(),
@@ -412,8 +458,15 @@ async fn relay(State(app): State<App>, request: Request) -> Response {
         Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "Завеликий запит.").into_response(),
     };
     let rid = random_hex(8);
+    let (taken, picked) = oneshot::channel();
     let (answer, answered) = oneshot::channel();
-    link.waiting.lock().unwrap().insert(rid.clone(), answer);
+    link.waiting.lock().unwrap().insert(
+        rid.clone(),
+        Pending {
+            taken: Some(taken),
+            answer,
+        },
+    );
     if !body.is_empty() {
         link.bodies
             .lock()
@@ -430,8 +483,12 @@ async fn relay(State(app): State<App>, request: Request) -> Response {
         content_type,
         body_len: body.len(),
     };
-    let _ = link.jobs.send(Job::Request(job));
-    let result = tokio::time::timeout(ANSWER, answered).await;
+    let _ = link.jobs.send(job);
+    let result = match tokio::time::timeout(PICKUP, picked).await {
+        Ok(Ok(())) => tokio::time::timeout(ANSWER, answered).await,
+        Ok(Err(ended)) => Ok(Err(ended)),
+        Err(busy) => Err(busy),
+    };
     link.waiting.lock().unwrap().remove(&rid);
     link.bodies.lock().unwrap().remove(&rid);
     match result {
@@ -449,7 +506,8 @@ async fn relay(State(app): State<App>, request: Request) -> Response {
             }
             response
         }
-        _ => (StatusCode::GATEWAY_TIMEOUT, "Пристрій не відповів.").into_response(),
+        Ok(Err(_ended)) => Redirect::to(&format!("/admin?open={id}")).into_response(),
+        Err(_) => (StatusCode::GATEWAY_TIMEOUT, "Пристрій не відповів.").into_response(),
     }
 }
 
@@ -716,9 +774,7 @@ async fn end_session(
         Some(device) => device.want_session = false,
         None => return unknown_device(),
     }
-    let link = app.link(&id);
-    link.ending.store(true, Ordering::SeqCst);
-    let _ = link.jobs.send(Job::End);
+    app.link(&id).end();
     app.save();
     ok()
 }
