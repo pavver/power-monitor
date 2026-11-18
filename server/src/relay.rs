@@ -55,8 +55,39 @@ pub enum RelayOutcome {
     Timeout,
 }
 
+/// Recent answers to reads. Every change bumps `generation`, so an answer
+/// asked for before a change is never kept after it.
+#[derive(Default)]
+pub struct Cache {
+    generation: u64,
+    answers: HashMap<String, (Answer, Instant)>,
+}
+
+impl Cache {
+    fn fresh(&self, path: &str) -> Option<Answer> {
+        let (answer, at) = self.answers.get(path)?;
+        (at.elapsed() < CACHE_TTL).then(|| answer.clone())
+    }
+
+    /// Keeps `answer` to a read asked for in `generation`, if nothing changed since.
+    fn keep(&mut self, generation: u64, path: &str, answer: &Answer) {
+        if generation == self.generation {
+            self.answers.retain(|_, (_, at)| at.elapsed() < CACHE_TTL);
+            self.answers
+                .insert(path.to_string(), (answer.clone(), Instant::now()));
+        }
+    }
+
+    fn drop_all(&mut self) {
+        self.answers.clear();
+        self.generation += 1;
+    }
+}
+
 pub struct Flight {
     pub rid: String,
+    /// The cache generation when it was asked for.
+    pub generation: u64,
     pub tx: watch::Sender<Option<RelayOutcome>>,
     pub rx: watch::Receiver<Option<RelayOutcome>>,
     pub waiters: Arc<AtomicUsize>,
@@ -83,7 +114,7 @@ pub struct Link {
     pub ended: tokio::sync::Notify,
     pub panel_session: Mutex<Option<String>>,
     pub view: Mutex<Option<String>>,
-    pub cache: Mutex<HashMap<String, (Answer, Instant)>>,
+    pub cache: Mutex<Cache>,
     pub flights: Mutex<HashMap<String, Arc<Flight>>>,
 }
 
@@ -123,7 +154,7 @@ impl Link {
         self.bodies.lock().unwrap().clear();
         self.ending.store(true, Ordering::SeqCst);
         self.ended.notify_waiters();
-        self.cache.lock().unwrap().clear();
+        self.drop_cache();
         *self.view.lock().unwrap() = None;
         for (_, flight) in self.flights.lock().unwrap().drain() {
             let _ = flight.tx.send(Some(RelayOutcome::Ended));
@@ -179,7 +210,7 @@ impl Link {
     }
 
     pub fn drop_cache(&self) {
-        self.cache.lock().unwrap().clear();
+        self.cache.lock().unwrap().drop_all();
     }
 
     pub fn set_view(&self, view: Option<String>) {
@@ -280,15 +311,20 @@ async fn run_flight(link: Arc<Link>, path: String, flight: Arc<Flight>) {
     };
     let outcome = ask(&link, job, Bytes::new(), Arc::clone(&flight.waiters)).await;
     if let RelayOutcome::Answer(answer) = &outcome {
-        // Do not cache a 504 / "device did not answer" result, and never cache when the session ended.
-        if !link.ending.load(Ordering::SeqCst) && answer.status != 504 {
+        // Not a 504 "device did not answer"; and nothing from before an end or a change.
+        if answer.status != 504 {
             link.cache
                 .lock()
                 .unwrap()
-                .insert(path.clone(), (answer.clone(), Instant::now()));
+                .keep(flight.generation, &path, answer);
         }
     }
-    link.flights.lock().unwrap().remove(&path);
+    // Only its own: after an end a newer flight may have the path.
+    let mut flights = link.flights.lock().unwrap();
+    if flights.get(&path).is_some_and(|f| Arc::ptr_eq(f, &flight)) {
+        flights.remove(&path);
+    }
+    drop(flights);
     let _ = flight.tx.send(Some(outcome));
 }
 
@@ -329,10 +365,9 @@ fn picked(app: &App, headers: &HeaderMap) -> Result<(String, Arc<Link>), Redirec
 /// A read: from the cache, or one request to the device shared by every
 /// browser asking for the same path meanwhile.
 async fn get(link: Arc<Link>, path: String, id: &str) -> Response {
-    if let Some((answer, created_at)) = link.cache.lock().unwrap().get(&path) {
-        if created_at.elapsed() < CACHE_TTL {
-            return answer_to_response(answer.clone());
-        }
+    let cached = link.cache.lock().unwrap().fresh(&path);
+    if let Some(answer) = cached {
+        return answer_to_response(answer);
     }
     let flight = join_flight(&link, &path);
     let _guard = WaiterGuard(Arc::clone(&flight.waiters));
@@ -347,17 +382,32 @@ async fn get(link: Arc<Link>, path: String, id: &str) -> Response {
     }
 }
 
+/// Counts one more waiter, unless nobody waits any more.
+fn join(waiters: &AtomicUsize) -> bool {
+    let mut now = waiters.load(Ordering::SeqCst);
+    while now > 0 {
+        match waiters.compare_exchange_weak(now, now + 1, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return true,
+            Err(changed) => now = changed,
+        }
+    }
+    false
+}
+
 /// The request in flight for `path`, started if there is none; counts this
-/// browser among its waiters.
+/// browser among its waiters. One nobody waits for any more is not joined:
+/// the device may have skipped it already.
 fn join_flight(link: &Arc<Link>, path: &str) -> Arc<Flight> {
     let mut flights = link.flights.lock().unwrap();
     if let Some(flight) = flights.get(path) {
-        flight.waiters.fetch_add(1, Ordering::SeqCst);
-        return flight.clone();
+        if join(&flight.waiters) {
+            return flight.clone();
+        }
     }
     let (tx, rx) = watch::channel(None);
     let flight = Arc::new(Flight {
         rid: random_hex(8),
+        generation: link.cache.lock().unwrap().generation,
         tx,
         rx,
         waiters: Arc::new(AtomicUsize::new(1)),

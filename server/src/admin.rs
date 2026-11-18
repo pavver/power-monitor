@@ -264,7 +264,10 @@ async fn forget(State(app): State<App>, headers: HeaderMap, Path(id): Path<Strin
         return login_first();
     }
     app.0.devices.lock().unwrap().remove(&id);
-    app.0.links.lock().unwrap().remove(&id);
+    if let Some(link) = app.0.links.lock().unwrap().remove(&id) {
+        // Lets go of the browsers and of the device's poll.
+        link.end();
+    }
     app.save();
     ok()
 }

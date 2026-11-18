@@ -1042,3 +1042,176 @@ async fn ending_session_releases_coalesced_browsers_at_once() {
     let (status, _, _) = call(&app, device("GET", "/device/next", SECRET, "")).await;
     assert_eq!(status, StatusCode::GONE);
 }
+
+/// One long poll of the device: its status and the job, if any.
+async fn poll(app: &App) -> (StatusCode, Value) {
+    let (status, _, body) = call(app, device("GET", "/device/next", SECRET, "")).await;
+    let job = if body.is_empty() {
+        Value::Null
+    } else {
+        json(&body)
+    };
+    (status, job)
+}
+
+/// The device answers job `rid` with `body`.
+async fn answer(app: &App, rid: &str, body: &str) {
+    let reply = format!("content-type: text/plain\n\n{body}");
+    let mut request = device("POST", &format!("/device/reply/{rid}"), SECRET, reply);
+    request
+        .headers_mut()
+        .insert("x-status", "200".parse().unwrap());
+    assert_eq!(call(app, request).await.0, StatusCode::NO_CONTENT);
+}
+
+async fn listed_online(app: &App, cookies: &str) -> bool {
+    let (_, _, body) = call(app, browser("GET", "/admin/api/devices", cookies, "")).await;
+    json(&body)[0]["online"].as_bool().unwrap()
+}
+
+// Paused time: polls end after POLL.
+#[tokio::test(start_paused = true)]
+async fn a_device_told_its_session_ended_is_not_online() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    assert_eq!(poll(&app).await.0, StatusCode::NO_CONTENT);
+    // Ended while the device is between polls.
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/end"), &cookies, ""),
+    )
+    .await;
+    assert_eq!(poll(&app).await.0, StatusCode::GONE);
+    assert!(!listed_online(&app, &cookies).await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_end_the_device_never_heard_does_not_end_its_next_session() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    assert_eq!(poll(&app).await.0, StatusCode::NO_CONTENT);
+    // The device has gone (its own owner ended it) when the admin ends it too.
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/end"), &cookies, ""),
+    )
+    .await;
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, ""),
+    )
+    .await;
+    assert_eq!(checkin(&app).await["session"], true);
+    assert_eq!(poll(&app).await.0, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn forgetting_a_device_in_a_session_ends_it() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    let polling = {
+        let app = app.clone();
+        tokio::spawn(async move { poll(&app).await.0 })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/forget"), &cookies, ""),
+    )
+    .await;
+    let status = tokio::time::timeout(Duration::from_secs(2), polling).await;
+    assert_eq!(
+        status.expect("the poll ends at once").unwrap(),
+        StatusCode::GONE
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_started_session_is_no_longer_asked_for_after_a_restart() {
+    let dir = std::env::temp_dir().join(format!("svitlo-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = || Config {
+        admin_password: "correct horse battery".into(),
+        data: Some(dir.clone()),
+    };
+    let app = App::new(config());
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    call(
+        &app,
+        browser("POST", &format!("/admin/devices/{ID}/open"), &cookies, ""),
+    )
+    .await;
+    assert_eq!(checkin(&app).await["session"], true);
+    poll(&app).await;
+    let restarted = App::new(config());
+    let session = checkin(&restarted).await["session"].clone();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(session, false);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_read_nobody_waits_for_is_not_joined_by_the_next_browser() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    assert_eq!(poll(&app).await.0, StatusCode::NO_CONTENT);
+    // This browser gives up before the device polls; the device skips its job.
+    let gave_up = tokio::time::timeout(
+        Duration::from_secs(1),
+        call(&app, browser("GET", "/api/state", &cookies, "")),
+    )
+    .await;
+    assert!(gave_up.is_err());
+    let device = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (status, job) = poll(&app).await;
+            assert_eq!(status, StatusCode::OK);
+            answer(&app, job["rid"].as_str().unwrap(), "fresh").await;
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let (status, _, body) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(
+        (status, body.as_slice()),
+        (StatusCode::OK, b"fresh".as_slice())
+    );
+    device.await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_read_answered_after_a_change_is_not_cached() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    assert_eq!(poll(&app).await.0, StatusCode::NO_CONTENT);
+    let device = {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let (_, read) = poll(&app).await;
+            let (_, change) = poll(&app).await;
+            answer(&app, change["rid"].as_str().unwrap(), "saved").await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            answer(&app, read["rid"].as_str().unwrap(), "before").await;
+            let (status, again) = poll(&app).await;
+            assert_eq!(status, StatusCode::OK, "the second read reaches the device");
+            answer(&app, again["rid"].as_str().unwrap(), "after").await;
+        })
+    };
+    let read = {
+        let app = app.clone();
+        let cookies = cookies.clone();
+        tokio::spawn(async move { call(&app, browser("GET", "/api/state", &cookies, "")).await })
+    };
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let (status, _, _) = call(&app, browser("POST", "/api/messages", &cookies, "a=1")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(read.await.unwrap().2, b"before");
+    let (_, _, body) = call(&app, browser("GET", "/api/state", &cookies, "")).await;
+    assert_eq!(body, b"after");
+    device.await.unwrap();
+}

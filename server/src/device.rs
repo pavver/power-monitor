@@ -48,6 +48,8 @@ async fn checkin(
         device.version = form.version.chars().take(64).collect();
         serde_json::json!({ "session": device.want_session, "soon": device.waiting })
     };
+    // Out of a session, so an end it never heard of is moot.
+    app.link(&id).ending.store(false, Ordering::SeqCst);
     app.save();
     Json(answer).into_response()
 }
@@ -60,8 +62,15 @@ async fn next(State(app): State<App>, headers: HeaderMap) -> Response {
     let link = app.link(&id);
     link.polled();
     // The session it asked for has started.
-    if let Some(device) = app.0.devices.lock().unwrap().get_mut(&id) {
-        device.want_session = false;
+    let started = app
+        .0
+        .devices
+        .lock()
+        .unwrap()
+        .get_mut(&id)
+        .is_some_and(|device| std::mem::take(&mut device.want_session));
+    if started {
+        app.save();
     }
     let deadline = tokio::time::Instant::now() + POLL;
     let mut inbox = link.inbox.lock().await;
@@ -70,6 +79,8 @@ async fn next(State(app): State<App>, headers: HeaderMap) -> Response {
         tokio::pin!(ended);
         ended.as_mut().enable();
         if link.ending.swap(false, Ordering::SeqCst) {
+            // Told to go: out of the session from now on.
+            *link.last_poll.lock().unwrap() = None;
             return StatusCode::GONE.into_response();
         }
         tokio::select! {
