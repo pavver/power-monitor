@@ -106,6 +106,11 @@ pub(super) fn bot(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> any
         json(&"saved")
     })?;
 
+    // `?field=<key>`: the standard wording and the values one text may use.
+    post_text(server, auth, "/api/messages/about", |query, _| {
+        json(&power_core::settings::about(query).ok_or("Невідомий текст.")?)
+    })?;
+
     // The page asks while a text is edited, so the device's own rules fill it.
     let dev = d.clone();
     post_text(server, auth, "/api/messages/preview", move |query, template| {

@@ -9,7 +9,7 @@ use crate::form;
 use crate::template::TemplateError;
 
 mod messages;
-pub use messages::{Messages, Text};
+pub use messages::{about, About, Messages, Text};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsError {

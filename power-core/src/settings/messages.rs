@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use super::SettingsError;
 use crate::form;
+use crate::jk;
 use crate::template::{self, TemplateError};
 
 /// The editable texts, one per kind of message.
@@ -85,6 +86,25 @@ impl Text {
             (false, _) => template::validate(value, self.own()).map(|()| value.to_string()),
         }
     }
+}
+
+/// What the page needs to edit one text: its standard wording and the
+/// values it may use, in the order they are offered.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct About {
+    pub standard: &'static str,
+    pub variables: Vec<&'static str>,
+}
+
+/// The text named by `query` (`field=<Text::key>`), or `None` for anything else.
+pub fn about(query: &str) -> Option<About> {
+    let fields = form::parse(query);
+    let text = Text::ALL.into_iter().find(|text| text.key() == form::field(&fields, "field"))?;
+    let mut variables = vec!["device"];
+    variables.extend_from_slice(text.own());
+    variables.push(template::BATTERY_VOLTAGE);
+    variables.extend(jk::VARIABLES);
+    Some(About { standard: text.default_template(), variables })
 }
 
 /// Device name and message templates.
@@ -224,6 +244,16 @@ fn device_name(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_text_is_described_by_its_standard_wording_and_its_values() {
+        let lost = about("field=lost").unwrap();
+        assert_eq!(lost.standard, Messages::default().template(Text::Lost));
+        assert_eq!(lost.variables, ["device", "duration", "delay", "battery_voltage", "bms_soc", "bms_voltage", "bms_energy"]);
+        assert_eq!(about("field=address").unwrap().variables[..2], ["device", "ip"]);
+        assert_eq!(about("field=test").unwrap().variables[..2], ["device", "battery_voltage"]);
+        assert_eq!(about("field=device_name"), None);
+    }
 
     fn messages_form(overrides: &[(&str, &str)]) -> String {
         let mut fields = Messages::default().fields();

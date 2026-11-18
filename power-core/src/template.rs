@@ -50,7 +50,7 @@ impl fmt::Display for TemplateError {
             TemplateError::TooLong => f.write_str("текст довший за 256 символів"),
             TemplateError::TooBig => f.write_str("текст займає понад 512 байтів (емодзі — по 4 байти)"),
             TemplateError::NotHere(name) => write!(f, "змінна {{{name}}} у цьому тексті недоступна"),
-            TemplateError::Unknown => f.write_str("невідома змінна — дивіться список змінних над полями"),
+            TemplateError::Unknown => f.write_str("невідома змінна — ті, що є, перелічені під текстом"),
             TemplateError::Unclosed => f.write_str("умовний фрагмент {змінна?текст} не закрито дужкою }"),
             TemplateError::Blank => f.write_str("цей текст не можна залишити порожнім — ним перевіряється бот"),
         }
