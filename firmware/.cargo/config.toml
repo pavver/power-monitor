@@ -8,6 +8,10 @@ rustflags = ["--cfg", "espidf_time64"]
 
 [unstable]
 build-std = ["std", "panic_abort"]
+# The default features without `backtrace`: no DWARF reader on the device
+# (~85 KB of flash). Panic messages still name the file and line, and
+# `espflash monitor` decodes the backtrace addresses on the computer.
+build-std-features = ["panic-unwind"]
 
 [env]
 MCU = "esp32"
