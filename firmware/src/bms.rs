@@ -18,13 +18,9 @@ use crate::settings::Settings;
 mod gatt;
 use gatt::{command, disconnect, open, scan, wait_for, within};
 
-/// How long one request for values keeps the link up.
-const WANTED_FOR: Duration = Duration::from_secs(20);
 /// The BMS answers a request, and streams cell info, within about a second.
 const ANSWER: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(5);
-/// Asking again this often keeps the link up for good (see `WANTED_FOR`).
-const KEEP_UP: Duration = Duration::from_secs(10);
 /// Connecting (up to 30 s) and the first answers. NimBLE waits for some
 /// replies with no limit of its own, e.g. the MTU exchange of a BMS that
 /// stopped answering.
@@ -42,7 +38,6 @@ enum Link {
 
 #[derive(Default)]
 struct State {
-    wanted_until: Option<Instant>,
     scan_asked: bool,
     scanning: bool,
     found: Vec<Found>,
@@ -50,12 +45,6 @@ struct State {
     error: Option<String>,
     device: Option<DeviceInfo>,
     reading: Option<(Instant, Reading)>,
-}
-
-impl State {
-    fn wanted(&self) -> bool {
-        self.wanted_until.is_some_and(|until| Instant::now() < until)
-    }
 }
 
 struct Shared {
@@ -84,16 +73,14 @@ impl Bms {
         if bluetooth {
             let worker = bms.clone();
             thread::Builder::new().stack_size(8 * 1024).spawn(move || block_on(worker.run()))?;
-            let keeper = bms.clone();
-            thread::Builder::new().stack_size(3 * 1024).spawn(move || keeper.keep_up())?;
         }
         Ok(bms)
     }
 
-    /// What the page shows; asking keeps (or brings) the link up for a while.
+    /// What the page shows.
     pub fn view(&self) -> serde_json::Value {
         let battery = self.settings.battery();
-        let state = if battery.is_some() { self.want() } else { self.lock() };
+        let state = self.lock();
         let reading = state.reading.as_ref().map(|(at, reading)| {
             serde_json::json!({
                 "age_s": at.elapsed().as_secs(),
@@ -131,16 +118,6 @@ impl Bms {
         (at.elapsed() <= max_age).then(|| reading.clone())
     }
 
-    /// Keeps the saved BMS connected.
-    fn keep_up(self) {
-        loop {
-            if self.settings.battery().is_some() {
-                drop(self.want());
-            }
-            thread::sleep(KEEP_UP);
-        }
-    }
-
     /// The last values read, however old; does not bring the link up.
     pub fn last_reading(&self) -> Option<Reading> {
         self.lock().reading.as_ref().map(|(_, reading)| reading.clone())
@@ -167,13 +144,6 @@ impl Bms {
             // connection is attempted. Without one it only returns an error.
             unsafe { esp_idf_svc::sys::ble_gap_conn_cancel() };
         }
-    }
-
-    fn want(&self) -> MutexGuard<'_, State> {
-        let mut state = self.lock();
-        state.wanted_until = Some(Instant::now() + WANTED_FOR);
-        self.shared.changed.notify_all();
-        state
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -214,10 +184,9 @@ impl Bms {
                 state.scanning = true;
                 return Job::Scan;
             }
-            if state.wanted() {
-                if let Some(battery) = self.settings.battery() {
-                    return Job::Read(battery);
-                }
+            // A saved BMS is kept connected; saving one wakes this up.
+            if let Some(battery) = self.settings.battery() {
+                return Job::Read(battery);
             }
             state.link = Link::Off;
             state = self.shared.changed.wait(state).unwrap();
@@ -227,7 +196,7 @@ impl Bms {
     /// Whether the link should stay up for `battery`.
     fn keep(&self, battery: &Battery) -> bool {
         let state = self.lock();
-        state.wanted() && !state.scan_asked && self.settings.battery().as_ref() == Some(battery)
+        !state.scan_asked && self.settings.battery().as_ref() == Some(battery)
     }
 
     async fn session(&self, client: &mut BLEClient, battery: &Battery) {
