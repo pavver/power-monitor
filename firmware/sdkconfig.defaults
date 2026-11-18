@@ -33,11 +33,6 @@ CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
 # Fewer Wi-Fi receive buffers kept from the start (default 10 of 1.6 KB):
 # with Bluetooth on, a Telegram TLS handshake did not find room.
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=5
-# Only the common root certificates (~45 of ~140, some 40 KB less flash):
-# Telegram (Go Daddy Root G2) and the built-in support server (GTS Root R4,
-# GlobalSign Root CA) are among them, as are Let's Encrypt (ISRG) and the
-# other big issuers.
-CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
 # The device is only ever a TLS client, and nothing reads the server's
 # certificate once it is checked: free it after the handshake.
 CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
