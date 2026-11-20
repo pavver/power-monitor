@@ -16,7 +16,7 @@ use operator_ui::tokens::{Icon as IconData, dim, icons, motion};
 /// Every component the page uses: its Cargo feature (in Cargo.toml) and a
 /// class only its markup has. A component the page does not use fails the
 /// build, so its CSS never reaches the flash.
-const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field"), ("list-item", "op-list-row")];
+const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field"), ("list-item", "op-list-row"), ("switch", "op-switch"), ("checkbox", "op-checkbox")];
 
 /// The icons the page draws, by the name its script uses.
 const ICONS: &[(&str, IconData)] = &[
@@ -51,6 +51,21 @@ fn templates() -> Vec<(&'static str, String)> {
                     leading=ViewFn::from(|| view! { <i></i> })
                     trailing=ViewFn::from(|| view! { <i></i> })
                     on_click=Callback::new(|()| ())
+                />
+            }
+            .to_html(),
+        ),
+        (
+            "switch",
+            view! { <AsyncSwitch checked=false on_toggle=AsyncAction::new(|_: bool| async { ActionResult::Success })/> }.to_html(),
+        ),
+        (
+            "checkbox",
+            view! {
+                <AsyncCheckbox
+                    checked=false
+                    text=Signal::stored("-".to_string())
+                    on_change=AsyncAction::new(|_: bool| async { ActionResult::Success })
                 />
             }
             .to_html(),

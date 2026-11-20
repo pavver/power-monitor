@@ -337,7 +337,13 @@ async function runMessages() {
   const saveGone = !await page.isVisible("#device-save");
   const fieldSave = {saveHidden, saveShown, saveFlush, saveGone};
   await page.fill("#status-every", "120");
+  const box = () => page.$eval("#status-bottom", n => n.getAttribute("aria-checked") + "/" + n.querySelector(".op-checkbox-box").dataset.state);
+  const bottomBefore = await box();
   await page.click("#status-bottom"); // toggles to false
+  await page.waitForFunction(() => document.querySelector("#status-bottom .op-checkbox-box").dataset.state === "success", null, { timeout: 5000 });
+  const bottomAfter = await box();
+  await page.waitForFunction(() => document.querySelector("#status-bottom .op-checkbox-box").dataset.state === "idle", null, { timeout: 5000 });
+  const checkbox = {bottomBefore, bottomAfter, bottomRest: await box()};
   await page.click("#status-save");
   await page.waitForFunction(() => document.getElementById("status-save").dataset.state === "success", null, { timeout: 3000 });
 
@@ -448,6 +454,7 @@ async function runMessages() {
   const ok = errors.length === 0
     && statusPreview.includes("Дім")
     && Object.values(fieldSave).every(Boolean)
+    && checkbox.bottomBefore === "true/selected" && checkbox.bottomAfter === "false/success" && checkbox.bottomRest === "false/idle"
     && statusEvery === "300"
     && dev.statusSaved && dev.statusSaved.every === 120 && dev.statusSaved.bottom === false
     && dev.testSent === true
@@ -466,7 +473,7 @@ async function runMessages() {
 
   if (!ok) process.exitCode = 1;
   console.log((ok ? "PASS " : "FAIL ") + "messages", JSON.stringify({
-    statusPreview, fieldSave, devStatus: dev.statusSaved, testSent: dev.testSent,
+    statusPreview, fieldSave, checkbox, devStatus: dev.statusSaved, testSent: dev.testSent,
     templateRows: templateRows.length, nameReadonly, litVars, litCond,
     badPreviewText, flagged, badSaveMsg, deleteInUseMsg,
     autoRows: autoRows.length, autoRowsAfter: autoRowsAfter.length,
