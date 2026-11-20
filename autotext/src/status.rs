@@ -41,6 +41,9 @@ pub enum Step {
 pub struct Status {
     live: Option<Live>,
     wanted: bool,
+    /// An important sensor changed since the last message, perhaps back
+    /// again: the snapshot alone would miss an outage seen while offline.
+    changed: bool,
 }
 
 impl Status {
@@ -49,6 +52,7 @@ impl Status {
         Self {
             live,
             wanted: false,
+            changed: false,
         }
     }
 
@@ -61,8 +65,8 @@ impl Status {
     pub fn decide(&self, config: &StatusConfig, now_ms: u64, values: &[(&str, Option<&str>)]) -> Step {
         // 1. no live message -> Send
         let live = match &self.live {
-            None => return Step::Send,
-            Some(l) => l,
+            Some(l) if !self.changed => l,
+            _ => return Step::Send,
         };
 
         // 2. an important value differs from the snapshot -> Send
@@ -98,6 +102,11 @@ impl Status {
         }
     }
 
+    /// An important sensor changed: the next status is a new message.
+    pub fn important_changed(&mut self) {
+        self.changed = true;
+    }
+
     /// Asks for an immediate update (e.g. from Action::UpdateStatus).
     pub fn want_update(&mut self) {
         self.wanted = true;
@@ -130,6 +139,7 @@ impl Status {
             at_bottom: true,
         });
         self.wanted = false;
+        self.changed = false;
     }
 
     /// Recorded when an edit went through (or Telegram reported "not modified").
@@ -326,6 +336,18 @@ mod tests {
             status.decide(&config, 2000, &[("mains", Some("on"))]),
             Step::Send
         );
+    }
+
+    #[test]
+    fn a_change_and_back_while_offline_still_sends_a_new_message() {
+        let config = StatusConfig::default();
+        let mut status = Status::new(None);
+        status.sent(42, 1000, &config, &[("mains", Some("on"))]);
+        // Off and on again before the device could say anything.
+        status.important_changed();
+        assert_eq!(status.decide(&config, 2000, &[("mains", Some("on"))]), Step::Send);
+        status.sent(43, 3000, &config, &[("mains", Some("on"))]);
+        assert_eq!(status.decide(&config, 4000, &[("mains", Some("on"))]), Step::Wait);
     }
 
     #[test]
