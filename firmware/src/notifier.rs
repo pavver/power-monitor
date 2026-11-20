@@ -30,8 +30,6 @@ const OUTBOX_CAPACITY: usize = 8;
 /// Battery values this old still go into a message. The BMS streams them
 /// every second while connected; older ones mean the link is down.
 pub const BMS_MAX_AGE: Duration = Duration::from_secs(60);
-/// The template the live status is rendered from.
-const STATUS: &str = "status";
 
 pub fn spawn(
     notices: Receiver<Notice>,
@@ -200,7 +198,7 @@ impl Notifier {
             return Ok(());
         }
         // Read only now: most ticks wait, and NVS is not read every second.
-        let template = self.settings.template(STATUS).unwrap_or_default();
+        let template = self.settings.template(texts::STATUS_TEMPLATE).unwrap_or_default();
         let settings = self.settings.clone();
         let render = |out: &mut dyn fmt::Write| render_with(&template, values, &*settings, out);
         match step {

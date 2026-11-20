@@ -26,7 +26,7 @@ pub const DEFAULT_TEMPLATES: [(&str, &str); 6] = [
         "{time?🕒 Оновлено о {time}}",
     ),
     (
-        "status",
+        crate::texts::library::STATUS_TEMPLATE,
         "{device}: {@svitlo}\n{@battery}{bms_current?\n{@load}}{time?\n\n{@update_time}}",
     ),
 ];

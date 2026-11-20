@@ -26,6 +26,7 @@ const ICONS: &[(&str, IconData)] = &[
     ("chevronRight", icons::CHEVRON_RIGHT),
     ("close", icons::CLOSE),
     ("dropDown", icons::ARROW_DROP_DOWN),
+    ("edit", icons::EDIT),
     ("eye", icons::VISIBILITY),
     ("eyeOff", icons::VISIBILITY_OFF),
     ("lock", icons::LOCK),

@@ -42,7 +42,7 @@ pub(super) struct Device {
 impl Device {
     /// Sends the test message to `bot`, with the battery and status as it is now.
     fn send_test(&self, bot: &Bot) -> Result<(), String> {
-        let status_tpl = self.settings.template("status").unwrap_or_default();
+        let status_tpl = self.settings.template(power_core::texts::STATUS_TEMPLATE).unwrap_or_default();
         let device_name = self.settings.with_messages(|m| m.device_name().to_string());
         let last_ip = self.settings.last_ip();
         let bms_reading = if self.settings.battery().is_some() {

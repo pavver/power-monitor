@@ -12,6 +12,7 @@ pub use defaults::{
 pub use error::TextsError;
 pub use library::{
     callers, calls_template, check_delete_template, InMemoryLibrary, Templates, MAX_TEMPLATES,
+    STATUS_TEMPLATE,
 };
 pub use stored::{
     automation_from_form, automation_to_form, check_template, live_from_form, live_to_form,

@@ -5,6 +5,9 @@ use autotext::library::{self, Library};
 
 use crate::texts::error::TextsError;
 
+/// The template the live status message is rendered from.
+pub const STATUS_TEMPLATE: &str = "status";
+
 /// Maximum number of named templates allowed in the library.
 pub const MAX_TEMPLATES: usize = 32;
 
@@ -141,6 +144,9 @@ pub fn callers<'a>(
     automations: impl IntoIterator<Item = &'a Automation>,
 ) -> Vec<String> {
     let mut result = Vec::new();
+    if target == STATUS_TEMPLATE {
+        result.push("статус".to_string());
+    }
     for (name, text) in templates {
         if name != target && calls_template(text, target) {
             result.push(name.to_string());
@@ -261,5 +267,16 @@ mod tests {
 
         // A template not called anywhere can be deleted
         assert!(check_delete_template("svitlo", templates, &autos).is_ok());
+    }
+
+    #[test]
+    fn the_status_template_is_used_by_the_status() {
+        let templates = [(STATUS_TEMPLATE, "{device}"), ("svitlo", "Мережа є")];
+        assert_eq!(callers(STATUS_TEMPLATE, templates, &[]), vec!["статус".to_string()]);
+        assert_eq!(
+            check_delete_template(STATUS_TEMPLATE, templates, &[]).unwrap_err().to_string(),
+            "неможливо видалити шаблон 'status', його використовують: статус"
+        );
+        assert!(check_delete_template("svitlo", templates, &[]).is_ok());
     }
 }

@@ -328,6 +328,12 @@ async function runMessages() {
   await page.waitForFunction(() => document.getElementById("status-preview").textContent.length > 0, null, { timeout: 5000 });
   const statusPreview = await page.$eval("#status-preview", n => n.textContent);
   const statusEvery = await page.inputValue("#status-every");
+  // The status template opens from the status section.
+  await page.click("#status-edit");
+  await page.waitForSelector("#s-text.on");
+  const statusTemplate = await page.inputValue("#t-name");
+  await page.click("#back");
+  await page.waitForSelector("#s-dashboard.on");
   // TextField: SAVE only while the value differs, and no empty trailing gap.
   const saveHidden = !await page.isVisible("#device-save");
   await page.fill("#m-device_name", "Дім 2");
@@ -455,7 +461,7 @@ async function runMessages() {
 
   const ok = errors.length === 0
     && statusPreview.includes("Дім")
-    && Object.values(fieldSave).every(Boolean)
+    && Object.values(fieldSave).every(Boolean) && statusTemplate === "status"
     && checkbox.bottomBefore === "true/selected" && checkbox.bottomAfter === "false/success" && checkbox.bottomRest === "false/idle"
     && statusEvery === "300"
     && dev.statusSaved && dev.statusSaved.every === 120 && dev.statusSaved.bottom === false
@@ -475,7 +481,7 @@ async function runMessages() {
 
   if (!ok) process.exitCode = 1;
   console.log((ok ? "PASS " : "FAIL ") + "messages", JSON.stringify({
-    statusPreview, fieldSave, checkbox, devStatus: dev.statusSaved, testSent: dev.testSent,
+    statusPreview, statusTemplate, fieldSave, checkbox, devStatus: dev.statusSaved, testSent: dev.testSent,
     templateRows: templateRows.length, nameReadonly, litVars, litCond,
     badPreviewText, flagged, badSaveMsg, deleteInUseMsg,
     autoRows: autoRows.length, autoRowsAfter: autoRowsAfter.length,
