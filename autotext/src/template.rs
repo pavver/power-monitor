@@ -1,10 +1,26 @@
 //! Generic text template engine.
 //!
-//! Evaluates `{name}` placeholders and `{name?text}` / `{!name?text}` sections.
+//! Evaluates `{name}` placeholders and `{<condition>?text}` sections.
+//!
+//! # Conditions
+//! - `{name?text}`: shows `text` when `name` has a value.
+//! - `{!name?text}`: shows `text` when `name` has no value (missing).
+//! - `{name=val?text}` / `{name!=val?text}`: equality test. If both sides
+//!   parse as numbers (`f64`), compares numerically (e.g. `52.0` equals `52`);
+//!   otherwise compares strings exactly.
+//! - `{name<num?text}`, `{name<=num?text}`, `{name>num?text}`, `{name>=num?text}`:
+//!   numeric ordering (`f64` comparison, `.` decimal point). If `name`'s value
+//!   does not parse as `f64`, the test is false.
+//! - `!condition`: inverts any condition (e.g. `{!mains=on?text}`).
+//!   A missing value evaluates to false for every test except `Known` (which tests presence),
+//!   and `!` flips the result.
+//!
 //! `\n` in the template is turned into a line break.
 
 use std::cell::Cell;
 use std::fmt;
+
+pub use crate::condition::{self, Condition, Test};
 
 /// Maximum characters allowed in a template.
 pub const MAX_CHARS: usize = 256;
@@ -26,6 +42,8 @@ pub enum TemplateError {
     Unclosed,
     /// Blank where a text must be there.
     Blank,
+    /// In a condition comparison after <, >, <=, >= there must be a number.
+    NotANumber,
 }
 
 impl fmt::Display for TemplateError {
@@ -37,6 +55,7 @@ impl fmt::Display for TemplateError {
             TemplateError::Unknown => f.write_str("невідома змінна — ті, що є, перелічені під текстом"),
             TemplateError::Unclosed => f.write_str("умовний фрагмент {змінна?текст} не закрито дужкою }"),
             TemplateError::Blank => f.write_str("цей текст не можна залишити порожнім — ним перевіряється бот"),
+            TemplateError::NotANumber => f.write_str("у порівнянні після <, >, <=, >= має бути число"),
         }
     }
 }
@@ -65,10 +84,15 @@ pub fn validate(template: &str, check_name: &dyn Fn(&str) -> Option<TemplateErro
                     fault.set(Some(TemplateError::Unclosed));
                 }
             }
+            Event::Error(err) => {
+                if fault.get().is_none() {
+                    fault.set(Some(err));
+                }
+            }
         },
-        &mut |name, _shown| {
+        &mut |condition| {
             if fault.get().is_none() {
-                fault.set(check_name(name));
+                fault.set(check_name(condition.name()));
             }
             true
         },
@@ -100,12 +124,10 @@ pub fn render_to(template: &str, values: &[(&str, Option<&str>)], out: &mut dyn 
                     }
                 },
                 Event::Unclosed => out.write_char('{'),
+                Event::Error(_) => Ok(()),
             };
         },
-        &mut |name, shown| {
-            let known = matches!(value(name), Some(Some(_)));
-            known == (shown == Shown::Known)
-        },
+        &mut |condition| condition.holds(value(condition.name()).flatten()),
     );
     result
 }
@@ -140,8 +162,8 @@ pub fn uses(template: &str, wanted: &dyn Fn(&str) -> bool) -> bool {
                 }
             }
         },
-        &mut |name, _shown| {
-            if wanted(name) {
+        &mut |condition| {
+            if wanted(condition.name()) {
                 matched.set(true);
             }
             true
@@ -150,25 +172,19 @@ pub fn uses(template: &str, wanted: &dyn Fn(&str) -> bool) -> bool {
     matched.get()
 }
 
-/// When a section's text shows: `{name?` or `{!name?`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Shown {
-    Known,
-    Missing,
-}
-
 enum Event<'a> {
     Text(&'a str),
     Value(&'a str),
     Unclosed,
+    Error(TemplateError),
 }
 
-/// Walks `template`; `section(name, shown) -> bool` says whether to enter a
+/// Walks `template`; `section(condition) -> bool` says whether to enter a
 /// section's body (when false its body is skipped, still up to its `}`).
 fn walk<'a>(
     template: &'a str,
     on: &mut dyn FnMut(Event<'a>),
-    section: &mut dyn FnMut(&'a str, Shown) -> bool,
+    section: &mut dyn FnMut(&Condition<'a>) -> bool,
 ) {
     walk_until(template, false, true, on, section);
 }
@@ -178,7 +194,7 @@ fn walk_until<'a>(
     inside: bool,
     active: bool,
     on: &mut dyn FnMut(Event<'a>),
-    section: &mut dyn FnMut(&'a str, Shown) -> bool,
+    section: &mut dyn FnMut(&Condition<'a>) -> bool,
 ) -> Option<&'a str> {
     while let Some(at) = rest.find(|c| c == '{' || (inside && c == '}')) {
         let text = &rest[..at];
@@ -189,7 +205,7 @@ fn walk_until<'a>(
         if rest[at..].starts_with('}') {
             return Some(after);
         }
-        if let Some((name, shown, body)) = section_start(after) {
+        if let Some((cond_res, body)) = section_start(after) {
             // A dry walk first: an unclosed section's body is plain text, so
             // nothing of it is shown before it is known to close.
             let Some(tail) = walk_until(body, true, false, on, section) else {
@@ -200,18 +216,30 @@ fn walk_until<'a>(
                     return None;
                 }
                 if active {
+                    if let Err(err) = cond_res {
+                        on(Event::Error(err));
+                    }
                     on(Event::Unclosed);
                 }
                 rest = after;
                 continue;
             };
-            if active && section(name, shown) {
-                walk_until(body, true, true, on, section);
+            if active {
+                match cond_res {
+                    Ok(condition) => {
+                        if section(&condition) {
+                            walk_until(body, true, true, on, section);
+                        }
+                    }
+                    Err(err) => {
+                        on(Event::Error(err));
+                    }
+                }
             }
             rest = tail;
             continue;
         }
-        if let Some((name, tail)) = name_at(after).and_then(|(name, tail)| Some((name, tail.strip_prefix('}')?))) {
+        if let Some((name, tail)) = condition::name_at(after).and_then(|(name, tail)| Some((name, tail.strip_prefix('}')?))) {
             if active {
                 on(Event::Value(name));
             }
@@ -229,21 +257,31 @@ fn walk_until<'a>(
     None
 }
 
-/// The name, when it shows and the text after `?` of a section that starts
-/// right after a `{`.
-fn section_start(after: &str) -> Option<(&str, Shown, &str)> {
-    let (shown, after) = match after.strip_prefix('!') {
-        Some(after) => (Shown::Missing, after),
-        None => (Shown::Known, after),
-    };
-    let (name, tail) = name_at(after)?;
-    Some((name, shown, tail.strip_prefix('?')?))
-}
+/// The condition and body of a section that starts right after a `{`.
+fn section_start(after: &str) -> Option<(Result<Condition<'_>, TemplateError>, &str)> {
+    let delim = after.find(|c| c == '{' || c == '}' || c == '?')?;
+    if after.as_bytes()[delim] != b'?' {
+        return None;
+    }
+    let cond_text = &after[..delim];
+    let body = &after[delim + 1..];
 
-/// The name `text` starts with and the text after it.
-fn name_at(text: &str) -> Option<(&str, &str)> {
-    let (name, tail) = text.split_at(text.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(text.len()));
-    name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic()).then_some((name, tail))
+    let after_bang = cond_text.strip_prefix('!').unwrap_or(cond_text);
+    let (_name, tail) = condition::name_at(after_bang)?;
+
+    let is_op = tail.is_empty()
+        || tail.starts_with("!=")
+        || tail.starts_with("<=")
+        || tail.starts_with(">=")
+        || tail.starts_with('=')
+        || tail.starts_with('<')
+        || tail.starts_with('>');
+
+    if !is_op {
+        return None;
+    }
+
+    Some((condition::parse(cond_text), body))
 }
 
 #[cfg(test)]
@@ -268,7 +306,14 @@ mod tests {
     #[test]
     fn the_worst_templates_take_no_time() {
         let start = std::time::Instant::now();
-        for template in ["{name?".repeat(64), "{name?".repeat(32) + &"}".repeat(32), "{a?{".repeat(128)] {
+        for template in [
+            "{name?".repeat(64),
+            "{name?".repeat(32) + &"}".repeat(32),
+            "{a?{".repeat(128),
+            "{x<20?".repeat(64),
+            "{x<20?".repeat(32) + &"}".repeat(32),
+            "{!mains=on?".repeat(64),
+        ] {
             let _ = validate(&template, &|_| None);
             render(&template, &VALUES);
         }
@@ -360,6 +405,101 @@ mod tests {
         assert!(uses("hello {name}", &|n| n == "name"));
         assert!(uses("{opt?hello}", &|n| n == "opt"));
         assert!(uses("{!opt?hello}", &|n| n == "opt"));
+        assert!(uses("{soc<20?low}", &|n| n == "soc"));
+        assert!(uses("{!mains=on?off}", &|n| n == "mains"));
         assert!(!uses("hello {name}", &|n| n == "other"));
+    }
+
+    #[test]
+    fn numeric_ordering_conditions() {
+        // <, <=, >, >= with integers, decimals, negatives
+        let template = "{soc<20?мало}{soc<=20?не більше 20}{soc>80?багато}{soc>=80?не менше 80}";
+        assert_eq!(render(template, &[("soc", Some("19"))]), "малоне більше 20");
+        assert_eq!(render(template, &[("soc", Some("20"))]), "не більше 20");
+        assert_eq!(render(template, &[("soc", Some("50"))]), "");
+        assert_eq!(render(template, &[("soc", Some("80"))]), "не менше 80");
+        assert_eq!(render(template, &[("soc", Some("81"))]), "багатоне менше 80");
+
+        // Decimals and negative numbers
+        let temp_tpl = "{temp<-5.5?дуже холодно}{temp>=-1.5?тепло}";
+        assert_eq!(render(temp_tpl, &[("temp", Some("-6.0"))]), "дуже холодно");
+        assert_eq!(render(temp_tpl, &[("temp", Some("-5.5"))]), "");
+        assert_eq!(render(temp_tpl, &[("temp", Some("-1.5"))]), "тепло");
+        assert_eq!(render(temp_tpl, &[("temp", Some("0.0"))]), "тепло");
+
+        // Non-number value in ordering test evaluates to false
+        assert_eq!(render("{soc<20?так}", &[("soc", Some("abc"))]), "");
+    }
+
+    #[test]
+    fn equality_on_text_and_numbers() {
+        // Text equality
+        let text_tpl = "{mains=on?Світло є}{mains!=on?Світла нема}";
+        assert_eq!(render(text_tpl, &[("mains", Some("on"))]), "Світло є");
+        assert_eq!(render(text_tpl, &[("mains", Some("off"))]), "Світла нема");
+
+        // Number equality: "52.0" = "52"
+        let num_tpl = "{v=52?52 В}{v!=52?не 52 В}";
+        assert_eq!(render(num_tpl, &[("v", Some("52.0"))]), "52 В");
+        assert_eq!(render(num_tpl, &[("v", Some("52"))]), "52 В");
+        assert_eq!(render(num_tpl, &[("v", Some("52.5"))]), "не 52 В");
+
+        let num_tpl2 = "{v=52.0?точно 52}";
+        assert_eq!(render(num_tpl2, &[("v", Some("52"))]), "точно 52");
+    }
+
+    #[test]
+    fn missing_value_with_each_operator() {
+        let missing = &[("x", None)];
+
+        // Without '!', every test is false for missing value
+        assert_eq!(render("{x=on?так}", missing), "");
+        assert_eq!(render("{x!=on?так}", missing), "");
+        assert_eq!(render("{x<20?так}", missing), "");
+        assert_eq!(render("{x<=20?так}", missing), "");
+        assert_eq!(render("{x>20?так}", missing), "");
+        assert_eq!(render("{x>=20?так}", missing), "");
+        assert_eq!(render("{x?так}", missing), "");
+
+        // With '!', missing value flips to true for every test
+        assert_eq!(render("{!x=on?так}", missing), "так");
+        assert_eq!(render("{!x!=on?так}", missing), "так");
+        assert_eq!(render("{!x<20?так}", missing), "так");
+        assert_eq!(render("{!x<=20?так}", missing), "так");
+        assert_eq!(render("{!x>20?так}", missing), "так");
+        assert_eq!(render("{!x>=20?так}", missing), "так");
+        assert_eq!(render("{!x?так}", missing), "так");
+    }
+
+    #[test]
+    fn nesting_condition_sections() {
+        let tpl = "{mains=on?Мережа: {soc<20?Батарея розряджена ({soc}%)}}{!mains=on?Без мережі}";
+        assert_eq!(render(tpl, &[("mains", Some("on")), ("soc", Some("15"))]), "Мережа: Батарея розряджена (15%)");
+        assert_eq!(render(tpl, &[("mains", Some("on")), ("soc", Some("80"))]), "Мережа: ");
+        assert_eq!(render(tpl, &[("mains", Some("off")), ("soc", Some("80"))]), "Без мережі");
+
+        let tpl2 = "{mains=on?{soc<20?А}{soc>=20?Б}}{!mains=on?В}";
+        assert_eq!(render(tpl2, &[("mains", Some("on")), ("soc", Some("10"))]), "А");
+        assert_eq!(render(tpl2, &[("mains", Some("on")), ("soc", Some("50"))]), "Б");
+        assert_eq!(render(tpl2, &[("mains", Some("off")), ("soc", Some("50"))]), "В");
+    }
+
+    #[test]
+    fn bad_numbers_report_not_a_number() {
+        assert_eq!(validate("{x<abc?…}", &|_| None), Err(TemplateError::NotANumber));
+        assert_eq!(validate("{x<?…}", &|_| None), Err(TemplateError::NotANumber));
+        assert_eq!(validate("{x<=xyz?…}", &|_| None), Err(TemplateError::NotANumber));
+        assert_eq!(validate("{x>bad?…}", &|_| None), Err(TemplateError::NotANumber));
+        assert_eq!(validate("{x>=bad?…}", &|_| None), Err(TemplateError::NotANumber));
+        assert_eq!(TemplateError::NotANumber.to_string(), "у порівнянні після <, >, <=, >= має бути число");
+    }
+
+    #[test]
+    fn unknown_name_in_condition() {
+        let check = |name: &str| if name == "known" { None } else { Some(TemplateError::Unknown) };
+        assert_eq!(validate("{known<20?…}", &check), Ok(()));
+        assert_eq!(validate("{unknown<20?…}", &check), Err(TemplateError::Unknown));
+        assert_eq!(validate("{!unknown=on?…}", &check), Err(TemplateError::Unknown));
+        assert_eq!(validate("{unknown?…}", &check), Err(TemplateError::Unknown));
     }
 }
