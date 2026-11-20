@@ -37,6 +37,13 @@ button,input,textarea,select{font-family:inherit}
 select option{background:var(--surface);color:var(--text)}
 .checkrow{display:flex;align-items:center;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);cursor:pointer}
 .checkrow input[type=checkbox]{accent-color:var(--accent);width:calc(var(--du)*4.5);height:calc(var(--du)*4.5);margin:0;cursor:pointer}
+/* Chip, input variant (docs/components/chip.md): 6 DU, body_small, remove button 6 DU turning error. */
+.chips{display:flex;flex-wrap:wrap;gap:var(--du);margin:var(--du) 0 calc(var(--du)*2)}
+.chip{display:inline-flex;align-items:center;height:calc(var(--du)*6);padding-left:calc(var(--du)*2);background:var(--surface);color:var(--text);box-shadow:inset 0 0 0 calc(var(--du)*.25) var(--border);font-size:calc(var(--tu)*13);line-height:calc(var(--tu)*16)}
+.chip button{display:grid;place-items:center;width:calc(var(--du)*6);height:100%;border:0;background:none;color:var(--text-2);cursor:pointer;padding:0}
+.chip button .ic{width:calc(var(--du)*3.5);height:calc(var(--du)*3.5)}
+.chip button:hover{color:var(--error)}
+.chip button:active{background:var(--pressed)}
 .sec-head{display:flex;align-items:center;justify-content:space-between;margin-top:calc(var(--du)*4);margin-bottom:calc(var(--du)*1)}
 .sec-head h2{margin:0;font-size:calc(var(--tu)*16);line-height:calc(var(--tu)*20)}
 .cond-row{display:flex;align-items:center;gap:calc(var(--du)*2)}
@@ -221,8 +228,8 @@ button.item{cursor:pointer}
 .item code{background:none;border:0;padding:0;color:var(--syn-var)}
 details.help{margin-top:calc(var(--du)*3);border:calc(var(--du)*.25) solid var(--border)}
 details.help summary{min-height:calc(var(--du)*10);padding:0 calc(var(--du)*3);display:flex;align-items:center;cursor:pointer;font-weight:500;list-style:none}
-details.help summary::before{content:"›";width:calc(var(--du)*4);color:var(--text-2);transition:transform .2s var(--smooth)}
-details.help[open] summary::before{transform:rotate(90deg);color:var(--accent)}
+details.help summary::before{content:"";flex:none;width:calc(var(--du)*4);height:calc(var(--du)*4);margin-right:var(--du);background:var(--text-2);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M522-480 333-669l51-51 240 240-240 240-51-51 189-189Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M522-480 333-669l51-51 240 240-240 240-51-51 189-189Z'/%3E%3C/svg%3E") center/contain no-repeat;transition:transform .2s var(--smooth)}
+details.help[open] summary::before{transform:rotate(90deg);background:var(--accent)}
 details.help>div{padding:0 calc(var(--du)*3) calc(var(--du)*3)}
 details.help p{margin:calc(var(--du)*2) 0 0}
 
@@ -415,12 +422,9 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
         <span>Тримати внизу чату</span>
       </label>
       <label class="cap" style="margin-top:calc(var(--du)*3)">Важливі датчики (оновлюють статус одразу)</label>
-      <div id="status-important">
-        <label class="checkrow">
-          <input id="imp-mains" type="checkbox" value="mains">
-          <span>Мережа 220 В (mains)</span>
-        </label>
-      </div>
+      <p class="small muted">Зміна такого значення надсилає новий статус зі сповіщенням, а попередній лишається в історії.</p>
+      <div class="chips" id="status-important"></div>
+      <div class="field" data-field><select id="imp-pick" aria-label="Додати важливий датчик"></select></div>
       <div class="actions">
         <button class="btn" type="button" id="status-save">Зберегти налаштування</button>
         <button class="btn" type="button" id="status-test">Надіслати тест</button>
@@ -709,6 +713,7 @@ function el(tag, attrs, ...children) {
 
 /* ---------- OperatorIcons (Material Sharp paths, 960×960) ---------- */
 const ICONS = {
+  chevronRight: "M522-480 333-669l51-51 240 240-240 240-51-51 189-189Z",
   check: "M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z",
   close: "m291-240-51-51 189-189-189-189 51-51 189 189 189-189 51 51-189 189 189 189-51 51-189-189-189 189Z",
   back: "m330-444 201 201-51 51-288-288 288-288 51 51-201 201h438v72H330Z",
@@ -1266,7 +1271,8 @@ function renderTexts() {
   if (document.activeElement !== $("status-every")) $("status-every").value = st.every;
   updateStatusHint();
   $("status-bottom").checked = Boolean(st.bottom);
-  $("imp-mains").checked = (st.important || []).includes("mains");
+  important = [...(st.important || [])];
+  renderImportant();
   const stTmpl = (textsData.templates || []).find(t => t.name === "status");
   if (stTmpl) previewInto(stTmpl.text, shown => { $("status-preview").textContent = shown; });
 
@@ -1278,7 +1284,7 @@ function renderTexts() {
     previewInto(t.text, shown => { sub.textContent = shown.split("\n")[0]; });
     const row = el("button", {type: "button", class: "item two"},
       el("span", {class: "txt"}, el("span", {class: "t"}, t.name), sub),
-      el("span", {class: "trail"}, "›"));
+      el("span", {class: "trail"}, icon("chevronRight")));
     row.onclick = () => openTemplate(t.name);
     ripple(row);
     return row;
@@ -1291,7 +1297,7 @@ function renderTexts() {
     const [title, subText] = automationSummary(a);
     const row = el("button", {type: "button", class: "item two"},
       el("span", {class: "txt"}, el("span", {class: "t"}, title), el("span", {class: "s"}, subText)),
-      el("span", {class: "trail"}, "›"));
+      el("span", {class: "trail"}, icon("chevronRight")));
     row.onclick = () => openAutomation(i);
     ripple(row);
     return row;
@@ -1318,13 +1324,38 @@ function automationSummary(a) {
   return [when, act];
 }
 
+/* Important sensors: input chips for the chosen ones, a dropdown of the rest to add one. */
+const SENSOR_NAMES = {mains: "Мережа 220 В"};
+let important = [];
+function sensorLabel(name) { return SENSOR_NAMES[name] ? `${SENSOR_NAMES[name]} (${name})` : name; }
+function renderImportant() {
+  $("status-important").replaceChildren(...important.map(name => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.setAttribute("aria-label", "Прибрати " + name);
+    drop.append(icon("close"));
+    drop.addEventListener("click", () => { important = important.filter(n => n !== name); renderImportant(); });
+    chip.append(sensorLabel(name), drop);
+    return chip;
+  }));
+  // The clock and the name change on their own or never: not sensors.
+  const rest = (textsData?.values || []).filter(n => !important.includes(n) && !["device", "time", "date"].includes(n));
+  $("imp-pick").replaceChildren(new Option("Додати датчик…", ""), ...rest.map(name => new Option(sensorLabel(name), name)));
+}
+$("imp-pick").addEventListener("change", () => {
+  const name = $("imp-pick").value;
+  if (name && !important.includes(name)) important.push(name);
+  renderImportant();
+});
+
 actionButton($("status-save"), async () => {
   say("status-msg", "");
   const every = parseInt($("status-every").value, 10);
   if (isNaN(every) || every < 10 || every > 86400) throw new Error("Період оновлення — від 10 до 86400 с");
   const bottom = $("status-bottom").checked ? "1" : "0";
-  const important = $("imp-mains").checked ? "mains" : "";
-  await api("/api/status", {every: String(every), bottom, important});
+  await api("/api/status", {every: String(every), bottom, important: important.join(",")});
   say("status-msg", "Збережено.", "ok");
   await refreshTexts();
 }, {msg: "status-msg", frame: fields["status-every-field"]});
@@ -1496,7 +1527,7 @@ function addCondition(val = "") {
   const input = el("input", {value: val, placeholder: "mains=off", spellcheck: "false"});
   f.append(input);
   textField(f);
-  const del = el("button", {type: "button", class: "btn"}, "✕");
+  const del = el("button", {type: "button", class: "btn", "aria-label": "Прибрати умову"}, icon("close"));
   del.onclick = () => row.remove();
   row.append(f, del);
   $("a-conditions").append(row);
