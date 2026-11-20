@@ -16,7 +16,7 @@ use operator_ui::tokens::{Icon as IconData, dim, icons, motion};
 /// Every component the page uses: its Cargo feature (in Cargo.toml) and a
 /// class only its markup has. A component the page does not use fails the
 /// build, so its CSS never reaches the flash.
-const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field"), ("list-item", "op-list-row"), ("switch", "op-switch"), ("checkbox", "op-checkbox"), ("dropdown-menu", "op-dropdown")];
+const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field"), ("list-item", "op-list-row"), ("switch", "op-switch"), ("checkbox", "op-checkbox"), ("dropdown-menu", "op-dropdown"), ("linear-progress", "op-progress"), ("property-list", "op-prop-label")];
 
 /// The icons the page draws, by the name its script uses.
 const ICONS: &[(&str, IconData)] = &[
@@ -76,6 +76,14 @@ fn templates() -> Vec<(&'static str, String)> {
             // Closed: the page builds the option layer (Popover) itself.
             "dropdown-menu",
             view! { <DropdownMenu options=vec!["-".to_string()] selected=RwSignal::new("-".to_string())/> }.to_html(),
+        ),
+        (
+            "linear-progress",
+            view! { <LinearProgress value=Signal::stored(0.0) show_value=true/> }.to_html(),
+        ),
+        (
+            "property-list",
+            view! { <PropertyList><Property label="-" value=Signal::stored("-".to_string())/></PropertyList> }.to_html(),
         ),
         (
             "text-field",

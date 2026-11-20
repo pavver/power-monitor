@@ -110,9 +110,8 @@ pub struct State<'a> {
     pub firmware: &'a Firmware,
     /// Whether the page asks for a password.
     pub password_set: bool,
-    /// Remote support and the heap, as the firmware reports them.
+    /// Remote support, as the firmware reports it.
     pub remote: &'a serde_json::Value,
-    pub system: &'a serde_json::Value,
 }
 
 #[cfg(test)]
@@ -168,11 +167,9 @@ mod tests {
             firmware: &firmware,
             password_set: true,
             remote: &json!({"phase": "off"}),
-            system: &json!({"heap_free": 70000}),
         };
         let value = serde_json::to_value(&state).unwrap();
         assert_eq!(value["remote"], json!({"phase": "off"}));
-        assert_eq!(value["system"], json!({"heap_free": 70000}));
         assert_eq!(value["stage"], json!("dashboard"));
         assert_eq!(value["power"], json!({"present": true, "lasted": "2 год 1 хв"}));
         assert_eq!(value["link"], json!({"state": "connected", "ssid": "Home", "ip": "192.168.1.5"}));

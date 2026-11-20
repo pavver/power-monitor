@@ -12,7 +12,7 @@ use power_core::remote::RemoteSettings;
 use power_core::settings::{Battery, Bot, Divider, WifiCredentials};
 
 use super::{
-    accept, deny, get, json, json_text, login, planned_restart, post, post_text, read_body, respond, restart_soon, system_view,
+    accept, deny, get, json, json_text, login, planned_restart, post, post_text, read_body, respond, restart_soon,
     token,
     Answer, Auth, MAX_FORM,
 };
@@ -72,7 +72,7 @@ pub(super) fn setup(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> a
     // Asked every 2 s while the panel is open: serialized once, not read
     // back into a tree to add to it.
     get(server, auth, "/api/state", move || {
-        let body = dev.status.state_json(&dev.settings, &dev.remote.view(), &system_view());
+        let body = dev.status.state_json(&dev.settings, &dev.remote.view());
         Ok(Answer { body, cookie: None })
     })?;
 
@@ -189,6 +189,7 @@ fn automation_view(a: &autotext::automation::Automation) -> serde_json::Value {
 pub(super) fn texts(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> anyhow::Result<()> {
     let dev = d.clone();
     // What every value is now, for the page's pickers (missing ones are null).
+    get(server, auth, "/api/system", || json(&crate::system::view()))?;
     get(server, auth, "/api/values", move || {
         let values = current_values(&dev);
         let map: serde_json::Map<String, serde_json::Value> = values

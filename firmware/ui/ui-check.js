@@ -135,6 +135,22 @@ function route(page, dev) {
       return json("saved");
     }
     if (url.pathname === "/api/texts") return json(dev.texts);
+    if (url.pathname === "/api/system") {
+      dev.systemPolls = (dev.systemPolls || 0) + 1;
+      return json({
+        uptime_s: 93784, reset_reason: "Software", rssi: -61,
+        cpu: dev.systemPolls > 1 ? [12.5, 3.25] : null,
+        tasks: [
+          { name: "IDLE0", core: 0, priority: 0, stack: 1536, stack_free_min: 904, cpu: 87.5 },
+          { name: "notifier", core: null, priority: 5, stack: 12288, stack_free_min: 8236, cpu: 0.4 },
+          { name: "ipc0", core: 0, priority: 24, stack: 1024, stack_free_min: 352, cpu: 0 },
+          { name: "wifi", core: 0, priority: 23, stack: null, stack_free_min: 3760, cpu: 1.2 },
+        ],
+        ram: { total: 290000, free: 61216, free_min: 37728, largest_block: 43008 },
+        nvs: { used: 4096, free: 8000, total: 16128, namespaces: 4 },
+        flash: { chip: 4194304, slot: 1966080, app: 1632784 },
+      });
+    }
     if (url.pathname === "/api/values") {
       return json(Object.fromEntries(dev.texts.values.map(n => [n, n === "mains" ? "on" : n === "bms_soc" ? "85" : n === "bms_energy" ? "4.28" : null])));
     }
@@ -500,6 +516,8 @@ async function runRemote() {
   await route(page, dev);
   await page.goto("http://192.168.1.50/");
   await page.waitForSelector("#s-dashboard.on");
+  await page.click('[data-go="settings"]');
+  await page.waitForSelector("#s-settings.on");
   const offTitle = await page.$eval("#remote-title", n => n.textContent);
   dev.slowState = 1500;
   await page.fill("#remote-server", "https://svitlo.example.com");
@@ -529,6 +547,40 @@ async function runRemote() {
     && dashboardRow.includes("підключено") && dev.remoteEnded && flips === 0;
   if (!ok) process.exitCode = 1;
   console.log((ok ? "PASS " : "FAIL ") + "remote", JSON.stringify({ offTitle, flips, saved: dev.remoteSaved, dashboardRow, ended: dev.remoteEnded, errors }));
+}
+
+/* Resources: polled only while open; the fullest stack first. */
+async function runSystem() {
+  const browser = await chromium.launch({ executablePath: exe });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  const dev = device();
+  dev.stage = "dashboard"; dev.setupAp = false; dev.link = { state: "connected", ssid: "Home", ip: "192.168.1.50" };
+  await route(page, dev);
+  await page.goto("http://192.168.1.50/");
+  await page.waitForSelector("#s-dashboard.on");
+  await page.waitForTimeout(2500);
+  const pollsClosed = dev.systemPolls || 0;
+  await page.click('[data-go="system"]');
+  await page.waitForSelector("#s-system.on");
+  await page.waitForFunction(() => document.querySelectorAll("#sys-cpu .op-progress").length === 2, null, { timeout: 6000 });
+  const cores = await page.$$eval("#sys-cpu .op-progress-value", n => n.map(v => v.textContent));
+  const tasks = await page.$$eval("#sys-tasks .op-list-title", n => n.map(v => v.textContent));
+  const ram = await page.$eval("#sys-memory .op-progress-value", n => n.textContent);
+  const about = await page.$eval("#sys-device", n => n.textContent);
+  await page.screenshot({ path: OUT + "/system-0.png", fullPage: true });
+  await page.click("#back");
+  await page.waitForSelector("#s-dashboard.on");
+  const pollsLeaving = dev.systemPolls;
+  await page.waitForTimeout(2500);
+  const pollsAfter = dev.systemPolls;
+  await browser.close();
+  const ok = errors.length === 0 && pollsClosed === 0 && pollsAfter === pollsLeaving
+    && cores.join() === "13 %,3.3 %" && tasks.join() === "ipc0,IDLE0,notifier,wifi"
+    && ram === "223 КБ / 283 КБ" && about.includes("1 д 2 год 3 хв") && about.includes("-61 дБм");
+  if (!ok) process.exitCode = 1;
+  console.log((ok ? "PASS " : "FAIL ") + "system", JSON.stringify({ pollsClosed, pollsLeaving, pollsAfter, cores, tasks, ram, about, errors }));
 }
 
 /* Bot step: choosing a forum topic saves it as the destination. */
@@ -614,4 +666,5 @@ const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + resul
   await runBms();
   await runMessages();
   await runRemote();
+  await runSystem();
 })().catch(e => { console.error(e); process.exit(1); });

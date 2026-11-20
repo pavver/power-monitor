@@ -27,6 +27,9 @@ use crate::settings::Settings;
 use crate::status::Status;
 use crate::voltmeter::Voltmeter;
 
+/// The HTTP server task's stack, in bytes.
+pub const STACK: usize = 14 * 1024;
+
 /// ui/index.html, gzipped at build time (see build.rs).
 const PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
 /// Cascadia Code cut down to the page's characters (see ui/make-font.py).
@@ -76,7 +79,7 @@ pub fn start(
     let mut server = EspHttpServer::new(&Configuration {
         uri_match_wildcard: true,
         // Bot setup runs TLS handshakes inside handlers.
-        stack_size: 14 * 1024,
+        stack_size: STACK,
         max_uri_handlers: 48,
         // Phones open several connections at once while probing the portal.
         max_open_sockets: 7,
@@ -233,26 +236,6 @@ fn read_body(req: &mut Req, limit: usize) -> Result<String, String> {
     let mut body = vec![0; len];
     req.read_exact(&mut body).map_err(|e| format!("{e:?}"))?;
     Ok(String::from_utf8(body).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()))
-}
-
-/// Health of a device that may be out of reach of a serial cable: memory,
-/// why it last restarted, and how long ago.
-fn system_view() -> serde_json::Value {
-    use esp_idf_svc::sys::{
-        esp_get_free_heap_size, esp_get_minimum_free_heap_size, heap_caps_get_largest_free_block, MALLOC_CAP_8BIT,
-    };
-    // SAFETY: plain reads of heap statistics.
-    let (free, min_free, largest) = unsafe {
-        (esp_get_free_heap_size(), esp_get_minimum_free_heap_size(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT))
-    };
-    serde_json::json!({
-        "heap_free": free,
-        "heap_min_free": min_free,
-        "heap_largest_block": largest,
-        "stack_free_min": crate::tasks::stack_reserve(),
-        "reset_reason": format!("{:?}", esp_idf_svc::hal::reset::ResetReason::get()),
-        "uptime_s": crate::status::now_ms() / 1000,
-    })
 }
 
 /// A restart the owner asked for: the next start goes on from the power

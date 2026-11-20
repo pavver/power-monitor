@@ -71,7 +71,7 @@ impl Status {
     }
 
     /// The page state as JSON, written in one go.
-    pub fn state_json(&self, settings: &Settings, remote: &serde_json::Value, system: &serde_json::Value) -> String {
+    pub fn state_json(&self, settings: &Settings, remote: &serde_json::Value) -> String {
         let bot = settings.bot();
         let link = self.link();
         let telegram = self.telegram.lock().unwrap().clone();
@@ -97,7 +97,6 @@ impl Status {
                 firmware: &self.firmware,
                 password_set,
                 remote,
-                system,
             };
             serde_json::to_string(&state).unwrap_or_default()
         })

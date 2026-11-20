@@ -43,3 +43,7 @@ CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
 # logs, nothing prints 64-bit numbers or floats.
 CONFIG_LOG_DEFAULT_LEVEL_NONE=y
 CONFIG_NEWLIB_NANO_FORMAT=y
+
+# The resource monitor (/api/system): every task's state and processor time.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
