@@ -34,7 +34,20 @@ body{margin:0;background:var(--background);color:var(--text);
   font:400 calc(var(--tu)*14)/calc(var(--tu)*18) "Operator Mono","Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 button,input,textarea,select{font-family:inherit}
 .field select{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;padding:0 calc(var(--du)*3);outline:0;cursor:pointer}
-select option{background:var(--surface);color:var(--text)}
+/* DropdownMenu (docs/components/dropdown-menu.md): the native select keeps the value, a 10 DU field shows it,
+   the list is a layer under the field, field-wide, at most 50 DU, accent outline, 12 DU options. */
+.field select{display:none}
+.dd{flex:1;min-width:0;display:flex;align-items:center;gap:calc(var(--du)*2);height:calc(var(--du)*10);padding:0 calc(var(--du)*2) 0 calc(var(--du)*3);border:0;background:none;color:var(--text);
+  font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;text-align:left;cursor:pointer;outline:0}
+.dd>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd .ic{color:var(--text-2);transition:transform .15s var(--fast)}
+.dd[aria-expanded=true] .ic{transform:rotate(180deg);color:var(--accent)}
+.field:has(.dd[aria-expanded=true]) .base{stroke:var(--accent);stroke-width:1.5px}
+.ddlist{position:fixed;z-index:50;max-height:calc(var(--du)*50);overflow-y:auto;margin:0;padding:0;list-style:none;background:var(--surface);
+  box-shadow:inset 0 0 0 calc(var(--du)*.375) var(--accent)}
+.ddlist li{display:flex;align-items:center;min-height:calc(var(--du)*12);padding:calc(var(--du)*2) calc(var(--du)*3);cursor:pointer;color:var(--text);font-weight:500}
+.ddlist li.act{background:var(--pressed)}
+.ddlist li[aria-selected=true]{background:color-mix(in srgb,var(--accent) 8%,var(--surface));color:var(--accent);font-weight:700}
 /* AsyncCheckbox (docs/components/checkbox.md): 5 DU box, 3.5 DU check, gutter to a body/500 label. */
 .cbx{display:flex;align-items:center;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);padding:calc(var(--du)*1.5) var(--du);border:0;background:none;color:var(--text);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;cursor:pointer;text-align:left}
 .cbx-box{flex:none;width:calc(var(--du)*5);height:calc(var(--du)*5);display:grid;place-items:center;background:var(--surface)}
@@ -136,6 +149,8 @@ dialog.ctl{position:fixed}
 .btn{min-height:calc(var(--du)*10);min-width:max-content;padding:0 calc(var(--du)*4);background:var(--surface);color:var(--text);
   border:0;font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;cursor:pointer;text-align:center;
   display:inline-flex;align-items:center;justify-content:center}
+.btn.pressed{background:var(--pressed)}
+.btn.pressed .sf .base{stroke:var(--border-strong)}
 .btn.danger{background:color-mix(in srgb,var(--error) 15%,var(--surface));color:var(--error)}
 .btn.danger.pressed{background:color-mix(in srgb,var(--error) 30%,var(--surface))}
 .btn .lbl{display:flex;align-items:center;justify-content:center;gap:calc(var(--du)*2)}
@@ -180,7 +195,7 @@ button.item{cursor:pointer}
 .item .txt{flex:1;min-width:0}
 .item .t{display:block;font-size:calc(var(--tu)*15);line-height:calc(var(--tu)*20);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item .s{display:block;font-size:calc(var(--tu)*13);line-height:calc(var(--tu)*16);color:var(--text-2)}
-.item .s.ok{color:var(--success)}
+.item .s.ok{color:var(--success);display:flex;align-items:center;gap:var(--du)}
 .item .k{color:var(--text-2);flex:0 0 40%}
 .item .v{flex:1 1 60%;min-width:0;text-align:right;overflow-wrap:anywhere}
 .item .trail{flex:none;color:var(--text-2)}
@@ -235,13 +250,13 @@ button.item{cursor:pointer}
 .hl .x{color:var(--error);text-decoration:underline wavy var(--error)}
 .count{margin-top:calc(var(--du)*1);text-align:right;font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*15);color:var(--text-2)}
 .count.warn{color:var(--accent)}.count.full{color:var(--error)}
-.tag{flex:none;padding:0 calc(var(--du)*2);font-size:calc(var(--tu)*12);line-height:calc(var(--du)*6);border:calc(var(--du)*.25) solid var(--border);color:var(--text-2);background:var(--surface-alt)}
+.tag{flex:none;display:inline-flex;align-items:center;height:calc(var(--du)*6);padding:0 calc(var(--du)*2);font-size:calc(var(--tu)*13);line-height:calc(var(--tu)*16);box-shadow:inset 0 0 0 calc(var(--du)*.25) var(--border);color:var(--text);background:var(--surface)}
 .item code{background:none;border:0;padding:0;color:var(--syn-var)}
 details.help{margin-top:calc(var(--du)*3);border:calc(var(--du)*.25) solid var(--border)}
-details.help summary{min-height:calc(var(--du)*10);padding:0 calc(var(--du)*3);display:flex;align-items:center;cursor:pointer;font-weight:500;list-style:none}
+details.help summary{min-height:calc(var(--du)*10);padding:0 calc(var(--du)*3) 0 calc(var(--du)*2);display:flex;align-items:center;cursor:pointer;font-weight:500;list-style:none}
 details.help summary::before{content:"";flex:none;width:calc(var(--du)*4);height:calc(var(--du)*4);margin-right:var(--du);background:var(--text-2);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M522-480 333-669l51-51 240 240-240 240-51-51 189-189Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M522-480 333-669l51-51 240 240-240 240-51-51 189-189Z'/%3E%3C/svg%3E") center/contain no-repeat;transition:transform .2s var(--smooth)}
 details.help[open] summary::before{transform:rotate(90deg);background:var(--accent)}
-details.help>div{padding:0 calc(var(--du)*3) calc(var(--du)*3)}
+details.help>div{padding:var(--du) calc(var(--du)*3) calc(var(--du)*3) calc(var(--du)*7)}
 details.help p{margin:calc(var(--du)*2) 0 0}
 
 /* OperatorAsyncSwitch: moves only once the device confirmed */
@@ -442,14 +457,14 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
 
     <div class="sec-head">
       <h2>Шаблони</h2>
-      <button class="btn" type="button" id="tmpl-add">+ Додати</button>
+      <button class="btn" type="button" id="tmpl-add"><span class="lbl"><svg class="ic" viewBox="0 -960 960 960" aria-hidden="true"><path d="M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z"/></svg>Додати</span></button>
     </div>
     <p class="small muted">Текстові блоки, що використовуються в повідомленнях.</p>
     <div class="list" id="templates-list"></div>
 
     <div class="sec-head">
       <h2>Автоматизації</h2>
-      <button class="btn" type="button" id="auto-add">+ Додати</button>
+      <button class="btn" type="button" id="auto-add"><span class="lbl"><svg class="ic" viewBox="0 -960 960 960" aria-hidden="true"><path d="M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z"/></svg>Додати</span></button>
     </div>
     <p class="small muted">Реакції на події: надсилання повідомлень або оновлення статусу.</p>
     <div class="list" id="automations-list"></div>
@@ -462,7 +477,7 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
       <button class="switch" type="button" role="switch" aria-checked="false" id="remote-switch" aria-label="Дозволити віддалене підключення"><i class="sw-th"><svg class="ic sw-on" viewBox="0 -960 960 960" aria-hidden="true"><path d="M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z"/></svg><svg class="ic sw-off" viewBox="0 -960 960 960" aria-hidden="true"><path d="m291-240-51-51 189-189-189-189 51-51 189 189 189-189 51 51-189 189 189 189-51 51-189-189-189 189Z"/></svg><span class="spin sw-sp"></span></i></button></div>
     <label class="cap" for="remote-server">Сервер підтримки</label>
     <div class="field" data-field><input id="remote-server" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://example.com"></div>
-    <p class="small muted" id="remote-id"></p>
+    <p class="small muted" id="remote-id" style="margin-top:calc(var(--du)*2)"></p>
     <p class="small muted">Пристрій сам звертається до сервера раз на годину; порти назовні не відкриваються.
       Відкрита сесія дає доступ до всієї панелі, разом з оновленням прошивки, і закривається сама через 15 хвилин без дій.</p>
     <div class="actions">
@@ -611,7 +626,7 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
 
     <label class="cap">Якщо (умови)</label>
     <div id="a-conditions" style="display:flex;flex-direction:column;gap:calc(var(--du)*2);margin-bottom:calc(var(--du)*2)"></div>
-    <button class="btn" type="button" id="a-cond-add">+ Додати умову</button>
+    <button class="btn" type="button" id="a-cond-add"><span class="lbl"><svg class="ic" viewBox="0 -960 960 960" aria-hidden="true"><path d="M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z"/></svg>Додати умову</span></button>
 
     <label class="cap" for="a-do" style="margin-top:calc(var(--du)*3)">Дія</label>
     <div class="field" data-field id="a-do-field">
@@ -722,6 +737,8 @@ function el(tag, attrs, ...children) {
 
 /* ---------- OperatorIcons (Material Sharp paths, 960×960) ---------- */
 const ICONS = {
+  add: "M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z",
+  dropDown: "M480-384 288-576h384L480-384Z",
   chevronRight: "M522-480 333-669l51-51 240 240-240 240-51-51 189-189Z",
   check: "M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z",
   close: "m291-240-51-51 189-189-189-189 51-51 189 189 189-189 51 51-189 189 189 189-51 51-189-189-189 189Z",
@@ -879,6 +896,73 @@ function textField(node) {
   }
   return control;
 }
+/* ---------- DropdownMenu over a native select ----------
+   The select keeps the value, the options and the change event, so code
+   that sets .value or replaces the options is shown without extra calls. */
+const valueOf = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+function dropdown(select) {
+  const shown = el("span", {});
+  const field = el("button", {type: "button", class: "dd", "aria-haspopup": "listbox", "aria-expanded": "false"}, shown, icon("dropDown"));
+  if (select.getAttribute("aria-label")) field.setAttribute("aria-label", select.getAttribute("aria-label"));
+  if (select.id) document.querySelector(`label[for="${select.id}"]`)?.setAttribute("for", "");
+  const show = () => { shown.textContent = select.selectedOptions[0]?.textContent || ""; };
+  Object.defineProperty(select, "value", {get() { return valueOf.get.call(this); }, set(v) { valueOf.set.call(this, v); show(); }});
+  new MutationObserver(show).observe(select, {childList: true, subtree: true, characterData: true});
+  let list = null, active = 0;
+  const close = () => {
+    if (!list) return;
+    list.remove(); list = null;
+    field.setAttribute("aria-expanded", "false");
+    document.removeEventListener("pointerdown", outside, true);
+  };
+  const outside = e => { if (!list?.contains(e.target) && !field.contains(e.target)) close(); };
+  const pick = i => {
+    const option = select.options[i];
+    close();
+    field.focus();
+    if (!option || option.value === select.value) return;
+    select.value = option.value;
+    select.dispatchEvent(new Event("change", {bubbles: true}));
+  };
+  const mark = i => {
+    active = (i + select.options.length) % select.options.length;
+    [...list.children].forEach((li, n) => li.classList.toggle("act", n === active));
+    list.children[active]?.scrollIntoView({block: "nearest"});
+  };
+  const open = () => {
+    const box = field.closest(".field").getBoundingClientRect();
+    list = el("ul", {class: "ddlist", role: "listbox"});
+    [...select.options].forEach((option, i) => {
+      const li = el("li", {role: "option", "aria-selected": String(option.selected)}, option.textContent);
+      li.addEventListener("pointerdown", e => e.preventDefault());
+      li.addEventListener("click", () => pick(i));
+      list.append(li);
+    });
+    const below = innerHeight - box.bottom;
+    Object.assign(list.style, {left: box.left + "px", width: box.width + "px"});
+    document.body.append(list);
+    // Under the field; above it when there is no room below.
+    if (below < list.offsetHeight && box.top > below) list.style.bottom = innerHeight - box.top + "px";
+    else list.style.top = box.bottom + "px";
+    field.setAttribute("aria-expanded", "true");
+    active = Math.max(0, select.selectedIndex);
+    list.children[active]?.scrollIntoView({block: "center"});
+    document.addEventListener("pointerdown", outside, true);
+  };
+  field.addEventListener("click", () => list ? close() : open());
+  field.addEventListener("keydown", e => {
+    if (!list) { if (["ArrowDown", "ArrowUp"].includes(e.key)) { e.preventDefault(); open(); } return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); mark(active + (e.key === "ArrowDown" ? 1 : -1)); }
+    else if (e.key === "Enter") { e.preventDefault(); pick(active); }
+    else if (e.key === "Escape" || e.key === "Tab") close();
+  });
+  addEventListener("scroll", close, true);
+  addEventListener("resize", close);
+  select.after(field);
+  show();
+}
+document.querySelectorAll(".field select").forEach(dropdown);
+
 const fields = {};
 document.querySelectorAll("[data-field]").forEach(node => {
   const control = textField(node);
@@ -929,6 +1013,8 @@ function show(name) {
   const step = {login: 0, wifi: 1, move: 2, bot: 2, dashboard: 3, bms: 3, text: 3, automation: 3}[name];
   [...$("progress").children].forEach((bar, i) => bar.classList.toggle("lit", i < step));
   const configured = state && state.stage === "dashboard";
+  // Setup steps only while setting up: once configured all three are lit and say nothing.
+  $("progress").classList.toggle("hidden", Boolean(configured));
   $("back").classList.toggle("hidden", !(configured && ["wifi", "bot", "bms", "text", "automation"].includes(name)));
   window.scrollTo(0, 0);
   if (name === "wifi") refreshNetworks();
@@ -1409,6 +1495,8 @@ function openTemplate(name) {
   const tmpl = isNew ? null : (textsData?.templates || []).find(t => t.name === name);
   $("t-area").value = tmpl ? tmpl.text : "";
   renderInsertList($("t-vars"), t => insertInto($("t-area"), t, templateChanged));
+  $("t-preview").classList.remove("bad");
+  $("t-preview").textContent = "…";
   show("text");
   templateChanged();
 }
@@ -1562,6 +1650,7 @@ function addCondition(val = "") {
   f.append(input);
   textField(f);
   const del = el("button", {type: "button", class: "btn", "aria-label": "Прибрати умову"}, icon("close"));
+  new Control(del);
   del.onclick = () => row.remove();
   row.append(f, del);
   $("a-conditions").append(row);
@@ -1609,6 +1698,8 @@ function openAutomation(index) {
   }
   updateAutoParams();
   renderInsertList($("a-vars"), t => insertInto($("a-area"), t, autoChanged));
+  $("a-preview").classList.remove("bad");
+  $("a-preview").textContent = "…";
   show("automation");
   autoChanged();
 }
@@ -1732,7 +1823,7 @@ function bmsValueRow(name, label, unit, value) {
   const copied = copiedVar === variable;
   const row = el("button", {type: "button", class: "item two", title: "Скопіювати " + variable},
     el("span", {class: "txt"}, el("span", {class: "t"}, label),
-      el("span", {class: copied ? "s ok" : "s"}, copied ? variable + " скопійовано ✓" : variable)),
+      el("span", {class: copied ? "s ok" : "s"}, ...(copied ? [icon("check"), variable + " скопійовано"] : [variable]))),
     el("span", {class: "trail"}, value + (unit ? " " + unit : "")));
   row.onclick = async () => {
     if (!await copyText(variable)) { say("bms-msg", "Не вдалося скопіювати — наберіть " + variable + " вручну.", "err"); return; }
@@ -1940,6 +2031,9 @@ actionButton($("ota-btn"), async () => {
   say("ota-msg", "Записано " + info.version + " (" + info.built + "). Перезапуск…", "wait");
   setTimeout(() => location.reload(), 12000);
 }, {msg: "ota-msg"});
+
+// Plain buttons get the same frame, ripple and Pressed state as action buttons.
+document.querySelectorAll(".btn:not(.ctl)").forEach(node => new Control(node));
 
 refreshState();
 setInterval(() => { if (!joining) refreshState(); }, 3000);

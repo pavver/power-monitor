@@ -244,6 +244,15 @@ const BMS_READING = {
 };
 
 /* Battery screen: the BMS is asked only while its screen is open. */
+/* Picks an option the way a user does: the DropdownMenu field, then the row. */
+async function pick(page, select, value) {
+  const index = await page.$eval(select, (node, v) => [...node.options].findIndex(o => o.value === v), value);
+  await page.click(select + " + .dd");
+  await page.click(`.ddlist li:nth-child(${index + 1})`);
+  const now = await page.$eval(select, node => node.value);
+  if (now !== value) throw new Error(`${select}: picked ${value}, has ${now}`);
+}
+
 async function runBms() {
   const browser = await chromium.launch({ executablePath: exe });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
@@ -370,14 +379,14 @@ async function runMessages() {
   const autoRows = await page.$$eval("#automations-list .item", n => n.map(r => r.querySelector(".t").textContent));
   await page.click("#auto-add");
   await page.waitForSelector("#s-automation.on");
-  await page.selectOption("#a-on", "below");
-  await page.selectOption("#a-sensor", "battery_voltage");
+  await pick(page, "#a-on", "below");
+  await pick(page, "#a-sensor", "battery_voltage");
   await page.fill("#a-thresh", "11.5");
   await page.fill("#a-hyst", "0.2");
   await page.click("#a-cond-add");
   await page.waitForSelector("#a-conditions input");
   await page.fill("#a-conditions input", "mains=off");
-  await page.selectOption("#a-do", "send");
+  await pick(page, "#a-do", "send");
   await page.fill("#a-area", "Акумулятор розряджено: {battery_voltage} В");
   await page.click("#a-save");
   await page.waitForSelector("#s-dashboard.on");
