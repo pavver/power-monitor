@@ -37,7 +37,9 @@ impl fmt::Display for RemoteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RemoteError::ServerUrl => f.write_str("Адреса сервера має вигляд https://example.com"),
-            RemoteError::Refused(403) => f.write_str("сервер не впізнав пристрій (403)"),
+            RemoteError::Refused(403) => {
+                f.write_str("сервер не впізнав пристрій (403): якщо його перепрошили, прийміть новий ключ в адмінці сервера")
+            }
             RemoteError::Refused(status) => write!(f, "сервер відповів помилкою {status}"),
             RemoteError::BadAnswer => f.write_str("незрозуміла відповідь сервера"),
         }
@@ -119,10 +121,30 @@ pub struct Identity {
     pub secret: String,
 }
 
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 impl Identity {
-    pub fn from_random(bytes: &[u8; 24]) -> Self {
-        let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        Self { id: hex(&bytes[..8]), secret: hex(&bytes[8..]) }
+    /// 16 hex chars derived from the factory base MAC: the same board is the
+    /// same device after any reflash or wipe.
+    pub fn hardware_id(mac: [u8; 6]) -> String {
+        use sha2::{Digest, Sha256};
+        let hash = Sha256::new().chain_update(b"power-monitor/").chain_update(mac).finalize();
+        hex(&hash[..8])
+    }
+
+    /// This board's identity: its hardware id with the stored secret when
+    /// there is one (an update keeps it), else with `fresh`. The secret is
+    /// never derived from the MAC, which anyone nearby can read. True when it
+    /// differs from what is stored, so it has to be written.
+    pub fn bound(mac: [u8; 6], stored: Option<Identity>, fresh: &[u8; 16]) -> (Identity, bool) {
+        let id = Self::hardware_id(mac);
+        match stored {
+            Some(stored) if stored.id == id => (stored, false),
+            Some(stored) => (Identity { id, secret: stored.secret }, true),
+            None => (Identity { id, secret: hex(fresh) }, true),
+        }
     }
 
     pub fn from_form(body: &str) -> Option<Self> {
@@ -393,12 +415,32 @@ mod tests {
     }
 
     #[test]
-    fn identity_is_hex_from_random_bytes() {
-        let identity = Identity::from_random(&[0xAB; 24]);
-        assert_eq!(identity.id, "abababababababab");
+    fn a_new_board_gets_its_hardware_id_and_the_fresh_secret() {
+        let (identity, changed) = Identity::bound([1, 2, 3, 4, 5, 6], None, &[0xAB; 16]);
+        assert_eq!(identity.id, Identity::hardware_id([1, 2, 3, 4, 5, 6]));
         assert_eq!(identity.secret, "ab".repeat(16));
+        assert!(changed);
         assert_eq!(Identity::from_form(&identity.to_form()), Some(identity));
         assert_eq!(Identity::from_form("id=&secret="), None);
+    }
+
+    #[test]
+    fn an_update_keeps_the_stored_secret_and_moves_to_the_hardware_id() {
+        let mac = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+        let old = Identity { id: "0123456789abcdef".into(), secret: "cd".repeat(16) };
+        let (identity, changed) = Identity::bound(mac, Some(old.clone()), &[0; 16]);
+        assert_eq!(identity, Identity { id: Identity::hardware_id(mac), secret: old.secret });
+        assert!(changed);
+        // Next boot: nothing to write.
+        assert_eq!(Identity::bound(mac, Some(identity.clone()), &[1; 16]), (identity, false));
+    }
+
+    #[test]
+    fn the_hardware_id_is_16_hex_stable_per_board_and_differs_between_boards() {
+        let id = Identity::hardware_id([0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc]);
+        assert_eq!(id, Identity::hardware_id([0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc]));
+        assert_ne!(id, Identity::hardware_id([0x12, 0x34, 0x56, 0x78, 0x9a, 0xbd]));
+        assert!(id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit()));
     }
 
     #[test]
@@ -521,7 +563,10 @@ mod tests {
     fn errors_read_as_the_page_shows_them() {
         let text = |error: RemoteError| error.to_string();
         assert_eq!(text(RemoteError::ServerUrl), "Адреса сервера має вигляд https://example.com");
-        assert_eq!(text(RemoteError::Refused(403)), "сервер не впізнав пристрій (403)");
+        assert_eq!(
+            text(RemoteError::Refused(403)),
+            "сервер не впізнав пристрій (403): якщо його перепрошили, прийміть новий ключ в адмінці сервера"
+        );
         assert_eq!(text(RemoteError::Refused(500)), "сервер відповів помилкою 500");
         assert_eq!(text(RemoteError::BadAnswer), "незрозуміла відповідь сервера");
     }

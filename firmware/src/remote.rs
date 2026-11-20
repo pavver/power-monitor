@@ -68,6 +68,7 @@ impl Remote {
             Phase::Session { .. } => ("session", None),
         };
         json!({
+            "id": Identity::hardware_id(crate::mac()),
             "enabled": settings.enabled,
             "server": settings.server.as_ref().map(Server::as_str),
             "phase": phase,

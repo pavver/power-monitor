@@ -95,6 +95,16 @@ pub fn random<const N: usize>() -> [u8; N] {
     bytes
 }
 
+/// The factory MAC burnt into eFuse: the same for this board whatever is
+/// flashed or wiped.
+pub fn mac() -> [u8; 6] {
+    let mut mac = [0u8; 6];
+    // SAFETY: writes exactly 6 bytes; it fails only on a blank eFuse, which
+    // leaves zeros (the id is then the same for every such board, still valid).
+    unsafe { esp_idf_svc::sys::esp_efuse_mac_get_default(mac.as_mut_ptr()) };
+    mac
+}
+
 /// Five power cycles in a row, each within 10 s of start-up, wipe the
 /// settings: the way back in for someone who forgot the page password.
 /// Only real power-ons count; brownouts and crashes leave the count alone.

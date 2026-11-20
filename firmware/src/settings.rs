@@ -218,15 +218,14 @@ impl Settings {
         Ok(())
     }
 
-    /// Who this device is to the remote server: made on first use and kept,
-    /// so the server keeps recognising it (a factory reset makes a new one).
+    /// Who this device is to the remote server: the id comes from the
+    /// board's MAC, the secret is made once and kept (see `Identity::bound`).
     pub fn identity(&self) -> anyhow::Result<Identity> {
         let stored = read(&self.nvs.lock().unwrap(), IDENTITY, |s| Identity::from_form(s).ok_or(()));
-        if let Some(identity) = stored {
-            return Ok(identity);
+        let (identity, changed) = Identity::bound(crate::mac(), stored, &crate::random());
+        if changed {
+            self.write(IDENTITY, &identity.to_form())?;
         }
-        let identity = Identity::from_random(&crate::random());
-        self.write(IDENTITY, &identity.to_form())?;
         Ok(identity)
     }
 
