@@ -37,7 +37,7 @@ const DEFAULT_STATUS_CONFIG = {
 function device() {
   const d = {
     link: { state: "idle" }, stage: "wifi", setupAp: true, closed: false,
-    remote: { enabled: false, server: null, phase: "off", next_in_s: null, last_contact_s: null, error: null },
+    remote: { id: "0123456789abcdef", enabled: false, server: null, phase: "off", next_in_s: null, last_contact_s: null, error: null },
     messagesSaved: [],
     texts: {
       values: [
@@ -392,6 +392,7 @@ async function runMessages() {
 
   // Dark theme
   await page.emulateMedia({ colorScheme: "dark" });
+  await page.waitForTimeout(600); // colour transitions settle before the shot
   await page.screenshot({ path: OUT + "/messages-1-dark.png" });
 
   // Open template in dark theme

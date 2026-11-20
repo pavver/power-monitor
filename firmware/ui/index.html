@@ -35,8 +35,19 @@ body{margin:0;background:var(--background);color:var(--text);
 button,input,textarea,select{font-family:inherit}
 .field select{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;padding:0 calc(var(--du)*3);outline:0;cursor:pointer}
 select option{background:var(--surface);color:var(--text)}
-.checkrow{display:flex;align-items:center;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);cursor:pointer}
-.checkrow input[type=checkbox]{accent-color:var(--accent);width:calc(var(--du)*4.5);height:calc(var(--du)*4.5);margin:0;cursor:pointer}
+/* AsyncCheckbox (docs/components/checkbox.md): 5 DU box, 3.5 DU check, gutter to a body/500 label. */
+.cbx{display:flex;align-items:center;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);padding:calc(var(--du)*1.5) var(--du);border:0;background:none;color:var(--text);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;cursor:pointer;text-align:left}
+.cbx-box{flex:none;width:calc(var(--du)*5);height:calc(var(--du)*5);display:grid;place-items:center;background:var(--surface)}
+.cbx-box .ic{width:calc(var(--du)*3.5);height:calc(var(--du)*3.5);color:var(--accent);visibility:hidden}
+.cbx-box .spin{width:calc(var(--du)*3);height:calc(var(--du)*3);display:none}
+.cbx[aria-checked=true] .cbx-box{background:color-mix(in srgb,var(--accent) 15%,var(--surface))}
+.cbx[aria-checked=true] .cbx-box .sf .base{stroke:var(--accent);stroke-width:1.5px}
+.cbx[aria-checked=true] .cbx-box .ic{visibility:visible}
+.cbx-box[data-state=ok] .ic{color:var(--success)}
+.cbx-box[data-state=err] .ic{color:var(--error)}
+.cbx-box.slow .ic{display:none}
+.cbx-box.slow .spin{display:block}
+.cbx:focus-visible{outline:calc(var(--du)*.5) solid var(--accent);outline-offset:0}
 /* Chip, input variant (docs/components/chip.md): 6 DU, body_small, remove button 6 DU turning error. */
 .chips{display:flex;flex-wrap:wrap;gap:var(--du);margin:var(--du) 0 calc(var(--du)*2)}
 .chip{display:inline-flex;align-items:center;height:calc(var(--du)*6);padding-left:calc(var(--du)*2);background:var(--surface);color:var(--text);box-shadow:inset 0 0 0 calc(var(--du)*.25) var(--border);font-size:calc(var(--tu)*13);line-height:calc(var(--tu)*16)}
@@ -417,10 +428,7 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
       <div class="field" data-field id="status-every-field">
         <input id="status-every" type="number" min="10" max="86400" inputmode="numeric">
       </div>
-      <label class="checkrow">
-        <input id="status-bottom" type="checkbox">
-        <span>Тримати внизу чату</span>
-      </label>
+      <button class="cbx" type="button" role="checkbox" aria-checked="false" id="status-bottom"><span class="cbx-box" id="status-bottom-box"></span><span>Тримати внизу чату</span></button>
       <label class="cap" style="margin-top:calc(var(--du)*3)">Важливі датчики (оновлюють статус одразу)</label>
       <p class="small muted">Зміна такого значення надсилає новий статус зі сповіщенням, а попередній лишається в історії.</p>
       <div class="chips" id="status-important"></div>
@@ -454,6 +462,7 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
       <button class="switch" type="button" role="switch" aria-checked="false" id="remote-switch" aria-label="Дозволити віддалене підключення"><i class="sw-th"><svg class="ic sw-on" viewBox="0 -960 960 960" aria-hidden="true"><path d="M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z"/></svg><svg class="ic sw-off" viewBox="0 -960 960 960" aria-hidden="true"><path d="m291-240-51-51 189-189-189-189 51-51 189 189 189-189 51 51-189 189 189 189-51 51-189-189-189 189Z"/></svg><span class="spin sw-sp"></span></i></button></div>
     <label class="cap" for="remote-server">Сервер підтримки</label>
     <div class="field" data-field><input id="remote-server" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://example.com"></div>
+    <p class="small muted" id="remote-id"></p>
     <p class="small muted">Пристрій сам звертається до сервера раз на годину; порти назовні не відкриваються.
       Відкрита сесія дає доступ до всієї панелі, разом з оновленням прошивки, і закривається сама через 15 хвилин без дій.</p>
     <div class="actions">
@@ -1270,7 +1279,7 @@ function renderTexts() {
   const st = textsData.status;
   if (document.activeElement !== $("status-every")) $("status-every").value = st.every;
   updateStatusHint();
-  $("status-bottom").checked = Boolean(st.bottom);
+  if (bottomBox.state !== "pending") $("status-bottom").setAttribute("aria-checked", String(Boolean(st.bottom)));
   important = [...(st.important || [])];
   renderImportant();
   const stTmpl = (textsData.templates || []).find(t => t.name === "status");
@@ -1350,11 +1359,36 @@ $("imp-pick").addEventListener("change", () => {
   renderImportant();
 });
 
+/* "Keep at the bottom" applies at once and shows the new value only when the device took it. */
+const bottomBox = new Control($("status-bottom-box"));
+$("status-bottom-box").append(icon("check"), el("span", {class: "spin"}));
+$("status-bottom").addEventListener("click", async () => {
+  if (bottomBox.state === "pending" || !textsData) return;
+  const node = $("status-bottom"), target = node.getAttribute("aria-checked") !== "true";
+  const st = textsData.status;
+  say("status-msg", "");
+  bottomBox.set("pending");
+  const slow = setTimeout(() => $("status-bottom-box").classList.add("slow"), 700);
+  let ok = true;
+  try {
+    await api("/api/status", {every: String(st.every), bottom: target ? "1" : "0", important: (st.important || []).join(",")});
+    st.bottom = target;
+    node.setAttribute("aria-checked", String(target));
+  } catch (e) {
+    ok = false;
+    say("status-msg", e.message, "err");
+  }
+  clearTimeout(slow);
+  $("status-bottom-box").classList.remove("slow");
+  bottomBox.set(ok ? "ok" : "err");
+  setTimeout(() => { if (bottomBox.state !== "pending") bottomBox.set("idle"); }, 800);
+});
+
 actionButton($("status-save"), async () => {
   say("status-msg", "");
   const every = parseInt($("status-every").value, 10);
   if (isNaN(every) || every < 10 || every > 86400) throw new Error("Період оновлення — від 10 до 86400 с");
-  const bottom = $("status-bottom").checked ? "1" : "0";
+  const bottom = $("status-bottom").getAttribute("aria-checked") === "true" ? "1" : "0";
   await api("/api/status", {every: String(every), bottom, important: important.join(",")});
   say("status-msg", "Збережено.", "ok");
   await refreshTexts();
@@ -1774,6 +1808,7 @@ function renderRemote(r) {
   if (r.last_contact_s !== null && !session) parts.push("зв'язок був " + minutes(r.last_contact_s) + " тому");
   if (r.error) parts.push("помилка: " + r.error);
   $("remote-sub").textContent = parts.join(" · ");
+  $("remote-id").textContent = r.id ? "ID пристрою: " + r.id : "";
   if ($("remote-switch").dataset.state !== "pending") $("remote-switch").setAttribute("aria-checked", String(r.enabled));
   // The address stays as typed until it is saved.
   if (document.activeElement !== $("remote-server") && !remoteDirty) $("remote-server").value = r.server || "";
