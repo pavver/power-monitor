@@ -5,6 +5,7 @@
 //! `{!name?text}`, `{name=val?text}`), and placeholders (`{name}`).
 
 pub mod condition;
+pub mod library;
 pub mod status;
 pub mod template;
 pub mod automation;

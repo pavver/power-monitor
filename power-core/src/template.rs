@@ -22,14 +22,18 @@ pub const OWN: [&str; 3] = ["duration", "delay", "ip"];
 
 /// Checks a template for a text that has the `own` values of `OWN`.
 pub fn validate(template: &str, own: &[&str]) -> Result<(), TemplateError> {
-    autotext::template::validate(template, &|name| match name {
-        "device" | BATTERY_VOLTAGE | crate::clock::TIME | crate::clock::DATE => None,
-        name if jk::VARIABLES.contains(&name) || own.contains(&name) => None,
-        name => match OWN.into_iter().find(|&other| other == name) {
-            Some(other) => Some(TemplateError::NotHere(other)),
-            None => Some(TemplateError::Unknown),
+    autotext::template::validate(
+        template,
+        &|name| match name {
+            "device" | BATTERY_VOLTAGE | crate::clock::TIME | crate::clock::DATE => None,
+            name if jk::VARIABLES.contains(&name) || own.contains(&name) => None,
+            name => match OWN.into_iter().find(|&other| other == name) {
+                Some(other) => Some(TemplateError::NotHere(other)),
+                None => Some(TemplateError::Unknown),
+            },
         },
-    })
+        &|_| false,
+    )
 }
 
 /// Whether `template` shows any battery value.
