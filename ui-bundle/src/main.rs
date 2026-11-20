@@ -16,7 +16,7 @@ use operator_ui::tokens::{Icon as IconData, dim, icons, motion};
 /// Every component the page uses: its Cargo feature (in Cargo.toml) and a
 /// class only its markup has. A component the page does not use fails the
 /// build, so its CSS never reaches the flash.
-const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field"), ("list-item", "op-list-row"), ("switch", "op-switch"), ("checkbox", "op-checkbox")];
+const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field"), ("list-item", "op-list-row"), ("switch", "op-switch"), ("checkbox", "op-checkbox"), ("dropdown-menu", "op-dropdown")];
 
 /// The icons the page draws, by the name its script uses.
 const ICONS: &[(&str, IconData)] = &[
@@ -72,6 +72,11 @@ fn templates() -> Vec<(&'static str, String)> {
             .to_html(),
         ),
         (
+            // Closed: the page builds the option layer (Popover) itself.
+            "dropdown-menu",
+            view! { <DropdownMenu options=vec!["-".to_string()] selected=RwSignal::new("-".to_string())/> }.to_html(),
+        ),
+        (
             "text-field",
             view! { <TextField value=RwSignal::new(String::new()) placeholder="" password=true show_reveal=true/> }.to_html(),
         ),
@@ -113,9 +118,16 @@ fn minify(css: &str) -> String {
     packed.replace(";}", "}")
 }
 
-/// Leptos's hydration markers mean nothing to a page without Leptos.
+/// Leptos's hydration markers (`<!>` and comments such as `<!--<() />-->`)
+/// mean nothing to a page without Leptos.
 fn clean(html: &str) -> String {
-    html.replace("<!>", "").replace("<!---->", "")
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html.replace("<!>", "");
+    while let Some(start) = rest.find("<!--") {
+        out.push_str(&rest[..start]);
+        rest = rest[start..].split_once("-->").map_or(String::new(), |(_, after)| after.to_string());
+    }
+    out + &rest
 }
 
 fn bundle() -> String {
@@ -212,6 +224,11 @@ mod tests {
     #[test]
     fn minify_keeps_rules_and_drops_comments() {
         assert_eq!(minify("/* x */\n.a > .b ,\n.c {\n  color : red ;\n}\n"), ".a>.b,.c{color : red}");
+    }
+
+    #[test]
+    fn clean_drops_leptos_markers() {
+        assert_eq!(clean("<a><!>b<!--<() />--></a><!---->"), "<a>b</a>");
     }
 
     #[test]

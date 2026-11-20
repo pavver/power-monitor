@@ -250,8 +250,8 @@ const BMS_READING = {
 /* Picks an option the way a user does: the DropdownMenu field, then the row. */
 async function pick(page, select, value) {
   const index = await page.$eval(select, (node, v) => [...node.options].findIndex(o => o.value === v), value);
-  await page.click(select + " + .dd");
-  await page.click(`.ddlist li:nth-child(${index + 1})`);
+  await page.click(select + " + .op-dropdown-anchor .op-dropdown-trigger");
+  await page.click(`.op-dropdown-menu .op-dropdown-item >> nth=${index}`);
   const now = await page.$eval(select, node => node.value);
   if (now !== value) throw new Error(`${select}: picked ${value}, has ${now}`);
 }
@@ -394,21 +394,23 @@ async function runMessages() {
 
   // 7. Automations list renders and new automation saves
   const autoRows = await page.$$eval("#automations-list .op-list-row", n => n.map(r => r.querySelector(".op-list-title").textContent));
-  // The important-sensor picker: current values at the row ends, and the
-  // list scrolls under the finger instead of closing.
-  await page.click("#imp-pick + .dd");
-  await page.waitForSelector(".ddlist li small");
-  const details = await page.$$eval(".ddlist li", lis => lis.map(li => li.textContent));
-  if (!details.some(d => d.includes("bms_soc") && d.endsWith("85"))) throw new Error("no current value in the picker: " + details);
-  const listBox = await page.$eval(".ddlist", n => { const r = n.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2, scrollable: n.scrollHeight > n.clientHeight}; });
+  // The important-sensor picker: current values in brackets after the
+  // names, and the list scrolls under the finger instead of closing.
+  await page.click("#imp-pick + .op-dropdown-anchor .op-dropdown-trigger");
+  await page.waitForFunction(() => [...document.querySelectorAll(".op-dropdown-item")].some(i => i.textContent.endsWith(")")));
+  const details = await page.$$eval(".op-dropdown-item", items => items.map(i => i.textContent));
+  if (!details.some(d => d.includes("bms_soc") && d.endsWith("(85)"))) throw new Error("no current value in the picker: " + details);
+  const scroller = ".op-dropdown-menu .op-scroll-contain";
+  const listBox = await page.$eval(scroller, n => { const r = n.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2, scrollable: n.scrollHeight > n.clientHeight}; });
   await page.mouse.move(listBox.x, listBox.y);
   await page.mouse.wheel(0, 200);
   await page.waitForTimeout(300);
-  const stillOpen = await page.$(".ddlist") !== null;
-  const scrolled = await page.$eval(".ddlist", n => n.scrollTop).catch(() => -1);
+  const stillOpen = await page.$(scroller) !== null;
+  const scrolled = await page.$eval(scroller, n => n.scrollTop).catch(() => -1);
   if (!stillOpen || (listBox.scrollable && scrolled <= 0)) throw new Error(`picker closed or did not scroll (open ${stillOpen}, top ${scrolled})`);
+  await page.screenshot({ path: OUT + "/messages-4-picker.png" });
   await page.keyboard.press("Escape");
-  await page.waitForSelector(".ddlist", { state: "detached" });
+  await page.waitForSelector(".op-dropdown-menu", { state: "detached" });
 
   await page.click("#auto-add");
   await page.waitForSelector("#s-automation.on");

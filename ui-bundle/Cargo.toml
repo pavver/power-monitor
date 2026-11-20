@@ -11,11 +11,12 @@ description = "Renders the Operator UI components the device page uses into plai
 [dependencies]
 leptos = { version = "0.8.22", features = ["ssr"] }
 any_spawner = { version = "0.3", features = ["futures-executor"] }
-operator-ui = { git = "https://github.com/pavver/operator-design-system", rev = "2864a3d", default-features = false, features = [
+operator-ui = { git = "https://github.com/pavver/operator-design-system", rev = "014dff3", default-features = false, features = [
     "action-button",
     "icon-button",
     "text-field",
     "list-item",
     "switch",
     "checkbox",
+    "dropdown-menu",
 ] }
