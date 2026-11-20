@@ -111,7 +111,8 @@ pub(super) fn bot(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> any
     let dev = d.clone();
     post(server, auth, "/api/bot", move |body| {
         let bot = Bot::from_form(body).map_err(|e| e.to_string())?;
-        dev.send_test(&bot)?;
+        // Checked without a message: the status the notifier sends next is the first one.
+        telegram::check(&bot)?;
         dev.settings.save_bot(bot).map_err(|e| e.to_string())?;
         json(&"saved")
     })?;

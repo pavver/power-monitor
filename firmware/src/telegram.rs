@@ -79,6 +79,12 @@ pub fn delete(bot: &Bot, message_id: i64) -> Result<Outcome, String> {
     telegram::delete_outcome(reply)
 }
 
+/// Proves the bot can write to its destination, leaving no message there.
+pub fn check(bot: &Bot) -> Result<(), String> {
+    post(&telegram::chat_action_url(bot.token()), |out| telegram::write_chat_action(bot.destination(), &mut Dyn(out)))
+        .map(|_| ())
+}
+
 /// The bot's `@username`, proving the token works.
 pub fn bot_username(token: &BotToken) -> Result<String, String> {
     get(&telegram::get_me(token), telegram::read_reply).and_then(|me| telegram::bot_username(&me))

@@ -85,6 +85,22 @@ pub fn write_delete_message(to: Destination, message_id: i64, out: &mut impl fmt
     out.write_str("}")
 }
 
+/// The URL for `sendChatAction`.
+pub fn chat_action_url(token: &BotToken) -> String {
+    method_url(token, "sendChatAction")
+}
+
+/// The `sendChatAction` body: "typing" in the destination, which fails as
+/// sending would (unknown chat, bot not in it, no such topic) yet leaves no
+/// message behind.
+pub fn write_chat_action(to: Destination, out: &mut impl fmt::Write) -> fmt::Result {
+    write!(out, "{{\"chat_id\":{}", to.chat_id)?;
+    if let Some(thread_id) = to.thread_id {
+        write!(out, ",\"message_thread_id\":{thread_id}")?;
+    }
+    out.write_str(",\"action\":\"typing\"}")
+}
+
 /// Checks the token and gives the bot's username.
 pub fn get_me(token: &BotToken) -> String {
     method_url(token, "getMe")
@@ -334,6 +350,17 @@ mod tests {
         assert_eq!(parsed["chat_id"], -100);
         assert_eq!(parsed.get("message_thread_id"), None);
         assert_eq!(parsed["text"], text);
+    }
+
+    #[test]
+    fn checks_a_destination_without_a_message() {
+        assert_eq!(chat_action_url(&token()), format!("https://api.telegram.org/bot{TOKEN}/sendChatAction"));
+        let mut out = String::new();
+        write_chat_action(Destination { chat_id: -100, thread_id: Some(77) }, &mut out).unwrap();
+        assert_eq!(out, r#"{"chat_id":-100,"message_thread_id":77,"action":"typing"}"#);
+        out.clear();
+        write_chat_action(Destination { chat_id: 5, thread_id: None }, &mut out).unwrap();
+        assert_eq!(out, r#"{"chat_id":5,"action":"typing"}"#);
     }
 
     #[test]

@@ -1556,9 +1556,9 @@ function chatRow(chat) {
   actionButton(choose, async () => {
     choosingChat = true;
     try {
-      say("chat-msg", "Надсилаю тестове повідомлення…", "wait");
+      say("chat-msg", "Перевіряю доступ до чату…", "wait");
       await api("/api/bot", {token: verifiedToken, chat_id: chat.id, thread_id: chat.thread_id ?? ""});
-      say("chat-msg", "Готово! Перевірте Telegram.", "ok");
+      say("chat-msg", "Готово! Статус прийде в Telegram за кілька секунд.", "ok");
       $("st-chat").classList.add("done");
       await refreshState();
     } catch (err) {
