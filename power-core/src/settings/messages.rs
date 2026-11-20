@@ -249,7 +249,20 @@ mod tests {
     fn a_text_is_described_by_its_standard_wording_and_its_values() {
         let lost = about("field=lost").unwrap();
         assert_eq!(lost.standard, Messages::default().template(Text::Lost));
-        assert_eq!(lost.variables, ["device", "duration", "delay", "battery_voltage", "bms_soc", "bms_voltage", "bms_energy"]);
+        assert_eq!(
+            lost.variables,
+            [
+                "device",
+                "duration",
+                "delay",
+                "battery_voltage",
+                "bms_soc",
+                "bms_voltage",
+                "bms_energy",
+                "bms_current",
+                "bms_power"
+            ]
+        );
         assert_eq!(about("field=address").unwrap().variables[..2], ["device", "ip"]);
         assert_eq!(about("field=test").unwrap().variables[..2], ["device", "battery_voltage"]);
         assert_eq!(about("field=device_name"), None);

@@ -415,7 +415,7 @@ mod tests {
     }
 
     fn reading() -> Reading {
-        Reading { voltage_mv: 13_280, soc: 84, remaining_mah: 84_000 }
+        Reading { voltage_mv: 13_280, soc: 84, remaining_mah: 84_000, current_ma: 0, power_mw: 0 }
     }
 
     #[test]

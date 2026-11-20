@@ -147,19 +147,33 @@ pub struct Reading {
     pub voltage_mv: u32,
     pub soc: u8,
     pub remaining_mah: u32,
+    pub current_ma: i32,
+    pub power_mw: i32,
 }
 
 /// Template variables for a reading, in the order the page lists them.
-pub const VARIABLES: [&str; 3] = ["bms_soc", "bms_voltage", "bms_energy"];
+pub const VARIABLES: [&str; 5] = ["bms_soc", "bms_voltage", "bms_energy", "bms_current", "bms_power"];
 
 impl Reading {
     /// Each of `VARIABLES` with its value as people read it, without units:
-    /// percent, volts, and the energy left in kilowatt-hours.
-    pub fn values(&self) -> [(&'static str, String); 3] {
+    /// percent, volts, the energy left in kilowatt-hours, amperes, and watts.
+    pub fn values(&self) -> [(&'static str, String); 5] {
         let volts = f64::from(self.voltage_mv) / 1e3;
         let kwh = f64::from(self.remaining_mah) * f64::from(self.voltage_mv) / 1e9;
-        let [soc, voltage, energy] = VARIABLES;
-        [(soc, self.soc.to_string()), (voltage, format!("{volts:.2}")), (energy, format!("{kwh:.2}"))]
+        let amperes = f64::from(self.current_ma) / 1e3;
+        let watts = (f64::from(self.power_mw) / 1e3).round() as i32;
+        let current_str = match format!("{amperes:.1}") {
+            s if s == "-0.0" => "0.0".to_string(),
+            s => s,
+        };
+        let [soc, voltage, energy, current, power] = VARIABLES;
+        [
+            (soc, self.soc.to_string()),
+            (voltage, format!("{volts:.2}")),
+            (energy, format!("{kwh:.2}")),
+            (current, current_str),
+            (power, watts.to_string()),
+        ]
     }
 }
 
@@ -172,7 +186,17 @@ pub fn reading(frame: &[u8], layout: Layout) -> Reading {
     };
     let at = |i: usize| i + shift;
     let u32_at = |i: usize| u32::from_le_bytes([frame[i], frame[i + 1], frame[i + 2], frame[i + 3]]);
-    Reading { voltage_mv: u32_at(at(118)), soc: frame[at(141)], remaining_mah: u32_at(at(142)) }
+    let i32_at = |i: usize| i32::from_le_bytes([frame[i], frame[i + 1], frame[i + 2], frame[i + 3]]);
+    let current_ma = i32_at(at(126));
+    let power = (u32_at(at(122)) as i32).abs();
+    let power_mw = if current_ma < 0 { -power } else { power };
+    Reading {
+        voltage_mv: u32_at(at(118)),
+        soc: frame[at(141)],
+        remaining_mah: u32_at(at(142)),
+        current_ma,
+        power_mw,
+    }
 }
 
 /// A zero-padded ASCII field.
@@ -240,26 +264,64 @@ mod tests {
     #[test]
     fn reads_a_24_cell_unit() {
         let r = measured(&DEVICE_INFO_JK02_24S_V10, &CELL_INFO_JK02_24S_V10);
-        assert_eq!(r, Reading { voltage_mv: 78_735, soc: 85, remaining_mah: 42_804 });
+        assert_eq!(r, Reading { voltage_mv: 78_735, soc: 85, remaining_mah: 42_804, current_ma: 0, power_mw: 0 });
     }
 
     #[test]
     fn reads_a_32_cell_unit() {
         assert_eq!(
             measured(&DEVICE_INFO_JK02_32S_V11, &CELL_INFO_JK02_32S_V11),
-            Reading { voltage_mv: 51_689, soc: 52, remaining_mah: 1_043 }
+            Reading { voltage_mv: 51_689, soc: 52, remaining_mah: 1_043, current_ma: 0, power_mw: 0 }
         );
         assert_eq!(
             measured(&DEVICE_INFO_JK02_32S_V15, &CELL_INFO_JK02_32S_V15),
-            Reading { voltage_mv: 53_224, soc: 25, remaining_mah: 49_286 }
+            Reading {
+                voltage_mv: 53_224,
+                soc: 25,
+                remaining_mah: 49_286,
+                current_ma: 31_881,
+                power_mw: 1_696_842,
+            }
         );
     }
 
     #[test]
     fn values_read_like_a_dashboard() {
         let r = measured(&DEVICE_INFO_JK02_32S_V15, &CELL_INFO_JK02_32S_V15);
-        // 49.286 Ah at 53.224 V is 2.623 kWh.
-        assert_eq!(r.values(), [("bms_soc", "25".into()), ("bms_voltage", "53.22".into()), ("bms_energy", "2.62".into())]);
+        // 49.286 Ah at 53.224 V is 2.623 kWh; 31.881 A at 53.224 V is 1697 W.
+        assert_eq!(
+            r.values(),
+            [
+                ("bms_soc", "25".into()),
+                ("bms_voltage", "53.22".into()),
+                ("bms_energy", "2.62".into()),
+                ("bms_current", "31.9".into()),
+                ("bms_power", "1697".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn formats_negative_and_zero_current() {
+        let r = Reading {
+            voltage_mv: 50_000,
+            soc: 50,
+            remaining_mah: 20_000,
+            current_ma: -12_300,
+            power_mw: -615_000,
+        };
+        assert_eq!(r.values()[3], ("bms_current", "-12.3".into()));
+        assert_eq!(r.values()[4], ("bms_power", "-615".into()));
+
+        let r0 = Reading {
+            voltage_mv: 50_000,
+            soc: 50,
+            remaining_mah: 20_000,
+            current_ma: 0,
+            power_mw: 0,
+        };
+        assert_eq!(r0.values()[3], ("bms_current", "0.0".into()));
+        assert_eq!(r0.values()[4], ("bms_power", "0".into()));
     }
 
     fn found(name: &str, address: &str, rssi: i8, service: bool) -> Found {
