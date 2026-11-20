@@ -1,0 +1,9 @@
+[package]
+name = "autotext"
+version = "0.1.0"
+edition = "2021"
+description = "Text templates and automations for small devices"
+license = "MIT"
+publish = false
+
+[dependencies]
