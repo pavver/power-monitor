@@ -193,6 +193,8 @@ mod tests {
     #[test]
     fn an_unused_component_fails() {
         assert!(check_used("<div class=\"x\"></div>").is_err());
-        assert!(check_used("<button class=\"op-btn\"></button>").is_ok());
+        let all: String = COMPONENTS.iter().map(|(_, class)| format!("<i class=\"{class}\"></i>")).collect();
+        assert!(check_used(&all).is_ok());
+        assert!(check_used(&all.replacen(COMPONENTS[0].1, "x", 1)).is_err());
     }
 }

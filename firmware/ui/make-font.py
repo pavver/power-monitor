@@ -60,6 +60,9 @@ def main():
     rename(font)
     out = HERE / "operator-mono.woff"
     font.flavor = "woff"
+    # Same input, same bytes: fontTools would stamp the save time.
+    font.recalcTimestamp = False
+    font["head"].modified = font["head"].created
     font.save(out)
     print(f"{out.name}: {out.stat().st_size} bytes, {len(font.getGlyphOrder())} glyphs")
 
