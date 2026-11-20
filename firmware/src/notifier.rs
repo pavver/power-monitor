@@ -70,6 +70,8 @@ struct Notifier {
     /// (a test, an automation) and it is no longer the bottom one.
     seen_sent: u32,
     retry_at_ms: u64,
+    /// The panel says "waiting for Wi-Fi".
+    waiting: bool,
 }
 
 impl Notifier {
@@ -87,6 +89,7 @@ impl Notifier {
             outbox: Outbox::new(OUTBOX_CAPACITY),
             seen_sent: telegram::sent_count(),
             retry_at_ms: 0,
+            waiting: false,
         }
     }
 
@@ -165,14 +168,19 @@ impl Notifier {
     }
 
     /// The bot, when there is one, Wi-Fi is up and no retry is waited for.
-    fn ready(&self) -> Option<Bot> {
+    fn ready(&mut self) -> Option<Bot> {
         let Some(bot) = self.settings.bot() else {
             self.status.set_telegram("бот не налаштовано, повідомлення чекають");
             return None;
         };
         if !matches!(self.status.link(), Link::Connected { .. }) {
             self.status.set_telegram("чекає на Wi-Fi");
+            self.waiting = true;
             return None;
+        }
+        if std::mem::take(&mut self.waiting) {
+            // Otherwise "waiting for Wi-Fi" stays until the next message goes out.
+            self.status.set_telegram("на зв'язку");
         }
         (now_ms() >= self.retry_at_ms).then_some(bot)
     }
