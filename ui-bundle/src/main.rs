@@ -28,6 +28,7 @@ const ICONS: &[(&str, IconData)] = &[
     ("dropDown", icons::ARROW_DROP_DOWN),
     ("eye", icons::VISIBILITY),
     ("eyeOff", icons::VISIBILITY_OFF),
+    ("lock", icons::LOCK),
 ];
 
 const BEGIN: &str = "<!-- operator-ui:begin (ui-bundle writes this part, do not edit) -->";

@@ -893,7 +893,7 @@ dependencies = [
 [[package]]
 name = "operator-ui"
 version = "0.6.0"
-source = "git+https://github.com/pavver/operator-design-system?rev=e59d5b4#e59d5b4c52143b4200325ce0ddd15d09d13bf705"
+source = "git+https://github.com/pavver/operator-design-system?rev=2864a3d#2864a3dcfecd2d5462ea405b9f493d66945ecf6e"
 dependencies = [
  "gloo-timers",
  "js-sys",
@@ -908,7 +908,7 @@ dependencies = [
 [[package]]
 name = "operator-ui-tokens"
 version = "0.6.0"
-source = "git+https://github.com/pavver/operator-design-system?rev=e59d5b4#e59d5b4c52143b4200325ce0ddd15d09d13bf705"
+source = "git+https://github.com/pavver/operator-design-system?rev=2864a3d#2864a3dcfecd2d5462ea405b9f493d66945ecf6e"
 
 [[package]]
 name = "or_poisoned"
