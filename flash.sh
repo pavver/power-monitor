@@ -39,6 +39,9 @@ for tool in espflash ldproxy; do
   command -v "$tool" >/dev/null || { echo "Немає $tool — cargo install $tool --locked" >&2; exit 1; }
 done
 
+echo "==> Без локальних шляхів"
+"$ROOT/check-paths.sh"
+
 echo "==> Тести логіки (power-core)"
 (cd "$ROOT/power-core" && cargo test --quiet)
 

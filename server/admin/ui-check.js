@@ -1,6 +1,6 @@
 // Drives server/admin in headless Chromium against a fake JSON API.
-// Usage: node server/admin/ui-check.js <out-dir>
-const { chromium } = require(process.env.PLAYWRIGHT_CORE || "/tmp/claude-1000/-home-pavver-rust-esp/5bfd559e-822e-4e5e-941a-e07d256d5099/scratchpad/pw/node_modules/playwright-core");
+// Usage: PLAYWRIGHT_CORE=/path/to/playwright-core node server/admin/ui-check.js <out-dir>
+const { chromium } = require(process.env.PLAYWRIGHT_CORE || "playwright-core");
 const fs = require("fs");
 const path = require("path");
 
