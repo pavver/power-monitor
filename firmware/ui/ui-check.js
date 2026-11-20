@@ -655,7 +655,10 @@ async function run(scenario) {
 // pending while connecting, then flashes the icon, the label, and fades out.
 const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + result + "+icon", "+0.4s: " + result, "+1.8s: idle"];
 
-(async () => {
+// readme-shots.js takes the mock device from here.
+module.exports = { device, route, exe, BMS_READING };
+
+if (require.main === module) (async () => {
   await run({ name: "wrong", portal: true, password: "wrong", expect: { view: "s-wifi", states: timeline("error") } });
   // In the portal, success leads to the screen that sends the user home,
   // whose button closes the setup network.
