@@ -1,4 +1,4 @@
-# Only power-core and server go into the server image.
+# Only autotext, power-core and server go into the server image.
 **/target
 .git
 firmware

@@ -15,6 +15,7 @@ RUN apt-get update \
     && curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
     | tar -xz -C /usr/local/bin trunk
 WORKDIR /src
+COPY autotext autotext
 COPY power-core power-core
 COPY server server
 RUN cd server && cargo build --release --locked
