@@ -1,0 +1,16 @@
+[package]
+name = "ui-bundle"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Renders the Operator UI components the device page uses into plain HTML and CSS"
+
+# A host tool, not part of the firmware build.
+[workspace]
+
+[dependencies]
+leptos = { version = "0.8.22", features = ["ssr"] }
+any_spawner = { version = "0.3", features = ["futures-executor"] }
+operator-ui = { git = "https://github.com/pavver/operator-design-system", rev = "e59d5b4", default-features = false, features = [
+    "action-button",
+] }

@@ -331,11 +331,11 @@ async function runMessages() {
   await page.fill("#status-every", "120");
   await page.click("#status-bottom"); // toggles to false
   await page.click("#status-save");
-  await page.waitForFunction(() => document.getElementById("status-save").dataset.state === "ok", null, { timeout: 3000 });
+  await page.waitForFunction(() => document.getElementById("status-save").dataset.state === "success", null, { timeout: 3000 });
 
   // Test send button
   await page.click("#status-test");
-  await page.waitForFunction(() => document.getElementById("status-test").dataset.state === "ok", null, { timeout: 3000 });
+  await page.waitForFunction(() => document.getElementById("status-test").dataset.state === "success", null, { timeout: 3000 });
 
   // 2. Templates list renders standard templates
   await page.waitForSelector("#templates-list .item");
@@ -360,18 +360,18 @@ async function runMessages() {
 
   // Saving bad template shows error
   await page.click("#t-save");
-  await page.waitForFunction(() => document.getElementById("t-save").dataset.state === "err", null, { timeout: 3000 });
+  await page.waitForFunction(() => document.getElementById("t-save").dataset.state === "error", null, { timeout: 3000 });
   const badSaveMsg = await page.$eval("#t-msg", m => m.textContent);
 
   // 5. Template edit saves
   const validEdit = "Мережа є! {@update_time}";
   await page.fill("#t-area", validEdit);
   await page.click("#t-save");
-  await page.waitForFunction(() => document.getElementById("t-save").dataset.state === "ok", null, { timeout: 3000 });
+  await page.waitForFunction(() => document.getElementById("t-save").dataset.state === "success", null, { timeout: 3000 });
 
   // 6. Delete template that is in use shows device error
   await page.click("#t-delete");
-  await page.waitForFunction(() => document.getElementById("t-delete").dataset.state === "err", null, { timeout: 3000 });
+  await page.waitForFunction(() => document.getElementById("t-delete").dataset.state === "error", null, { timeout: 3000 });
   const deleteInUseMsg = await page.$eval("#t-msg", m => m.textContent);
 
   // Back to dashboard
@@ -547,12 +547,12 @@ async function run(scenario) {
   await page.screenshot({ path: OUT + "/" + scenario.name + "-0-picked.png" });
   await page.click("#join-btn");
   const states = [];
-  const sample = async label => states.push(label + ": " + await page.$eval("#join-btn", b => b.dataset.state + (b.dataset.flash !== undefined ? "+icon" : "")));
+  const sample = async label => states.push(label + ": " + await page.$eval("#join-btn", b => b.dataset.state + (b.querySelector(".op-btn-content .op-c-success, .op-btn-content .op-c-error") ? "+icon" : "")));
   await page.waitForTimeout(300); await sample("0.3s");
   await page.screenshot({ path: OUT + "/" + scenario.name + "-1-pending.png", clip: { x: 16, y: 280, width: 360, height: 140 } });
   await page.waitForTimeout(2000); await sample("2.3s");
   // The device answers at 3 s; the page polls every second.
-  await page.waitForFunction(() => ["ok", "err"].includes(document.getElementById("join-btn").dataset.state), null, { timeout: 5000 });
+  await page.waitForFunction(() => ["success", "error"].includes(document.getElementById("join-btn").dataset.state), null, { timeout: 5000 });
   await sample("result");
   await page.screenshot({ path: OUT + "/" + scenario.name + "-2-result.png" });
   await page.waitForTimeout(600); await sample("+0.6s");
@@ -563,7 +563,7 @@ async function run(scenario) {
   await page.screenshot({ path: OUT + "/" + scenario.name + "-3-after.png" });
   if (scenario.portal && view === "s-move") {
     await page.click("#close-btn");
-    await page.waitForFunction(() => document.getElementById("close-btn").dataset.state === "ok", null, { timeout: 3000 });
+    await page.waitForFunction(() => document.getElementById("close-btn").dataset.state === "success", null, { timeout: 3000 });
     await page.screenshot({ path: OUT + "/" + scenario.name + "-4-closing.png" });
   }
   await browser.close();
@@ -579,12 +579,12 @@ async function run(scenario) {
 const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + result + "+icon", "+0.6s: " + result, "+1.8s: idle"];
 
 (async () => {
-  await run({ name: "wrong", portal: true, password: "wrong", expect: { view: "s-wifi", states: timeline("err") } });
+  await run({ name: "wrong", portal: true, password: "wrong", expect: { view: "s-wifi", states: timeline("error") } });
   // In the portal, success leads to the screen that sends the user home,
   // whose button closes the setup network.
-  await run({ name: "portal", portal: true, password: "right", expect: { view: "s-move", states: timeline("ok"), closed: true } });
+  await run({ name: "portal", portal: true, password: "right", expect: { view: "s-move", states: timeline("success"), closed: true } });
   // From the home network (changing Wi-Fi later) it goes straight on.
-  await run({ name: "home", password: "right", expect: { view: "s-bot", states: timeline("ok") } });
+  await run({ name: "home", password: "right", expect: { view: "s-bot", states: timeline("success") } });
   await runBot();
   await runBms();
   await runMessages();

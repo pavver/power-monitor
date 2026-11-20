@@ -145,14 +145,16 @@ espup install          # створить ~/export-esp.sh
   абсолютних шляхів до домашніх і тимчасових тек у файлах репозиторію та `path`-залежностей Cargo поза
   репозиторієм. Дизайн-систему й інші сторонні крейти беремо з git, а не з сусідньої теки.
 - Схеми перемальовує `python3 hardware/build.py`.
-- Вигляд сторінки — дизайн-система [Operator UI](https://github.com/pavver/operator-design-system), перенесена вручну
-  в один HTML-файл без Leptos/WASM, щоб заощадити флеш. Звідти беруться кольори й розміри
-  ([tokens/tokens.toml](https://github.com/pavver/operator-design-system/blob/65712c5/tokens/tokens.toml)), правила станів
-  ([docs/foundations](https://github.com/pavver/operator-design-system/tree/65712c5/docs/foundations)), специфікації
-  компонентів ([docs/components](https://github.com/pavver/operator-design-system/tree/65712c5/docs/components)) та іконки
-  Material Symbols Sharp ([tokens/icons](https://github.com/pavver/operator-design-system/tree/65712c5/tokens/icons)).
-  Сторінка відповідає коміту `65712c5` (після v0.6.0); адмінка сервера (`server/src/admin.css`) —
-  старішій версії.
+- Вигляд сторінки — дизайн-система [Operator UI](https://github.com/pavver/operator-design-system).
+  Leptos/WASM на пристрій не влазить (≈390 КБ проти ≈340 КБ вільного місця в слоті прошивки), тому
+  `ui-bundle/` на комп'ютері рендерить потрібні компоненти Leptos у звичайний HTML: таблицю стилів
+  саме цих компонентів, їхню розмітку як `<template>`, іконки й таймінги анімацій. Усе це він вписує в
+  `firmware/ui/index.html` між маркерами `operator-ui:begin/end`, а скрипт сторінки дає розмітці поведінку
+  (як `core` дизайн-системи). Набір компонентів — список `COMPONENTS` у `ui-bundle/src/main.rs` і
+  features в `ui-bundle/Cargo.toml` (ревізія дизайн-системи там же); компонент, якого сторінка не
+  використовує, зупиняє збірку. Після зміни списку або ревізії: `cargo run --manifest-path ui-bundle/Cargo.toml`;
+  `flash.sh` і CI перевіряють, що бандл свіжий. Частина сторінки ще на старих ручних стилях і переходить
+  на компоненти поступово.
 - Шрифт сторінки — Cascadia Code, урізаний до латиниці, кирилиці, цифр і розділових знаків
   (≈26 КБ у прошивці). За ліцензією OFL змінену версію перейменовано на «Operator Mono». Після зміни
   тексту сторінки: `python3 firmware/ui/make-font.py` (скрипт зупиниться, якщо на сторінці є символ

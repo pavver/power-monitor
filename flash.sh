@@ -42,6 +42,9 @@ done
 echo "==> Без локальних шляхів"
 "$ROOT/check-paths.sh"
 
+echo "==> Operator UI на сторінці збігається з дизайн-системою (ui-bundle)"
+(cd "$ROOT/ui-bundle" && cargo test --quiet && cargo run --quiet -- --check)
+
 echo "==> Тести логіки (power-core)"
 (cd "$ROOT/power-core" && cargo test --quiet)
 

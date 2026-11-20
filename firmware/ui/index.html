@@ -26,7 +26,8 @@
   --rip-op:.24;
   --syn-var:#8CB4E0;--syn-sec:#E8A75A;--syn-esc:#E08C6A;
 }}
-/* Cascadia Code subset, renamed per its OFL licence (ui/make-font.py). */
+/* Cascadia Code subset, renamed per its OFL licence (ui/make-font.py); the design system asks for Cascadia. */
+body.op-root{--op-font:"Operator Mono","Cascadia Code","Cascadia Mono",ui-monospace,monospace}
 @font-face{font-family:"Operator Mono";src:url(/operator-mono.woff) format("woff");font-weight:400 700;font-display:swap}
 *{box-sizing:border-box;border-radius:0;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
@@ -74,7 +75,7 @@ button,input,textarea,select{font-family:inherit}
 .sec-head h2{margin:0;font-size:calc(var(--tu)*16);line-height:calc(var(--tu)*20)}
 .cond-row{display:flex;align-items:center;gap:calc(var(--du)*2)}
 .cond-row .field{flex:1}
-.cond-row .btn{min-width:calc(var(--du)*10);padding:0 calc(var(--du)*2)}
+.cond-row .op-btn{flex:none}
 .ic{width:calc(var(--du)*4);height:calc(var(--du)*4);fill:currentColor;flex:none;display:block}
 
 /* OperatorHeader */
@@ -147,29 +148,12 @@ dialog.ctl{position:fixed}
   border-top-color:transparent;animation:spin .9s linear infinite;flex:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* OperatorActionButton */
-.btn{min-height:calc(var(--du)*10);min-width:max-content;padding:0 calc(var(--du)*4);background:var(--surface);color:var(--text);
-  border:0;font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;cursor:pointer;text-align:center;
-  display:inline-flex;align-items:center;justify-content:center}
-.btn.pressed{background:var(--pressed)}
-.btn.pressed .sf .base{stroke:var(--border-strong)}
-.btn.danger{background:color-mix(in srgb,var(--error) 15%,var(--surface));color:var(--error)}
-.btn.danger.pressed{background:color-mix(in srgb,var(--error) 30%,var(--surface))}
-.btn .lbl{display:flex;align-items:center;justify-content:center;gap:calc(var(--du)*2)}
-.btn .over{position:absolute;z-index:1;left:50%;top:50%;transform:translate(-50%,-50%);display:none}
-.btn[data-state=pending]{cursor:default}
-.btn[data-state=pending] .lbl{animation:hide-label 0s linear .7s forwards}
-.btn[data-state=pending] .over.wait{display:block;opacity:0;animation:spin-fade .2s linear .7s forwards}
-.btn[data-flash] .lbl{visibility:hidden}
-.btn[data-flash][data-state=ok] .over.ok,.btn[data-flash][data-state=err] .over.err{display:block}
-@keyframes hide-label{to{visibility:hidden}}
-@keyframes spin-fade{to{opacity:1}}
 .actions{display:flex;flex-wrap:wrap;gap:calc(var(--du)*2);margin-top:calc(var(--du)*3)}
 /* Equal shares; a label that does not fit its share wraps the row instead. */
-.actions .btn{flex:1 1 0}
-.btn.wide{width:100%}
+.actions .op-btn{flex:1 1 0}
+.op-btn.wide{width:100%}
 .actions.grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr}
-.actions.grid .btn{min-width:0;padding:calc(var(--du)*2) calc(var(--du)*3)}
+.actions.grid .op-btn{min-width:0;padding:calc(var(--du)*2) calc(var(--du)*3)}
 
 /* OperatorTextField */
 label.cap{display:block;font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*15);color:var(--text-2);margin:calc(var(--du)*3) 0 calc(var(--du)*1)}
@@ -177,7 +161,7 @@ label.cap{display:block;font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*
 .field input{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;
   caret-color:var(--accent);padding:0 0 0 calc(var(--du)*3);outline:0}
 .field input::placeholder{color:var(--text-off)}
-.field .btn{min-height:0;max-width:calc(var(--du)*30)}
+.field .op-btn{max-width:calc(var(--du)*30)}
 .field .eye{width:calc(var(--du)*10);flex:none;border:0;background:none;color:var(--text-2);cursor:pointer;display:flex;align-items:center;justify-content:center}
 .field .eye:hover,.field .eye.act{color:var(--accent)}
 textarea.area{display:block;width:100%;min-height:calc(var(--du)*16);padding:calc(var(--du)*2.5) calc(var(--du)*3);resize:vertical;
@@ -304,8 +288,22 @@ dialog h2{font-size:calc(var(--tu)*18);line-height:calc(var(--tu)*24);font-weigh
 dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) solid var(--divider);padding-top:calc(var(--du)*3)}
 @keyframes show{from{opacity:0;transform:scale(.95)}}
 </style>
+<!-- operator-ui:begin (ui-bundle writes this part, do not edit) -->
+<style>:root{--op-du: 4.0px;--op-tu: 0.0625rem;--op-font: "Cascadia Code","Cascadia Mono",ui-monospace,monospace;--op-dim-border: calc(var(--op-du) * 0.25);--op-dim-border-thick: calc(var(--op-du) * 0.5);--op-dim-spinner-stroke: calc(var(--op-du) * 0.375);--op-dim-gap-micro: calc(var(--op-du) * 0.5);--op-dim-pad-tight: calc(var(--op-du) * 1);--op-dim-pad-small: calc(var(--op-du) * 1.5);--op-dim-gutter: calc(var(--op-du) * 2);--op-dim-pad-content: calc(var(--op-du) * 2.5);--op-dim-pad-card: calc(var(--op-du) * 3);--op-dim-margin-screen: calc(var(--op-du) * 4);--op-dim-section-gap: calc(var(--op-du) * 6);--op-dim-icon-small: calc(var(--op-du) * 4);--op-dim-icon-medium: calc(var(--op-du) * 4.5);--op-dim-icon-large: calc(var(--op-du) * 6);--op-dim-row-dense: calc(var(--op-du) * 6);--op-dim-row-compact: calc(var(--op-du) * 8);--op-dim-row-standard: calc(var(--op-du) * 10);--op-dim-row-control: calc(var(--op-du) * 12);--op-dim-row-two-line: calc(var(--op-du) * 13);--op-dim-row-avatar: calc(var(--op-du) * 14);--op-dim-avatar-small: calc(var(--op-du) * 6);--op-dim-avatar-default: calc(var(--op-du) * 8);--op-dim-avatar-header: calc(var(--op-du) * 10);--op-dim-bubble-min-width: calc(var(--op-du) * 30);--op-dim-bubble-max-width: calc(var(--op-du) * 105);--op-type-app-title-size: calc(var(--op-tu) * 20);--op-type-app-title-line: calc(var(--op-tu) * 26);--op-type-app-title-weight: 700;--op-type-screen-title-size: calc(var(--op-tu) * 18);--op-type-screen-title-line: calc(var(--op-tu) * 24);--op-type-screen-title-weight: 500;--op-type-section-title-size: calc(var(--op-tu) * 14);--op-type-section-title-line: calc(var(--op-tu) * 18);--op-type-section-title-weight: 500;--op-type-row-title-size: calc(var(--op-tu) * 15);--op-type-row-title-line: calc(var(--op-tu) * 20);--op-type-row-title-weight: 500;--op-type-body-size: calc(var(--op-tu) * 14);--op-type-body-line: calc(var(--op-tu) * 18);--op-type-body-weight: 400;--op-type-body-small-size: calc(var(--op-tu) * 13);--op-type-body-small-line: calc(var(--op-tu) * 16);--op-type-body-small-weight: 400;--op-type-caption-size: calc(var(--op-tu) * 12);--op-type-caption-line: calc(var(--op-tu) * 15);--op-type-caption-weight: 400;--op-type-console-size: calc(var(--op-tu) * 12);--op-type-console-line: calc(var(--op-tu) * 16);--op-type-console-weight: 400;--op-motion-state-color: 150ms;--op-motion-result-fade: 500ms;--op-motion-result-pulse-half: 400ms;--op-motion-result-hold: 800ms;--op-motion-local-flash-icon: 500ms;--op-motion-local-flash-tail: 300ms;--op-motion-pending-lap: 2000ms;--op-motion-spinner-lap: 900ms;--op-motion-pending-indicator-delay: 700ms;--op-motion-pending-indicator-fade: 200ms;--op-motion-segment-slide: 150ms;--op-motion-dialog-enter: 150ms;--op-motion-tooltip-hide-delay: 800ms;--op-motion-alarm-flash-half: 250ms;--op-motion-tooltip-show-delay: 500ms;--op-motion-long-press: 500ms;--op-motion-toast-duration: 4000ms;--op-motion-toast-error-duration: 8000ms;--op-motion-sheet-slide: 200ms;--op-motion-expand: 200ms;--op-motion-skeleton-lap: 1500ms;--op-motion-search-debounce: 300ms;--op-motion-overscroll-release: 300ms}[data-op-theme="operator"][data-op-mode="dark"]{color-scheme: dark;--op-background: #181818;--op-surface: #1F1F1F;--op-surface-alt: #141414;--op-border: #3A3A3A;--op-border-strong: #6E6E6E;--op-divider: #2B2B2B;--op-text-primary: #CCCCCC;--op-text-secondary: #9D9D9D;--op-text-disabled: #5A5A5A;--op-icon: #C5C5C5;--op-icon-secondary: #9D9D9D;--op-icon-disabled: #5A5A5A;--op-accent: #F0A53A;--op-accent-muted: #4A3820;--op-on-accent: #1A1205;--op-success: #8CBF6E;--op-warning: #DCC36A;--op-error: #E8664F;--op-info: #6FB3C8;--op-pending: #6FB3C8;--op-hover: #252525;--op-pressed: #2A2A2A;--op-selection: #3A2F1F;--op-ripple: #F0A53A;--op-disabled-surface: #1B1B1B;--op-disabled-border: #2A2A2A;--op-shadow: #000000;--op-status-online: #8CBF6E;--op-status-offline: #000000;--op-status-alarm: #E8664F;--op-status-error: #E8664F;--op-status-activity: #8CBF6E;--op-status-border: #4A4A4A;--op-status-fallback: #6E6E6E;--op-switch-checked-track: #26331F;--op-switch-unchecked-track: #3A221D;--op-switch-checked-thumb: #8CBF6E;--op-switch-unchecked-thumb: #E8664F;--op-toggle-day-sky: #3893C8;--op-toggle-night-sky: #1E2333;--op-toggle-sun: #F7CA31;--op-toggle-moon: #CAD5DE;--op-toggle-crater: #9EB0C2;--op-toggle-cloud: #FFFFFF;--op-toggle-cloud-back: #D9D9D9;--op-toggle-star: #FFFFFF;--op-term-background: #141414;--op-term-foreground: #CCCCCC;--op-term-black: #000000;--op-term-red: #CD3131;--op-term-green: #0DBC79;--op-term-yellow: #E5E510;--op-term-blue: #2472C8;--op-term-magenta: #BC3FBC;--op-term-cyan: #11A8CD;--op-term-white: #E5E5E5;--op-term-bright-black: #666666;--op-term-bright-red: #F14C4C;--op-term-bright-green: #23D18B;--op-term-bright-yellow: #F5F543;--op-term-bright-blue: #3B8EEA;--op-term-bright-magenta: #D670D6;--op-term-bright-cyan: #29B8DB;--op-term-bright-white: #E5E5E5;--op-syntax-keyword: #E8A75A;--op-syntax-string: #9DBF7A;--op-syntax-number: #C99BD8;--op-syntax-comment: #6E7681;--op-syntax-type: #6FB3C8;--op-syntax-function: #D8C27A;--op-syntax-constant: #E08C6A;--op-syntax-property: #8CB4E0;--op-syntax-meta: #A99BC9;--op-syntax-punctuation: #9D9D9D}[data-op-theme="operator"][data-op-mode="light"]{color-scheme: light;--op-background: #F8F8F8;--op-surface: #FFFFFF;--op-surface-alt: #F0F0F0;--op-border: #D0D0D0;--op-border-strong: #767676;--op-divider: #E5E5E5;--op-text-primary: #3B3B3B;--op-text-secondary: #616161;--op-text-disabled: #A0A0A0;--op-icon: #424242;--op-icon-secondary: #616161;--op-icon-disabled: #A0A0A0;--op-accent: #A35C00;--op-accent-muted: #F5E6D0;--op-on-accent: #FFFFFF;--op-success: #477A2E;--op-warning: #8A6D00;--op-error: #B3361F;--op-info: #2C7489;--op-pending: #2C7489;--op-hover: #F4F4F4;--op-pressed: #EBEBEB;--op-selection: #F5E6D0;--op-ripple: #A35C00;--op-disabled-surface: #F3F3F3;--op-disabled-border: #E2E2E2;--op-shadow: #0000001F;--op-status-online: #477A2E;--op-status-offline: #000000;--op-status-alarm: #B3361F;--op-status-error: #B3361F;--op-status-activity: #477A2E;--op-status-border: #A0A0A0;--op-status-fallback: #A0A0A0;--op-switch-checked-track: #DCEBD3;--op-switch-unchecked-track: #F5D9D3;--op-switch-checked-thumb: #477A2E;--op-switch-unchecked-thumb: #B3361F;--op-toggle-day-sky: #3893C8;--op-toggle-night-sky: #1E2333;--op-toggle-sun: #F7CA31;--op-toggle-moon: #CAD5DE;--op-toggle-crater: #9EB0C2;--op-toggle-cloud: #FFFFFF;--op-toggle-cloud-back: #D9D9D9;--op-toggle-star: #FFFFFF;--op-term-background: #F0F0F0;--op-term-foreground: #3B3B3B;--op-term-black: #000000;--op-term-red: #CD3131;--op-term-green: #107C10;--op-term-yellow: #949800;--op-term-blue: #0451A5;--op-term-magenta: #BC05BC;--op-term-cyan: #0598BC;--op-term-white: #555555;--op-term-bright-black: #666666;--op-term-bright-red: #CD3131;--op-term-bright-green: #14CE14;--op-term-bright-yellow: #B5BA00;--op-term-bright-blue: #0451A5;--op-term-bright-magenta: #BC05BC;--op-term-bright-cyan: #0598BC;--op-term-bright-white: #A5A5A5;--op-syntax-keyword: #A35C00;--op-syntax-string: #477A2E;--op-syntax-number: #7A3E9D;--op-syntax-comment: #767676;--op-syntax-type: #2C7489;--op-syntax-function: #7A5C00;--op-syntax-constant: #A6461F;--op-syntax-property: #0451A5;--op-syntax-meta: #6A5A8C;--op-syntax-punctuation: #616161}.op-root{--op-ease-standard: cubic-bezier(0.4,0,0.2,1);--op-ease-smooth: cubic-bezier(0.45,0,0.55,1);--op-ripple-alpha: 24%;font-family: var(--op-font);font-size: var(--op-type-body-size);line-height: var(--op-type-body-line);color: var(--op-text-primary);background: var(--op-background);-webkit-font-smoothing: antialiased}.op-root[data-op-mode="light"]{--op-ripple-alpha: 16%}.op-root *,.op-root *::before,.op-root *::after{box-sizing: border-box}.op-root,.op-root *{scrollbar-width: thin;scrollbar-color: var(--op-border-strong) transparent}.op-root ::-webkit-scrollbar{width: var(--op-dim-pad-tight);height: var(--op-dim-pad-tight)}.op-root ::-webkit-scrollbar-thumb{background-color: var(--op-border-strong)}.op-root ::-webkit-scrollbar-track,.op-root ::-webkit-scrollbar-corner{background: transparent}:where(.op-root button){font: inherit;color: inherit;background: none;border: 0;margin: 0;padding: 0;text-align: inherit;cursor: pointer;-webkit-tap-highlight-color: transparent}:where(.op-root button[aria-disabled="true"]){cursor: default}:where(.op-root a.op-sb){text-decoration: none;cursor: pointer;-webkit-tap-highlight-color: transparent}:where(.op-root a.op-sb[aria-disabled="true"]){cursor: default}.op-root :focus-visible{outline: var(--op-dim-border-thick) solid var(--op-accent);outline-offset: var(--op-dim-gap-micro)}.op-t-app-title{font-size: var(--op-type-app-title-size);line-height: var(--op-type-app-title-line);font-weight: var(--op-type-app-title-weight)}.op-t-screen-title{font-size: var(--op-type-screen-title-size);line-height: var(--op-type-screen-title-line);font-weight: var(--op-type-screen-title-weight)}.op-t-section-title{font-size: var(--op-type-section-title-size);line-height: var(--op-type-section-title-line);font-weight: var(--op-type-section-title-weight)}.op-t-row-title{font-size: var(--op-type-row-title-size);line-height: var(--op-type-row-title-line);font-weight: var(--op-type-row-title-weight)}.op-t-body{font-size: var(--op-type-body-size);line-height: var(--op-type-body-line);font-weight: var(--op-type-body-weight)}.op-t-body-small{font-size: var(--op-type-body-small-size);line-height: var(--op-type-body-small-line);font-weight: var(--op-type-body-small-weight)}.op-t-caption{font-size: var(--op-type-caption-size);line-height: var(--op-type-caption-line);font-weight: var(--op-type-caption-weight)}.op-t-console{font-size: var(--op-type-console-size);line-height: var(--op-type-console-line);font-weight: var(--op-type-console-weight)}[data-tone="info"]{--tone: var(--op-info)}[data-tone="success"]{--tone: var(--op-success)}[data-tone="warning"]{--tone: var(--op-warning)}[data-tone="error"]{--tone: var(--op-error)}@keyframes op-fade-in{from{opacity: 0}}@media (prefers-reduced-motion: reduce){.op-root *,.op-root *::before,.op-root *::after{animation-duration: 1ms !important;animation-iteration-count: 1 !important;transition-duration: 1ms !important}.op-root .op-spinner,.op-root .op-run rect{animation-duration: 2s !important;animation-iteration-count: infinite !important}}html[data-op-scroll-lock]{overflow: hidden}html[data-op-scroll-lock="gutter"]{scrollbar-gutter: stable}.op-overlay-host{position: fixed;inset: 0;z-index: 1000;pointer-events: none}.op-overlay-host>*{pointer-events: none}.op-icon{display: block;flex: none;fill: currentColor}.op-spinner{display: block;flex: none;animation: op-spin var(--op-motion-spinner-lap) linear infinite}.op-spinner circle{fill: none;stroke-linecap: round;stroke-dasharray: 75 25}@keyframes op-spin{to{transform: rotate(360deg)}}.op-pending-indicator{display: inline-flex;flex: none;animation: op-fade-in var(--op-motion-pending-indicator-fade) linear both}.op-c-success{color: var(--op-success);display: inline-flex}.op-c-error{color: var(--op-error);display: inline-flex}.op-stack{display: inline-grid;place-items: center}.op-stack>*{grid-area: 1 / 1}.op-ghost{visibility: hidden}.op-divider{width: 100%;height: var(--op-dim-border);background: var(--op-divider);flex: none}.op-card{background: var(--op-surface);box-shadow: inset 0 0 0 var(--op-dim-border) var(--op-border);padding: var(--op-dim-pad-card)}.op-card-alt{background: var(--op-surface-alt)}.op-tone{display: inline-flex;color: var(--tone-base,currentColor);transition: color var(--op-motion-state-color) var(--op-ease-standard)}.op-tone[data-state="success"]{color: var(--op-success);transition-duration: 0s}.op-tone[data-state="error"]{color: var(--op-error);transition-duration: 0s}.op-tone[data-fading]{transition-duration: var(--op-motion-result-fade);transition-timing-function: var(--op-ease-smooth)}.op-sb{--sb-w: var(--op-dim-border);--sb-base: var(--op-border);--sb-base-w: var(--sb-w);--sb-status: transparent;position: relative;isolation: isolate;box-shadow: inset 0 0 0 var(--sb-base-w) var(--sb-base);transition: box-shadow var(--op-motion-state-color) var(--op-ease-standard),background-color var(--op-motion-state-color) var(--op-ease-standard),color var(--op-motion-state-color) var(--op-ease-standard)}.op-sb[data-state="pressed"]{--sb-base: var(--op-border-strong)}.op-sb[data-state="disabled"]{--sb-base: var(--op-disabled-border)}.op-sb[data-state="focused"],.op-sb[data-state="selected"]{--sb-base: var(--op-accent);--sb-base-w: calc(var(--sb-w) * 1.5)}.op-sb[data-result="success"]{--sb-status: var(--op-success)}.op-sb[data-result="error"]{--sb-status: var(--op-error)}.op-sb[data-state="success"],.op-sb[data-state="error"]{transition-duration: 0s}.op-sb[data-fading]{transition-duration: var(--op-motion-result-fade);transition-timing-function: var(--op-ease-smooth)}.op-sb::after{content: "";position: absolute;inset: 0;z-index: 3;border-radius: inherit;pointer-events: none;border: calc(var(--sb-w) * 2) solid var(--sb-status);opacity: 0;transition: opacity var(--op-motion-result-fade) var(--op-ease-smooth);animation: op-pulse var(--op-motion-result-pulse-half) var(--op-ease-standard) infinite alternate}.op-sb-bg::before{content: "";position: absolute;inset: 0;z-index: -1;border-radius: inherit;pointer-events: none;background: color-mix(in srgb,var(--sb-status) 15%,transparent);opacity: 0;transition: opacity var(--op-motion-result-fade) var(--op-ease-smooth)}.op-sb[data-state="success"]::after,.op-sb[data-state="error"]::after,.op-sb-bg[data-state="success"]::before,.op-sb-bg[data-state="error"]::before{opacity: 1;transition: none}@keyframes op-pulse{from{border-color: color-mix(in srgb,var(--sb-status) 55%,transparent)}to{border-color: var(--sb-status)}}.op-run{position: absolute;inset: 0;width: 100%;height: 100%;overflow: visible;pointer-events: none;z-index: 3;display: none}.op-sb[data-state="pending"]>.op-run{display: block}.op-run rect{x: calc(var(--sb-w) / 2);y: calc(var(--sb-w) / 2);width: calc(100% - var(--sb-w));height: calc(100% - var(--sb-w));rx: var(--sb-rx,0);fill: none;stroke: var(--op-pending);stroke-width: calc(var(--sb-w) * 1.5);stroke-dasharray: 25 75;animation: op-run var(--op-motion-pending-lap) linear infinite}@keyframes op-run{to{stroke-dashoffset: -100}}.op-rippled{position: relative;overflow: hidden}.op-ripple{position: absolute;z-index: 1;border-radius: 50%;pointer-events: none;background: color-mix(in srgb,var(--op-ripple) var(--op-ripple-alpha),transparent);transform: scale(0);animation: op-ripple 330ms var(--op-ease-standard) forwards;transition: opacity 220ms var(--op-ease-standard)}@keyframes op-ripple{to{transform: scale(1)}}.op-ripple[data-out]{opacity: 0}.op-btn{--bg: var(--op-surface);--fg: var(--op-text-primary);--ic: var(--op-icon);display: inline-flex;align-items: center;justify-content: center;height: var(--op-dim-row-standard);padding: 0 var(--op-dim-margin-screen);background-color: var(--bg);color: var(--fg);font-size: var(--op-type-body-size);line-height: var(--op-type-body-line);font-weight: 500;text-align: center}.op-btn[data-state="pressed"]{--bg: var(--op-pressed)}.op-btn[data-state="selected"]{--bg: var(--op-selection)}.op-btn.op-danger{--bg: color-mix(in srgb,var(--op-error) 15%,transparent);--fg: var(--op-error);--ic: var(--op-error)}.op-btn.op-danger[data-state="pressed"]{--bg: color-mix(in srgb,var(--op-error) 30%,transparent)}.op-btn[data-state="success"]{--fg: var(--op-success);--ic: var(--op-success)}.op-btn[data-state="error"]{--fg: var(--op-error);--ic: var(--op-error)}.op-btn[data-state="disabled"]{--bg: var(--op-disabled-surface);--fg: var(--op-text-disabled);--ic: var(--op-icon-disabled)}.op-btn-content{display: inline-flex;align-items: center;justify-content: center}.op-btn-label{display: inline-flex;align-items: center;justify-content: center;gap: var(--op-dim-gutter)}.op-btn-icon{display: inline-flex;color: var(--ic);transition: inherit}@media (hover: hover){.op-sb[data-state="idle"]:hover,.op-checkbox:hover>.op-checkbox-box[data-state="idle"],.op-radio:hover>.op-radio-box[data-state="idle"]{--sb-base: var(--op-border-strong)}.op-btn[data-state="idle"]:hover{--bg: var(--op-hover)}.op-btn.op-danger[data-state="idle"]:hover{--bg: color-mix(in srgb,var(--op-error) 22%,transparent)}.op-icon-btn[data-state="idle"]:hover{--bg: var(--op-hover)}.op-group-tile[data-state="idle"]:not([data-checked]):hover{background-color: var(--op-hover)}.op-group-tile[data-state="idle"][data-checked]:hover{background-color: color-mix(in srgb,var(--op-accent) 22%,transparent)}.op-checkbox:hover>.op-checkbox-box[data-state="idle"],.op-radio:hover>.op-radio-box[data-state="idle"]{background-color: var(--op-hover)}.op-dropdown-trigger[data-state="idle"]:hover{background-color: var(--op-hover)}.op-dropdown-item:not([aria-selected="true"]):hover{background-color: var(--op-hover)}.op-seg-item[data-tone="idle"]:not([data-pressed]):hover{background-color: var(--op-hover)}.op-stepper-btn:not([data-pressed]):not([data-muted]):hover{background-color: var(--op-hover)}.op-list-row[role="button"][data-bg="idle"]:hover{background-color: var(--op-hover)}.op-chip[data-state="idle"]:not([data-selected]):hover{background-color: var(--op-hover)}.op-chip[data-state="idle"][data-selected]:hover{background-color: color-mix(in srgb,var(--op-accent) 22%,var(--op-surface))}.op-page[data-state="idle"]:hover{background-color: var(--op-hover)}.op-field[data-state="idle"]:hover,.op-textarea[data-state="idle"]:hover{--sb-base: var(--op-border-strong)}.op-tab:not([data-active]):hover{background: linear-gradient(var(--op-hover),var(--op-hover)) top / 100% calc(100% - var(--tab-baseline,0px)) no-repeat}.op-tabs[data-variant="folder"] .op-tab{--tab-baseline: var(--op-dim-border-thick)}.op-tabs[data-variant="line"] .op-tab{--tab-baseline: var(--op-dim-border)}}@media (hover: hover){.op-banner-actions .op-btn:not(.op-danger)[data-state="idle"]:hover{--bg: color-mix(in srgb,var(--tone) 12%,transparent);--sb-base: var(--tone)}}</style>
+<template id="op-action-button"><button type="button" data-state="idle" data-result="success" class="op-sb op-sb-bg op-rippled op-btn" style=";"><span class="op-stack"><span aria-hidden="true" class="op-ghost"><span class="op-btn-label"><span>-</span></span></span><span class="op-btn-content"><span class="op-btn-label"><span>-</span></span></span></span><svg aria-hidden="true" class="op-run"><rect pathLength="100"></rect></svg></button></template>
+<template id="op-pending"><span class="op-pending-indicator"><svg role="progressbar" aria-label="Loading" viewBox="0 0 16 16" class="op-spinner" style="width:calc(var(--op-du) * 4);height:calc(var(--op-du) * 4);"><circle cx="8" cy="8" r="7.25" pathLength="100" stroke="var(--op-pending)" stroke-width="1.5"></circle></svg></span></template>
+<template id="op-action-button-danger"><button type="button" data-state="idle" data-result="success" class="op-sb op-sb-bg op-rippled op-btn  op-danger" style=";"><span class="op-stack"><span aria-hidden="true" class="op-ghost"><span class="op-btn-label"><span>-</span></span></span><span class="op-btn-content"><span class="op-btn-label"><span>-</span></span></span></span><svg aria-hidden="true" class="op-run"><rect pathLength="100"></rect></svg></button></template>
+<script>const OP={icons:{add:"M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z",back:"m330-444 201 201-51 51-288-288 288-288 51 51-201 201h438v72H330Z",check:"M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z",chevronRight:"M522-480 333-669l51-51 240 240-240 240-51-51 189-189Z",close:"m291-240-51-51 189-189-189-189 51-51 189 189 189-189 51 51-189 189 189 189-51 51-189-189-189 189Z",dropDown:"M480-384 288-576h384L480-384Z",eye:"M480-312q70 0 119-49t49-119q0-70-49-119t-119-49q-70 0-119 49t-49 119q0 70 49 119t119 49Zm0-72q-40 0-68-28t-28-68q0-40 28-68t68-28q40 0 68 28t28 68q0 40-28 68t-68 28Zm0 192q-142.6 0-259.8-78.5Q103-349 48-480q55-131 172.2-209.5Q337.4-768 480-768q142.6 0 259.8 78.5Q857-611 912-480q-55 131-172.2 209.5Q622.6-192 480-192Zm0-288Zm0 216q112 0 207-58t146-158q-51-100-146-158t-207-58q-112 0-207 58T127-480q51 100 146 158t207 58Z",eyeOff:"m637-425-62-62q4-38-23-65.5T487-576l-62-62q13-5 27-7.5t28-2.5q70 0 119 49t49 119q0 14-2.5 28t-8.5 27Zm133 133-52-52q36-28 65.5-61.5T833-480q-49-101-144.5-158.5T480-696q-26 0-51 3t-49 10l-58-58q38-15 77.5-21t80.5-6q143 0 261.5 77.5T912-480q-22 57-58.5 103.5T770-292Zm-2 202L638-220q-38 14-77.5 21t-80.5 7q-143 0-261.5-77.5T48-480q22-57 58-104t84-85L90-769l51-51 678 679-51 51ZM241-617q-35 28-65 61.5T127-480q49 101 144.5 158.5T480-264q26 0 51-3.5t50-9.5l-45-45q-14 5-28 7.5t-28 2.5q-70 0-119-49t-49-119q0-14 3.5-28t6.5-28l-81-81Zm287 89Zm-96 96Z"},motion:{resultFade:500,resultHold:800,flashIcon:500,flashTail:300,pendingDelay:700,rippleGrow:330,rippleFade:220}};</script>
+<!-- operator-ui:end -->
 </head>
-<body>
+<body class="op-root" data-op-theme="operator">
+<script>
+// Operator UI picks light or dark by data-op-mode; the page follows the system.
+const darkScheme = matchMedia("(prefers-color-scheme: dark)");
+const followScheme = () => { document.body.dataset.opMode = darkScheme.matches ? "dark" : "light"; };
+followScheme();
+darkScheme.addEventListener("change", followScheme);
+</script>
 <header>
   <button class="back hidden" id="back" type="button" aria-label="Назад" data-go="dashboard"></button>
   <div class="head">
@@ -459,14 +457,14 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
 
     <div class="sec-head">
       <h2>Шаблони</h2>
-      <button class="btn" type="button" id="tmpl-add"><span class="lbl"><svg class="ic" viewBox="0 -960 960 960" aria-hidden="true"><path d="M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z"/></svg>Додати</span></button>
+      <button class="btn" type="button" id="tmpl-add" data-icon="add">Додати</button>
     </div>
     <p class="small muted">Текстові блоки, що використовуються в повідомленнях.</p>
     <div class="list" id="templates-list"></div>
 
     <div class="sec-head">
       <h2>Автоматизації</h2>
-      <button class="btn" type="button" id="auto-add"><span class="lbl"><svg class="ic" viewBox="0 -960 960 960" aria-hidden="true"><path d="M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z"/></svg>Додати</span></button>
+      <button class="btn" type="button" id="auto-add" data-icon="add">Додати</button>
     </div>
     <p class="small muted">Реакції на події: надсилання повідомлень або оновлення статусу.</p>
     <div class="list" id="automations-list"></div>
@@ -628,7 +626,7 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
 
     <label class="cap">Якщо (умови)</label>
     <div id="a-conditions" style="display:flex;flex-direction:column;gap:calc(var(--du)*2);margin-bottom:calc(var(--du)*2)"></div>
-    <button class="btn" type="button" id="a-cond-add"><span class="lbl"><svg class="ic" viewBox="0 -960 960 960" aria-hidden="true"><path d="M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z"/></svg>Додати умову</span></button>
+    <button class="btn" type="button" id="a-cond-add" data-icon="add">Додати умову</button>
 
     <label class="cap" for="a-do" style="margin-top:calc(var(--du)*3)">Дія</label>
     <div class="field" data-field id="a-do-field">
@@ -738,16 +736,11 @@ function el(tag, attrs, ...children) {
 }
 
 /* ---------- OperatorIcons (Material Sharp paths, 960×960) ---------- */
+// From the design system (OP.icons, written by ui-bundle), plus the one it lacks yet.
 const ICONS = {
-  add: "M444-444H240v-72h204v-204h72v204h204v72H516v204h-72v-204Z",
-  dropDown: "M480-384 288-576h384L480-384Z",
-  chevronRight: "M522-480 333-669l51-51 240 240-240 240-51-51 189-189Z",
-  check: "M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z",
-  close: "m291-240-51-51 189-189-189-189 51-51 189 189 189-189 51 51-189 189 189 189-51 51-189-189-189 189Z",
-  back: "m330-444 201 201-51 51-288-288 288-288 51 51-201 201h438v72H330Z",
+  ...OP.icons,
+  // Not in operator-ui-tokens yet: Material Symbols Sharp "lock".
   lock: "M160-80v-560h120v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h120v560H160Zm320-200q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80Z",
-  eye: "M480-312q70 0 119-49t49-119q0-70-49-119t-119-49q-70 0-119 49t-49 119q0 70 49 119t119 49Zm0-72q-40 0-68-28t-28-68q0-40 28-68t68-28q40 0 68 28t28 68q0 40-28 68t-68 28Zm0 192q-142.6 0-259.8-78.5Q103-349 48-480q55-131 172.2-209.5Q337.4-768 480-768q142.6 0 259.8 78.5Q857-611 912-480q-55 131-172.2 209.5Q622.6-192 480-192Zm0-288Zm0 216q112 0 207-58t146-158q-51-100-146-158t-207-58q-112 0-207 58T127-480q51 100 146 158t207 58Z",
-  eyeOff: "m637-425-62-62q4-38-23-65.5T487-576l-62-62q13-5 27-7.5t28-2.5q70 0 119 49t49 119q0 14-2.5 28t-8.5 27Zm133 133-52-52q36-28 65.5-61.5T833-480q-49-101-144.5-158.5T480-696q-26 0-51 3t-49 10l-58-58q38-15 77.5-21t80.5-6q143 0 261.5 77.5T912-480q-22 57-58.5 103.5T770-292Zm-2 202L638-220q-38 14-77.5 21t-80.5 7q-143 0-261.5-77.5T48-480q22-57 58-104t84-85L90-769l51-51 678 679-51 51ZM241-617q-35 28-65 61.5T127-480q49 101 144.5 158.5T480-264q26 0 51-3.5t50-9.5l-45-45q-14 5-28 7.5t-28 2.5q-70 0-119-49t-49-119q0-14 3.5-28t6.5-28l-81-81Zm287 89Zm-96 96Z",
 };
 const SVG = "http://www.w3.org/2000/svg";
 function icon(name) {
@@ -839,41 +832,137 @@ function ripple(node) {
   });
 }
 
-/* ---------- OperatorActionButton ----------
-   Pending: label hidden (it keeps the width), spinner, running border.
-   Result: 0.5 s icon, 0.3 s label in the result colour, then 0.5 s fade. */
+/* ---------- Operator UI behaviour ----------
+   Markup, CSS, icons and timings come from the design system (the
+   operator-ui bundle in <head>); this is its core/mod.rs in script. */
+function opTemplate(name) { return document.getElementById("op-" + name).content.firstElementChild.cloneNode(true); }
+
+/* use_state_visual: data-state, the last result kept in data-result for
+   the exit fade, data-fading while it runs. "ok"/"err" are accepted. */
+class OpVisual {
+  constructor(node) { this.node = node; this.state = node.dataset.state || "idle"; }
+  set(next) {
+    next = {ok: "success", err: "error"}[next] || next;
+    const was = this.state, node = this.node;
+    if (next === was) return;
+    this.state = next;
+    clearTimeout(this.fade);
+    if (next === "success" || next === "error") {
+      node.dataset.result = next;
+      delete node.dataset.fading;
+    } else if (was === "success" || was === "error") {
+      node.dataset.fading = "";
+      this.fade = setTimeout(() => delete node.dataset.fading, OP.motion.resultFade);
+    }
+    node.dataset.state = next;
+  }
+}
+
+/* spawn_ripple + hold_ripple: grows from the touch point, fades after both
+   the growth and the release. */
+function opRipple(e) {
+  const host = e.currentTarget, box = host.getBoundingClientRect();
+  const x = e.clientX - box.left, y = e.clientY - box.top;
+  const r = Math.max(1, Math.hypot(Math.max(box.width, x), Math.max(box.height, y)));
+  const dot = el("span", {class: "op-ripple"});
+  Object.assign(dot.style, {left: x - r + "px", top: y - r + "px", width: 2 * r + "px", height: 2 * r + "px"});
+  host.append(dot);
+  let flags = 0;
+  const finish = flag => {
+    flags |= flag;
+    if (flags === 3) { dot.dataset.out = ""; setTimeout(() => dot.remove(), OP.motion.rippleFade); }
+  };
+  setTimeout(() => finish(1), OP.motion.rippleGrow);
+  const release = () => { removeEventListener("pointerup", release); removeEventListener("pointercancel", release); finish(2); };
+  addEventListener("pointerup", release);
+  addEventListener("pointercancel", release);
+}
+
+/* Pressed while held, Disabled while the native disabled attribute is set. */
+function opPressable(node, visual, active) {
+  node.addEventListener("pointerdown", e => {
+    if (!active()) return;
+    if (visual.state === "idle") visual.set("pressed");
+    opRipple(e);
+  });
+  for (const t of ["pointerup", "pointerleave", "pointercancel"]) node.addEventListener(t, () => { if (visual.state === "pressed") visual.set("idle"); });
+  const sync = () => {
+    if (node.disabled) visual.set("disabled");
+    else if (visual.state === "disabled") visual.set("idle");
+  };
+  new MutationObserver(sync).observe(node, {attributes: true, attributeFilter: ["disabled"]});
+  sync();
+}
+
+function opIcon(name, du = 4) {
+  const svg = icon(name);
+  svg.setAttribute("class", "op-icon");
+  svg.style.width = svg.style.height = `calc(var(--op-du) * ${du})`;
+  return svg;
+}
+
+/* ActionButton markup on an existing <button class="btn [danger]" [data-icon]>:
+   the node keeps its id and handlers. */
+function opButton(node) {
+  if (node.classList.contains("op-btn")) return node._op;
+  const danger = node.classList.contains("danger");
+  const tpl = opTemplate(danger ? "action-button-danger" : "action-button");
+  const text = node.textContent.trim(), name = node.dataset.icon;
+  const extra = [...node.classList].filter(c => c !== "btn" && c !== "danger");
+  node.className = [tpl.className, ...extra].join(" ");
+  node.dataset.state = "idle";
+  node.replaceChildren(...tpl.childNodes);
+  const label = () => {
+    const l = el("span", {class: "op-btn-label"});
+    if (name) l.append(el("span", {class: "op-btn-icon"}, opIcon(name)));
+    l.append(el("span", {}, text));
+    return l;
+  };
+  node.querySelector(".op-ghost").replaceChildren(label());
+  const content = node.querySelector(".op-btn-content");
+  content.replaceChildren(label());
+  const visual = new OpVisual(node);
+  node._op = {visual, content, label};
+  opPressable(node, visual, () => !node.disabled && visual.state !== "pending" && !node.hasAttribute("aria-busy"));
+  return node._op;
+}
+
+/* OperatorActionButton: Pending (running border, spinner after the delay),
+   the result icon, its tail, then Idle. */
 function actionButton(node, work, options = {}) {
-  const label = el("span", {class: "lbl"});
-  label.append(...node.childNodes);
-  const control = new Control(node);
-  node.append(label,
-    el("span", {class: "over wait"}, el("span", {class: "spin"})),
-    el("span", {class: "over ok"}, icon("check")),
-    el("span", {class: "over err"}, icon("close")));
-  if (options.ring === false) node.classList.add("noring");
-  let run = 0;
+  const {visual, content, label} = opButton(node);
+  // show_pending_border = false: the border stays as it is while pending.
+  const pendingLook = options.ring === false ? "idle" : "pending";
+  let run = 0, busy = false;
+  const control = {get state() { return visual.state; }, set: s => visual.set(s)};
   control.run = async () => {
-    if (control.state === "pending" || node.disabled) return;
-    if (options.danger && control.state !== "idle") return;
+    if (busy || node.disabled) return;
+    if (options.danger && visual.state !== "idle" && visual.state !== "pressed") return;
     const id = ++run;
-    control.set("pending");
+    busy = true;
+    visual.set(pendingLook);
+    node.setAttribute("aria-busy", "true");
     options.frame?.set("pending");
+    const slow = setTimeout(() => content.replaceChildren(opTemplate("pending")), OP.motion.pendingDelay);
     let ok = true;
     try { await work(); } catch (err) {
       ok = false;
       if (options.msg) say(options.msg, err.message, "err");
     }
+    clearTimeout(slow);
+    busy = false;
+    node.removeAttribute("aria-busy");
     if (id !== run) return;
-    control.set(ok ? "ok" : "err");
+    visual.set(ok ? "success" : "error");
     options.frame?.set(ok ? "ok" : "err");
-    node.dataset.flash = "";
+    content.replaceChildren(el("span", {class: ok ? "op-c-success" : "op-c-error"}, opIcon(ok ? "check" : "close")));
     const holdIcon = ok && options.keepIcon;
-    await sleep(holdIcon ? 800 : 500);
+    await sleep(holdIcon ? OP.motion.resultHold : OP.motion.flashIcon);
     if (id !== run) return;
-    delete node.dataset.flash;
-    if (!holdIcon) await sleep(300);
+    content.replaceChildren(label());
+    if (!holdIcon) await sleep(OP.motion.flashTail);
     if (id !== run) return;
-    control.set("idle");
+    visual.set("idle");
     options.frame?.set("idle");
     options.after?.(ok);
   };
@@ -1680,8 +1769,8 @@ function addCondition(val = "") {
   const input = el("input", {value: val, placeholder: "mains=off", spellcheck: "false"});
   f.append(input);
   textField(f);
-  const del = el("button", {type: "button", class: "btn", "aria-label": "Прибрати умову"}, icon("close"));
-  new Control(del);
+  const del = el("button", {type: "button", class: "btn", "aria-label": "Прибрати умову", "data-icon": "close"});
+  opButton(del);
   del.onclick = () => row.remove();
   row.append(f, del);
   $("a-conditions").append(row);
@@ -2063,8 +2152,8 @@ actionButton($("ota-btn"), async () => {
   setTimeout(() => location.reload(), 12000);
 }, {msg: "ota-msg"});
 
-// Plain buttons get the same frame, ripple and Pressed state as action buttons.
-document.querySelectorAll(".btn:not(.ctl)").forEach(node => new Control(node));
+// Plain buttons: ActionButton markup and states, without an async action.
+document.querySelectorAll(".btn").forEach(opButton);
 
 refreshState();
 setInterval(() => { if (!joining) refreshState(); }, 3000);
