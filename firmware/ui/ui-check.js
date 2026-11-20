@@ -555,8 +555,9 @@ async function run(scenario) {
   await page.waitForFunction(() => ["success", "error"].includes(document.getElementById("join-btn").dataset.state), null, { timeout: 5000 });
   await sample("result");
   await page.screenshot({ path: OUT + "/" + scenario.name + "-2-result.png" });
-  await page.waitForTimeout(600); await sample("+0.6s");
-  await page.waitForTimeout(1200); await sample("+1.8s");
+  // The result holds 800 ms (flash 500 + tail 300); the screenshot above takes some of it.
+  await page.waitForTimeout(400); states.push("+0.4s: " + await page.$eval("#join-btn", b => b.dataset.state)); // icon or label: either is right here
+  await page.waitForTimeout(1400); await sample("+1.8s");
   const view = await page.$eval("section.on", s => s.id);
   const font = await page.evaluate(() => document.fonts.check('14px "Operator Mono"') && [...document.fonts].some(f => f.family.includes("Operator Mono") && f.status === "loaded"));
   const msg = await page.$eval("#join-msg", m => m.textContent);
@@ -576,7 +577,7 @@ async function run(scenario) {
 
 // The button waits for the device's verdict, not for the request: it stays
 // pending while connecting, then flashes the icon, the label, and fades out.
-const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + result + "+icon", "+0.6s: " + result, "+1.8s: idle"];
+const timeline = result => ["0.3s: pending", "2.3s: pending", "result: " + result + "+icon", "+0.4s: " + result, "+1.8s: idle"];
 
 (async () => {
   await run({ name: "wrong", portal: true, password: "wrong", expect: { view: "s-wifi", states: timeline("error") } });

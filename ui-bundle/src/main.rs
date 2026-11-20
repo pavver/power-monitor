@@ -16,7 +16,7 @@ use operator_ui::tokens::{Icon as IconData, dim, icons, motion};
 /// Every component the page uses: its Cargo feature (in Cargo.toml) and a
 /// class only its markup has. A component the page does not use fails the
 /// build, so its CSS never reaches the flash.
-const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn")];
+const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field")];
 
 /// The icons the page draws, by the name its script uses.
 const ICONS: &[(&str, IconData)] = &[
@@ -41,6 +41,10 @@ fn templates() -> Vec<(&'static str, String)> {
             view! { <ActionButton text=Signal::stored("-".to_string()) on_click=no_op()/> }.to_html(),
         ),
         ("pending", view! { <PendingIndicator/> }.to_html()),
+        (
+            "text-field",
+            view! { <TextField value=RwSignal::new(String::new()) placeholder="" password=true show_reveal=true/> }.to_html(),
+        ),
         // Beside a 10 DU field (row_standard), not the default 8 DU.
         ("icon-button", view! { <IconButton icon=icons::CLOSE size=dim::ROW_STANDARD on_click=Callback::new(|()| ())/> }.to_html()),
         (

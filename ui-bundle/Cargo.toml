@@ -14,4 +14,5 @@ any_spawner = { version = "0.3", features = ["futures-executor"] }
 operator-ui = { git = "https://github.com/pavver/operator-design-system", rev = "e59d5b4", default-features = false, features = [
     "action-button",
     "icon-button",
+    "text-field",
 ] }
