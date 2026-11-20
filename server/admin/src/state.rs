@@ -10,11 +10,9 @@ use leptos::task::spawn_local;
 use operator_ui::prelude::Tone;
 
 use crate::api::{self, Reply};
-use crate::model::{opened_device, sort_devices, DeviceItem};
+use crate::model::{follows, opened_device, sort_devices, DeviceItem};
 use crate::panel;
 
-/// How long a screen switch made here wins over the screen the server reports.
-pub const LOCAL_VIEW_SETTLE_MS: f64 = 3000.0;
 pub const POLL_SLOW_MS: u32 = 5000;
 pub const POLL_FAST_MS: u32 = 2000;
 const BLANK: &str = "about:blank";
@@ -38,12 +36,14 @@ pub struct Admin {
     pub panel_online: RwSignal<bool>,
     pub iframe_src: RwSignal<String>,
     pub iframe_ref: NodeRef<html::Iframe>,
+    /// The panel's own screen.
     pub last_view: StoredValue<Option<String>>,
-    /// When this admin last switched the panel screen (ms since epoch). A
-    /// device list fetched before that switch reached the server still
-    /// carries the old screen, so for a short while the server's view is
-    /// not applied.
-    pub local_view_at: StoredValue<f64>,
+    /// The shared screen the server reported last: the panel follows only
+    /// when it changes.
+    pub server_view: StoredValue<Option<String>>,
+    /// Counts the panel's own screen switches: a list asked for before one
+    /// carries the screen from before it, so it is not followed.
+    pub local_moves: StoredValue<u32>,
 
     pub is_narrow: RwSignal<bool>,
     pub side_collapsed: RwSignal<bool>,
@@ -75,7 +75,8 @@ impl Admin {
             iframe_src: RwSignal::new(BLANK.to_string()),
             iframe_ref: NodeRef::new(),
             last_view: StoredValue::new(None),
-            local_view_at: StoredValue::new(0.0),
+            server_view: StoredValue::new(None),
+            local_moves: StoredValue::new(0),
             is_narrow: RwSignal::new(false),
             side_collapsed: RwSignal::new(false),
             password: RwSignal::new(String::new()),
@@ -235,6 +236,7 @@ impl Admin {
     }
 
     pub async fn refresh(self) {
+        let moves = self.local_moves.get_value();
         match api::get("/admin/api/devices").await {
             Reply::Ok(body) => {
                 let Ok(mut list) = serde_json::from_value::<Vec<DeviceItem>>(body) else {
@@ -249,7 +251,9 @@ impl Admin {
                     .get_untracked()
                     .and_then(|id| list.iter().find(|d| d.id == id))
                 {
-                    self.follow(device);
+                    if self.local_moves.get_value() == moves {
+                        self.follow(device);
+                    }
                 }
                 self.devices.set(list);
             }
@@ -270,8 +274,9 @@ impl Admin {
             return;
         }
         let Some(view) = &device.view else { return };
-        let settled = js_sys::Date::now() - self.local_view_at.get_value() > LOCAL_VIEW_SETTLE_MS;
-        if settled && self.last_view.get_value().as_deref() != Some(view.as_str()) {
+        let seen = self.server_view.get_value();
+        self.server_view.set_value(Some(view.clone()));
+        if follows(seen.as_deref(), self.last_view.get_value().as_deref(), view) {
             self.last_view.set_value(Some(view.clone()));
             if let Some(iframe) = self.iframe_ref.get_untracked() {
                 panel::show(&iframe, view);
@@ -291,6 +296,7 @@ impl Admin {
         self.collapse_if_narrow();
         self.close_panel();
         self.last_view.set_value(None);
+        self.server_view.set_value(None);
         spawn_local(async move {
             self.show_message(&id, None);
             match api::post(&format!("/admin/devices/{id}/open"), &[]).await {

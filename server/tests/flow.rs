@@ -710,8 +710,17 @@ async fn device_view_endpoint_validation_and_reset() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
-    // Valid views: login, wifi, move, bot, dashboard, bms
-    for v in ["login", "wifi", "move", "bot", "dashboard", "bms"] {
+    // The shared screens, settings and resources among them
+    for v in [
+        "login",
+        "wifi",
+        "move",
+        "bot",
+        "dashboard",
+        "bms",
+        "settings",
+        "system",
+    ] {
         let (status, _, _) = call(
             &app,
             browser(

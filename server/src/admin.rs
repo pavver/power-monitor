@@ -177,7 +177,18 @@ struct ViewForm {
     view: String,
 }
 
-const ALLOWED_VIEWS: [&str; 6] = ["login", "wifi", "move", "bot", "dashboard", "bms"];
+/// The panel screens admins share. The editors (text, automation) are left
+/// out: following one needs what is being edited, not just the screen.
+const SHARED_VIEWS: [&str; 8] = [
+    "login",
+    "wifi",
+    "move",
+    "bot",
+    "dashboard",
+    "bms",
+    "settings",
+    "system",
+];
 
 async fn set_view(
     State(app): State<App>,
@@ -188,7 +199,7 @@ async fn set_view(
     if !app.is_admin(&headers) {
         return login_first();
     }
-    if !ALLOWED_VIEWS.contains(&form.view.as_str()) {
+    if !SHARED_VIEWS.contains(&form.view.as_str()) {
         return StatusCode::BAD_REQUEST.into_response();
     }
     if !app.0.devices.lock().unwrap().contains_key(&id) {

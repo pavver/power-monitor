@@ -63,6 +63,7 @@ pub fn loaded(admin: Admin) {
         });
         if let Some(view) = view {
             let _ = original.call1(&window, &JsValue::from_str(&view));
+            admin.server_view.set_value(Some(view.clone()));
             admin.last_view.set_value(Some(view));
         }
     }
@@ -72,10 +73,16 @@ pub fn loaded(admin: Admin) {
         let _ = original.call1(&target, &arg);
         let Some(name) = arg.as_string() else { return };
         admin.last_view.set_value(Some(name.clone()));
-        admin.local_view_at.set_value(js_sys::Date::now());
+        admin.local_moves.update_value(|n| *n = n.wrapping_add(1));
         if let Some(id) = admin.selected_id.get_untracked() {
             spawn_local(async move {
-                let _ = api::post(&format!("/admin/devices/{id}/view"), &[("view", &name)]).await;
+                let reply =
+                    api::post(&format!("/admin/devices/{id}/view"), &[("view", &name)]).await;
+                // The server has it now: a list showing it is no news. A
+                // screen it does not share (an editor) is simply kept here.
+                if matches!(reply, api::Reply::Ok(_)) {
+                    admin.server_view.set_value(Some(name));
+                }
             });
         }
     }) as Box<dyn FnMut(JsValue)>);

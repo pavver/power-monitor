@@ -82,9 +82,29 @@ pub fn opened_device(search: &str) -> Option<String> {
         .map(|(_, value)| value.to_string())
 }
 
+/// Whether the open panel switches to `server`, the screen the server shares,
+/// given the shared screen seen before and the panel's own screen. Only a
+/// change on the server is another admin moving: a local screen the server
+/// does not share (an editor), or one not saved yet, is left alone.
+pub fn follows(seen: Option<&str>, local: Option<&str>, server: &str) -> bool {
+    seen != Some(server) && local != Some(server)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_panel_follows_only_a_change_on_the_server() {
+        // Another admin moved: follow.
+        assert!(follows(Some("dashboard"), Some("dashboard"), "bms"));
+        // The server still has what it had: stay, whatever the panel shows.
+        assert!(!follows(Some("dashboard"), Some("text"), "dashboard"));
+        // Our own move came back from the server: nothing to do.
+        assert!(!follows(Some("dashboard"), Some("system"), "system"));
+        // First look at a freshly opened panel that is elsewhere.
+        assert!(follows(None, Some("login"), "wifi"));
+    }
 
     fn device(id: &str, status: &str) -> DeviceItem {
         DeviceItem {

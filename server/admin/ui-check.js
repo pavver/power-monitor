@@ -5,6 +5,8 @@ const fs = require("fs");
 const path = require("path");
 
 const DIST = path.resolve(__dirname, "dist");
+// The screens the server shares between admins (server/src/admin.rs SHARED_VIEWS).
+const SHARED_VIEWS = ["login", "wifi", "move", "bot", "dashboard", "bms", "settings", "system"];
 const OUT = process.argv[2] || "/tmp/admin-screenshots";
 
 const exe = fs.readdirSync(path.join(process.env.HOME, ".cache/ms-playwright/chromium_headless_shell-1228"))
@@ -122,6 +124,7 @@ async function setupRoutes(page, state) {
     <button id="btn-wifi" onclick="show('wifi')">Wi-Fi</button>
     <button id="btn-dashboard" onclick="show('dashboard')">Панель</button>
     <button id="btn-bms" onclick="show('bms')">BMS</button>
+    <button id="btn-text" onclick="show('text')">Шаблон</button>
   </div>
   <script>
     window.recordedViews = ["login"];
@@ -233,9 +236,11 @@ async function setupRoutes(page, state) {
       const view = params.get("view");
       state.lastPostedView = { devId, view };
       state.viewPostCount++;
+      // Like the server: editors are not shared (they need what is being edited).
+      if (!SHARED_VIEWS.includes(view)) return route.fulfill({ status: 400, body: "" });
       const dev = state.devices.find(d => d.id === devId);
       if (dev) dev.view = view;
-      return route.fulfill({ status: 200, body: "ok" });
+      return json(200, {});
     }
 
     const endMatch = pathname.match(/^\/admin\/devices\/([^/]+)\/end$/);
@@ -457,6 +462,14 @@ async function run() {
     throw new Error(`Unexpected posted view: ${JSON.stringify(state.lastPostedView)}`);
   }
   console.log("View posted to server successfully:", state.lastPostedView);
+
+  console.log("8b. A screen the server does not share stays open...");
+  await frame.click("#btn-text");
+  await page.waitForTimeout(4500);
+  const keptView = await frame.$eval("#current-view", el => el.textContent);
+  if (keptView !== "text") {
+    throw new Error(`The panel was sent from 'text' back to '${keptView}'`);
+  }
 
   console.log("9. Testing view sync: Server to Admin without echo (server switches to 'bms')...");
   state.lastPostedView = null;
