@@ -30,6 +30,9 @@ struct CheckInForm {
     name: String,
     #[serde(default)]
     version: String,
+    /// "1" on the first check-in after the device started.
+    #[serde(default)]
+    start: String,
 }
 
 async fn checkin(
@@ -46,6 +49,8 @@ async fn checkin(
         let device = devices.get_mut(&id).expect("registered by device()");
         device.name = form.name.chars().take(64).collect();
         device.version = form.version.chars().take(64).collect();
+        // A device that has just started is waited for, so a session is soon at hand.
+        device.waiting |= form.start == "1";
         serde_json::json!({ "session": device.want_session, "soon": device.waiting })
     };
     // Out of a session, so an end it never heard of is moot.

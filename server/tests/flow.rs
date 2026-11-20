@@ -118,6 +118,32 @@ async fn first_contact_registers_and_the_secret_must_match_after() {
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
+#[tokio::test]
+async fn a_started_device_is_waited_for() {
+    let app = app();
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    let (status, _, body) = call(
+        &app,
+        device(
+            "POST",
+            "/device/checkin",
+            SECRET,
+            "name=x&version=0.1.0&start=1",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).unwrap(),
+        serde_json::json!({ "session": false, "soon": true })
+    );
+    // The switch shows it, and the next plain check-in keeps it on.
+    let (_, _, body) = call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await;
+    assert_eq!(json(&body)[0]["waiting"], true);
+    assert_eq!(checkin(&app).await["soon"], true);
+}
+
 // Paused time: the long poll below runs out without waiting 25 real seconds.
 #[tokio::test(start_paused = true)]
 async fn waiting_flag_brings_the_device_back_soon_and_open_asks_for_a_session() {

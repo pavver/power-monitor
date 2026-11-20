@@ -206,7 +206,8 @@ impl Remote {
     fn check_in(&self, server: &Server, identity: &Identity) -> Result<remote::CheckIn, String> {
         let mut client = new_client(true)?;
         let version = crate::ota::running().version;
-        let body = self.settings.with_messages(|messages| remote::checkin_form(messages.device_name(), &version));
+        let start = self.lock().schedule.starting();
+        let body = self.settings.with_messages(|messages| remote::checkin_form(messages.device_name(), &version, start));
         let length = body.len().to_string();
         let mut headers = identity.headers().to_vec();
         headers.extend([("content-type", "application/x-www-form-urlencoded"), ("content-length", length.as_str())]);

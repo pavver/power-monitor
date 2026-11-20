@@ -3,8 +3,9 @@
 //! the panel) asks for it, it opens a session: it long-polls the server for
 //! requests to its own panel, runs each against its local web server and
 //! posts the answer back. While the owner waits for the device (a flag on
-//! the server) it checks in every two minutes instead. Everything here is
-//! plain HTTPS.
+//! the server) it checks in every two minutes instead. A start (power-on, or
+//! remote support switched on) turns that flag on: the device says so on its
+//! first check-in. Everything here is plain HTTPS.
 
 use std::fmt;
 
@@ -13,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use crate::form;
 
 pub const CHECKIN_EVERY_MS: u64 = 3_600_000;
-/// The first check-in after start-up, so a fresh install shows up soon.
-pub const FIRST_CHECKIN_MS: u64 = 60_000;
+/// The first check-in after start-up: the thread starts once Wi-Fi joined.
+pub const FIRST_CHECKIN_MS: u64 = 5_000;
 /// Check-ins while the owner waits for this device (the "waiting" flag on
 /// the server), so a missed session is soon offered again.
 pub const SOON_CHECKIN_MS: u64 = 2 * 60_000;
@@ -164,9 +165,14 @@ impl Identity {
     }
 }
 
-/// The check-in body: who and what this device is.
-pub fn checkin_form(name: &str, version: &str) -> String {
-    form::encode(&[("name", name), ("version", version)])
+/// The check-in body: who and what this device is, and whether it has just
+/// started (the server then waits for it).
+pub fn checkin_form(name: &str, version: &str, start: bool) -> String {
+    let mut fields = vec![("name", name), ("version", version)];
+    if start {
+        fields.push(("start", "1"));
+    }
+    form::encode(&fields)
 }
 
 /// What the server wants after a check-in.
@@ -296,11 +302,13 @@ pub enum Due {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Schedule {
     phase: Phase,
+    /// Started and the server has not answered a check-in since.
+    starting: bool,
 }
 
 impl Schedule {
     pub fn new(enabled: bool, now_ms: u64) -> Self {
-        let mut schedule = Self { phase: Phase::Off };
+        let mut schedule = Self { phase: Phase::Off, starting: false };
         schedule.set_enabled(enabled, now_ms);
         schedule
     }
@@ -309,7 +317,15 @@ impl Schedule {
         self.phase
     }
 
+    /// Whether the next check-in tells the server the device has started.
+    pub fn starting(&self) -> bool {
+        self.starting
+    }
+
     pub fn set_enabled(&mut self, enabled: bool, now_ms: u64) {
+        if enabled && self.phase == Phase::Off {
+            self.starting = true;
+        }
         self.phase = match (enabled, self.phase) {
             (false, _) => Phase::Off,
             (true, Phase::Off) => Phase::Waiting { at_ms: now_ms + FIRST_CHECKIN_MS },
@@ -317,15 +333,19 @@ impl Schedule {
         };
     }
 
-    /// After a check-in (failed ones wait for the next hour too).
+    /// After a check-in. A failed one waits the hour, or two minutes while
+    /// the start is not yet heard.
     pub fn checked_in(&mut self, answer: Result<CheckIn, RemoteError>, now_ms: u64) {
         if self.phase == Phase::Off {
             return;
         }
+        let failed_after = if self.starting { SOON_CHECKIN_MS } else { CHECKIN_EVERY_MS };
+        self.starting &= answer.is_err();
         self.phase = match answer {
             Ok(CheckIn::Session) => Phase::Session { last_ms: now_ms },
             Ok(CheckIn::Soon) => Phase::Waiting { at_ms: now_ms + SOON_CHECKIN_MS },
-            Ok(CheckIn::Idle) | Err(_) => Phase::Waiting { at_ms: now_ms + CHECKIN_EVERY_MS },
+            Ok(CheckIn::Idle) => Phase::Waiting { at_ms: now_ms + CHECKIN_EVERY_MS },
+            Err(_) => Phase::Waiting { at_ms: now_ms + failed_after },
         };
     }
 
@@ -500,9 +520,30 @@ mod tests {
     #[test]
     fn first_check_in_comes_soon_after_start() {
         let mut schedule = Schedule::new(true, 0);
-        assert_eq!(schedule.due(10_000), Due::Sleep { ms: FIRST_CHECKIN_MS - 10_000 });
+        assert_eq!(schedule.due(1_000), Due::Sleep { ms: FIRST_CHECKIN_MS - 1_000 });
         assert_eq!(schedule.due(FIRST_CHECKIN_MS), Due::CheckIn);
         assert_eq!(Schedule::new(false, 0).due(HOUR * 5), Due::Never);
+    }
+
+    #[test]
+    fn a_start_asks_the_owner_to_wait_until_the_server_heard_it() {
+        let mut schedule = Schedule::new(true, 0);
+        assert!(schedule.starting());
+        assert_eq!(checkin_form("Дім", "0.1.0", true), "name=%D0%94%D1%96%D0%BC&version=0.1.0&start=1");
+        assert_eq!(checkin_form("Дім", "0.1.0", false), "name=%D0%94%D1%96%D0%BC&version=0.1.0");
+        // No server yet (Wi-Fi still joining): tried again in two minutes, not an hour.
+        schedule.checked_in(Err(RemoteError::BadAnswer), FIRST_CHECKIN_MS);
+        assert!(schedule.starting());
+        assert_eq!(schedule.phase(), Phase::Waiting { at_ms: FIRST_CHECKIN_MS + SOON_CHECKIN_MS });
+        schedule.checked_in(Ok(CheckIn::Soon), 3 * MIN);
+        assert!(!schedule.starting());
+        // Heard once: a later failure waits the hour as before.
+        schedule.checked_in(Err(RemoteError::BadAnswer), 5 * MIN);
+        assert_eq!(schedule.phase(), Phase::Waiting { at_ms: 5 * MIN + HOUR });
+        // Switching remote support back on is a start too.
+        schedule.set_enabled(false, 6 * MIN);
+        schedule.set_enabled(true, 7 * MIN);
+        assert!(schedule.starting());
     }
 
     #[test]
