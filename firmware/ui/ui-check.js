@@ -135,6 +135,9 @@ function route(page, dev) {
       return json("saved");
     }
     if (url.pathname === "/api/texts") return json(dev.texts);
+    if (url.pathname === "/api/values") {
+      return json(Object.fromEntries(dev.texts.values.map(n => [n, n === "mains" ? "on" : n === "bms_soc" ? "85" : null])));
+    }
     if (url.pathname === "/api/template") {
       const name = url.searchParams.get("name");
       const text = route.request().postData();
@@ -377,6 +380,22 @@ async function runMessages() {
 
   // 7. Automations list renders and new automation saves
   const autoRows = await page.$$eval("#automations-list .item", n => n.map(r => r.querySelector(".t").textContent));
+  // The important-sensor picker: current values at the row ends, and the
+  // list scrolls under the finger instead of closing.
+  await page.click("#imp-pick + .dd");
+  await page.waitForSelector(".ddlist li small");
+  const details = await page.$$eval(".ddlist li", lis => lis.map(li => li.textContent));
+  if (!details.some(d => d.includes("bms_soc") && d.endsWith("85"))) throw new Error("no current value in the picker: " + details);
+  const listBox = await page.$eval(".ddlist", n => { const r = n.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2, scrollable: n.scrollHeight > n.clientHeight}; });
+  await page.mouse.move(listBox.x, listBox.y);
+  await page.mouse.wheel(0, 200);
+  await page.waitForTimeout(300);
+  const stillOpen = await page.$(".ddlist") !== null;
+  const scrolled = await page.$eval(".ddlist", n => n.scrollTop).catch(() => -1);
+  if (!stillOpen || (listBox.scrollable && scrolled <= 0)) throw new Error(`picker closed or did not scroll (open ${stillOpen}, top ${scrolled})`);
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".ddlist", { state: "detached" });
+
   await page.click("#auto-add");
   await page.waitForSelector("#s-automation.on");
   await pick(page, "#a-on", "below");

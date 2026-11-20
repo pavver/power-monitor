@@ -188,6 +188,18 @@ fn automation_view(a: &autotext::automation::Automation) -> serde_json::Value {
 /// Templates, automations, and live status policy.
 pub(super) fn texts(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> anyhow::Result<()> {
     let dev = d.clone();
+    // What every value is now, for the page's pickers (missing ones are null).
+    get(server, auth, "/api/values", move || {
+        let values = current_values(&dev);
+        let map: serde_json::Map<String, serde_json::Value> = values
+            .as_slice()
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.map_or(serde_json::Value::Null, |v| v.into())))
+            .collect();
+        json(&map)
+    })?;
+
+    let dev = d.clone();
     get(server, auth, "/api/texts", move || {
         let tmpl_names = dev.settings.templates();
         let mut templates = Vec::with_capacity(tmpl_names.len());
@@ -253,22 +265,7 @@ pub(super) fn texts(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> a
         autotext::library::check_calls("", body, &*dev.settings)
             .map_err(|e| power_core::texts::TextsError::Call(e).to_string())?;
 
-        let device_name = dev.settings.with_messages(|m| m.device_name().to_string());
-        let last_ip = dev.settings.last_ip();
-        let bms_reading = if dev.settings.battery().is_some() {
-            dev.bms.recent_reading(BMS_MAX_AGE)
-        } else {
-            None
-        };
-        let snap = power_core::texts::Snapshot {
-            device: &device_name,
-            mains: dev.status.power(),
-            ip: last_ip.as_deref(),
-            voltage_mv: dev.voltmeter.battery_mv(),
-            bms: bms_reading.as_ref(),
-            local: crate::clock::local(),
-        };
-        let v = power_core::texts::values(&snap);
+        let v = current_values(&dev);
         let mut out = String::new();
         autotext::template::render_with(body, &v.as_slice(), &*dev.settings, &mut out)
             .map_err(|e| e.to_string())?;
@@ -470,4 +467,24 @@ pub(super) fn clock(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> a
         crate::clock::apply(&tz);
         json(&"saved")
     })
+}
+
+/// The values templates see right now, as the notifier sees them.
+fn current_values(dev: &Device) -> power_core::texts::Values {
+    let device_name = dev.settings.with_messages(|m| m.device_name().to_string());
+    let last_ip = dev.settings.last_ip();
+    let bms_reading = if dev.settings.battery().is_some() {
+        dev.bms.recent_reading(BMS_MAX_AGE)
+    } else {
+        None
+    };
+    let snap = power_core::texts::Snapshot {
+        device: &device_name,
+        mains: dev.status.power(),
+        ip: last_ip.as_deref(),
+        voltage_mv: dev.voltmeter.battery_mv(),
+        bms: bms_reading.as_ref(),
+        local: crate::clock::local(),
+    };
+    power_core::texts::values(&snap)
 }

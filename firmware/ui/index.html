@@ -46,6 +46,8 @@ button,input,textarea,select{font-family:inherit}
 .ddlist{position:fixed;z-index:50;max-height:calc(var(--du)*50);overflow-y:auto;margin:0;padding:0;list-style:none;background:var(--surface);
   box-shadow:inset 0 0 0 calc(var(--du)*.375) var(--accent)}
 .ddlist li{display:flex;align-items:center;min-height:calc(var(--du)*12);padding:calc(var(--du)*2) calc(var(--du)*3);cursor:pointer;color:var(--text);font-weight:500}
+.ddlist li>span{flex:1;min-width:0}
+.ddlist li small{flex:none;margin-left:calc(var(--du)*3);font-size:calc(var(--tu)*12);line-height:calc(var(--tu)*15);font-weight:400;color:var(--text-2)}
 .ddlist li.act{background:var(--pressed)}
 .ddlist li[aria-selected=true]{background:color-mix(in srgb,var(--accent) 8%,var(--surface));color:var(--accent);font-weight:700}
 /* AsyncCheckbox (docs/components/checkbox.md): 5 DU box, 3.5 DU check, gutter to a body/500 label. */
@@ -907,7 +909,11 @@ function dropdown(select) {
   if (select.id) document.querySelector(`label[for="${select.id}"]`)?.setAttribute("for", "");
   const show = () => { shown.textContent = select.selectedOptions[0]?.textContent || ""; };
   Object.defineProperty(select, "value", {get() { return valueOf.get.call(this); }, set(v) { valueOf.set.call(this, v); show(); }});
-  new MutationObserver(show).observe(select, {childList: true, subtree: true, characterData: true});
+  new MutationObserver(() => {
+    show();
+    // Details filled in while open: draw the rows again.
+    if (list) fill();
+  }).observe(select, {childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["data-detail"]});
   let list = null, active = 0;
   const close = () => {
     if (!list) return;
@@ -929,23 +935,35 @@ function dropdown(select) {
     [...list.children].forEach((li, n) => li.classList.toggle("act", n === active));
     list.children[active]?.scrollIntoView({block: "nearest"});
   };
-  const open = () => {
+  const place = () => {
     const box = field.closest(".field").getBoundingClientRect();
-    list = el("ul", {class: "ddlist", role: "listbox"});
+    Object.assign(list.style, {left: box.left + "px", width: box.width + "px", top: "", bottom: ""});
+    // Under the field; above it when there is no room below.
+    const below = innerHeight - box.bottom;
+    if (below < list.offsetHeight && box.top > below) list.style.bottom = innerHeight - box.top + "px";
+    else list.style.top = box.bottom + "px";
+  };
+  const fill = () => {
+    list.replaceChildren();
     [...select.options].forEach((option, i) => {
-      const li = el("li", {role: "option", "aria-selected": String(option.selected)}, option.textContent);
+      const li = el("li", {role: "option", "aria-selected": String(option.selected)}, el("span", {}, option.textContent));
+      // ComboOption.detail: secondary text at the end of the row.
+      if (option.dataset.detail) li.append(el("small", {}, option.dataset.detail));
       li.addEventListener("pointerdown", e => e.preventDefault());
       li.addEventListener("click", () => pick(i));
       list.append(li);
     });
-    const below = innerHeight - box.bottom;
-    Object.assign(list.style, {left: box.left + "px", width: box.width + "px"});
-    document.body.append(list);
-    // Under the field; above it when there is no room below.
-    if (below < list.offsetHeight && box.top > below) list.style.bottom = innerHeight - box.top + "px";
-    else list.style.top = box.bottom + "px";
-    field.setAttribute("aria-expanded", "true");
+    list.children[active]?.classList.add("act");
+  };
+  const open = () => {
+    // The page may fill option details (current values) on this.
+    select.dispatchEvent(new Event("dropdown-open"));
+    list = el("ul", {class: "ddlist", role: "listbox"});
     active = Math.max(0, select.selectedIndex);
+    fill();
+    document.body.append(list);
+    place();
+    field.setAttribute("aria-expanded", "true");
     list.children[active]?.scrollIntoView({block: "center"});
     document.addEventListener("pointerdown", outside, true);
   };
@@ -956,7 +974,8 @@ function dropdown(select) {
     else if (e.key === "Enter") { e.preventDefault(); pick(active); }
     else if (e.key === "Escape" || e.key === "Tab") close();
   });
-  addEventListener("scroll", close, true);
+  // Scrolling the list itself is not leaving it; the page scrolling moves it along.
+  addEventListener("scroll", e => { if (list && !list.contains(e.target)) place(); }, true);
   addEventListener("resize", close);
   select.after(field);
   show();
@@ -1439,6 +1458,18 @@ function renderImportant() {
   const rest = (textsData?.values || []).filter(n => !important.includes(n) && !["device", "time", "date"].includes(n));
   $("imp-pick").replaceChildren(new Option("Додати датчик…", ""), ...rest.map(name => new Option(sensorLabel(name), name)));
 }
+/* Pickers of values show what each value is now. */
+async function showCurrentValues(select) {
+  let now;
+  try { now = await api("/api/values"); } catch (e) { return; }
+  [...select.options].forEach(option => {
+    if (!option.value) return;
+    const value = now[option.value];
+    option.dataset.detail = value == null ? "немає" : value;
+  });
+}
+["imp-pick", "a-sensor"].forEach(id => $(id).addEventListener("dropdown-open", () => showCurrentValues($(id))));
+
 $("imp-pick").addEventListener("change", () => {
   const name = $("imp-pick").value;
   if (name && !important.includes(name)) important.push(name);
