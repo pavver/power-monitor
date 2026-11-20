@@ -24,6 +24,8 @@ pub(crate) fn routes(router: Router<App>) -> Router<App> {
         .route("/admin/devices/{id}/end", post(end_session))
         .route("/admin/devices/{id}/forget", post(forget))
         .route("/admin/devices/{id}/view", post(set_view))
+        .route("/admin/devices/{id}/accept-key", post(accept_key))
+        .route("/admin/devices/{id}/reject-key", post(reject_key))
 }
 
 fn json_reply(status: StatusCode, body: serde_json::Value) -> Response {
@@ -131,6 +133,8 @@ struct DeviceView {
     waiting: bool,
     status: &'static str,
     view: Option<String>,
+    pending_key: bool,
+    pending_since: u64,
 }
 
 async fn device_list(State(app): State<App>, headers: HeaderMap) -> Response {
@@ -158,6 +162,8 @@ async fn device_list(State(app): State<App>, headers: HeaderMap) -> Response {
                 waiting: d.waiting,
                 status: device_status(online, Duration::from_secs(seen_secs)),
                 view: link.get_view(),
+                pending_key: d.pending_secret_hash.is_some(),
+                pending_since: d.pending_since,
             }
         })
         .collect();
@@ -268,6 +274,40 @@ async fn forget(State(app): State<App>, headers: HeaderMap, Path(id): Path<Strin
         // Lets go of the browsers and of the device's poll.
         link.end();
     }
+    app.save();
+    ok()
+}
+
+async fn accept_key(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    settle_key(&app, &headers, &id, true)
+}
+
+async fn reject_key(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    settle_key(&app, &headers, &id, false)
+}
+
+/// The admin's answer to a device that came back with a new secret.
+fn settle_key(app: &App, headers: &HeaderMap, id: &str, accept: bool) -> Response {
+    if !app.is_admin(headers) {
+        return login_first();
+    }
+    let mut devices = app.0.devices.lock().unwrap();
+    let Some(device) = devices.get_mut(id) else {
+        return unknown_device();
+    };
+    if let Some(hash) = device.pending_secret_hash.take().filter(|_| accept) {
+        device.secret_hash = hash;
+    }
+    device.pending_since = 0;
+    drop(devices);
     app.save();
     ok()
 }

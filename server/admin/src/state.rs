@@ -58,6 +58,8 @@ pub struct Admin {
 
     pub forget_open: RwSignal<bool>,
     pub forget_target: RwSignal<Option<DeviceItem>>,
+    pub accept_open: RwSignal<bool>,
+    pub accept_target: RwSignal<Option<DeviceItem>>,
 }
 
 impl Admin {
@@ -84,6 +86,8 @@ impl Admin {
             device_messages: RwSignal::new(HashMap::new()),
             forget_open: RwSignal::new(false),
             forget_target: RwSignal::new(None),
+            accept_open: RwSignal::new(false),
+            accept_target: RwSignal::new(None),
         };
         if let Some(window) = web_sys::window() {
             if let Some(id) = window

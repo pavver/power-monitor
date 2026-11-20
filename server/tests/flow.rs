@@ -1255,3 +1255,102 @@ async fn a_read_answered_after_a_change_is_not_cached() {
     assert_eq!(body, b"after");
     device.await.unwrap();
 }
+
+#[tokio::test]
+async fn hardware_bound_id_with_pending_key_lifecycle() {
+    let app = app();
+    // 1. A device checks in
+    checkin(&app).await;
+    let cookies = admin(&app).await;
+    let list_devices = |app: App, cookies: String| async move {
+        let (_, _, body) = call(&app, browser("GET", "/admin/api/devices", &cookies, "")).await;
+        json(&body)
+    };
+    let devices = list_devices(app.clone(), cookies.clone()).await;
+    assert_eq!(devices.as_array().unwrap().len(), 1);
+    assert_eq!(devices[0]["id"], ID);
+    assert_eq!(devices[0]["pending_key"], false);
+
+    // 2. The same id with a new secret gets 403 and no second device appears
+    let new_secret = "99887766554433221100aabbccddeeff";
+    let (status, _, _) = call(&app, device("POST", "/device/checkin", new_secret, "")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let devices = list_devices(app.clone(), cookies.clone()).await;
+    assert_eq!(
+        devices.as_array().unwrap().len(),
+        1,
+        "no second device appears"
+    );
+    // 3. The admin sees pending_key
+    assert_eq!(devices[0]["id"], ID);
+    assert_eq!(devices[0]["pending_key"], true);
+
+    // Reject-key clears it
+    let (status, _, _) = call(
+        &app,
+        browser(
+            "POST",
+            &format!("/admin/devices/{ID}/reject-key"),
+            &cookies,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let devices = list_devices(app.clone(), cookies.clone()).await;
+    assert_eq!(devices[0]["pending_key"], false);
+
+    // Same id with new secret gets 403 again, pending_key is set again
+    let (status, _, _) = call(&app, device("POST", "/device/checkin", new_secret, "")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let devices = list_devices(app.clone(), cookies.clone()).await;
+    assert_eq!(devices[0]["pending_key"], true);
+
+    // 4. Accept-key -> the new secret works and the old one gets 403
+    let (status, _, _) = call(
+        &app,
+        browser(
+            "POST",
+            &format!("/admin/devices/{ID}/accept-key"),
+            &cookies,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let devices = list_devices(app.clone(), cookies.clone()).await;
+    assert_eq!(devices[0]["pending_key"], false);
+
+    // New secret works now!
+    let (status, _, _) = call(
+        &app,
+        device(
+            "POST",
+            "/device/checkin",
+            new_secret,
+            "name=New&version=0.2.0",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    // Old secret gets 403
+    let (status, _, _) = call(&app, device("POST", "/device/checkin", SECRET, "")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // 5. An unknown id still registers as before
+    let other_id = "aabbccddeeff0011";
+    let other_secret = "11223344556677889900aabbccddeeff";
+    let req = Request::builder()
+        .method("POST")
+        .uri("/device/checkin")
+        .header("x-device-id", other_id)
+        .header("x-device-secret", other_secret)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from("name=Other&version=1.0.0"))
+        .unwrap();
+    let (status, _, _) = call(&app, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let devices = list_devices(app.clone(), cookies.clone()).await;
+    assert_eq!(devices.as_array().unwrap().len(), 2);
+}

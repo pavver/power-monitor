@@ -16,6 +16,10 @@ pub struct DeviceItem {
     pub status: String,
     #[serde(default)]
     pub view: Option<String>,
+    #[serde(default)]
+    pub pending_key: bool,
+    #[serde(default)]
+    pub pending_since: u64,
 }
 
 impl DeviceItem {
@@ -39,6 +43,9 @@ impl DeviceItem {
 
     /// The badge for how the device is reachable.
     pub fn badge(&self) -> (PresenceStatus, &'static str) {
+        if self.pending_key {
+            return (PresenceStatus::Alarm, "новий ключ");
+        }
         match self.status.as_str() {
             "session" => (PresenceStatus::Online, "з'єднано"),
             "alive" => (PresenceStatus::Online, "на зв'язку"),
@@ -90,6 +97,8 @@ mod tests {
             waiting: false,
             status: status.into(),
             view: None,
+            pending_key: false,
+            pending_since: 0,
         }
     }
 
@@ -134,6 +143,9 @@ mod tests {
             device("a", "offline").badge(),
             (PresenceStatus::Offline, "не на зв'язку")
         );
+        let mut pending = device("a", "offline");
+        pending.pending_key = true;
+        assert_eq!(pending.badge(), (PresenceStatus::Alarm, "новий ключ"));
     }
 
     #[test]

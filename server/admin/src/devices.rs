@@ -120,6 +120,10 @@ fn DeviceCard(admin: Admin, device: DeviceItem, message: Option<(Tone, String)>)
                 />
             </div>
 
+            {device.pending_key.then(|| view! {
+                <div class="admin-card-msg"><KeyAlarm admin=admin device=device.clone()/></div>
+            })}
+
             {message.map(|(tone, text)| view! {
                 <div class="admin-card-msg">
                     <Banner tone=tone text=Signal::stored(text)/>
@@ -133,6 +137,20 @@ fn DeviceCard(admin: Admin, device: DeviceItem, message: Option<(Tone, String)>)
 #[component]
 fn PanelArea(admin: Admin) -> impl IntoView {
     move || {
+        // A device that came back with a new key cannot connect until the admin decides.
+        let pending = admin.selected_id.get().and_then(|id| {
+            admin
+                .devices
+                .get()
+                .into_iter()
+                .find(|d| d.id == id && d.pending_key)
+        });
+        if let Some(device) = pending {
+            return view! {
+                <div class="admin-waiting-area admin-key-area"><KeyAlarm admin=admin device=device/></div>
+            }
+            .into_any();
+        }
         match (admin.selected_id.get(), admin.panel_online.get()) {
         (None, _) => view! {
             <div class="admin-waiting-area">
@@ -164,5 +182,35 @@ fn PanelArea(admin: Admin) -> impl IntoView {
         }
             .into_any(),
     }
+    }
+}
+
+/// The alarm for a device whose secret changed: accept (after a confirmation) or reject.
+#[component]
+fn KeyAlarm(admin: Admin, device: DeviceItem) -> impl IntoView {
+    view! {
+        <Banner
+            tone=Tone::Error
+            title="Пристрій змінив секретний ключ".to_string()
+            text=Signal::stored("Якщо ви не перепрошивали пристрій, це може бути спроба несанкціонованого доступу. Приймайте новий ключ, лише якщо впевнені, що це ви його змінили.".to_string())
+            actions=ViewFn::from(move || {
+                let (target, id) = (device.clone(), device.id.clone());
+                view! {
+                    <ActionButton
+                        text=Signal::stored("Прийняти ключ".to_string())
+                        on_click=AsyncAction::new(move |()| {
+                            admin.accept_target.set(Some(target.clone()));
+                            admin.accept_open.set(true);
+                            async move { ActionResult::Success }
+                        })
+                    />
+                    <ActionButton
+                        text=Signal::stored("Відхилити".to_string())
+                        dangerous=true
+                        on_click=AsyncAction::new(move |()| admin.settle_key(id.clone(), false))
+                    />
+                }
+            })
+        />
     }
 }

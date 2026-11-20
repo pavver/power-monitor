@@ -51,6 +51,21 @@ function createMockServer() {
         waiting: false,
         status: "offline",
         view: null,
+        pending_key: false,
+        pending_since: 0,
+      },
+      {
+        id: "445566778899aabb",
+        name: "Дача",
+        version: "0.1.0",
+        seen: 60,
+        online: false,
+        requested: false,
+        waiting: false,
+        status: "alive",
+        view: null,
+        pending_key: true,
+        pending_since: 50,
       },
     ],
   };
@@ -244,6 +259,30 @@ async function setupRoutes(page, state) {
       return json(200, {});
     }
 
+    const acceptMatch = pathname.match(/^\/admin\/devices\/([^/]+)\/accept-key$/);
+    if (acceptMatch && method === "POST") {
+      if (!state.isLoggedIn) return json(401, { login: true });
+      const devId = acceptMatch[1];
+      const dev = state.devices.find(d => d.id === devId);
+      if (dev) {
+        dev.pending_key = false;
+        dev.pending_since = 0;
+      }
+      return json(200, {});
+    }
+
+    const rejectMatch = pathname.match(/^\/admin\/devices\/([^/]+)\/reject-key$/);
+    if (rejectMatch && method === "POST") {
+      if (!state.isLoggedIn) return json(401, { login: true });
+      const devId = rejectMatch[1];
+      const dev = state.devices.find(d => d.id === devId);
+      if (dev) {
+        dev.pending_key = false;
+        dev.pending_since = 0;
+      }
+      return json(200, {});
+    }
+
     return route.fulfill({ status: 404, body: "Not found" });
   });
 }
@@ -294,9 +333,9 @@ async function run() {
   await inputs[1].fill("12345");
   await loginBtn.click();
 
-  // Wait for devices list to load: 3 devices with session, alive, offline
+  // Wait for devices list to load: 4 devices with session, alive, offline, and alarm (pending key)
   await page.waitForSelector(".admin-dev-card");
-  await page.waitForFunction(() => document.querySelectorAll(".admin-dev-card").length === 3);
+  await page.waitForFunction(() => document.querySelectorAll(".admin-dev-card").length === 4);
 
   // Check badges for each status
   const badges = await page.$$eval(".admin-devhead-badges .op-badge", els => els.map(e => e.textContent.trim()));
@@ -310,6 +349,45 @@ async function run() {
   if (!badges.some(b => b.includes("не на зв'язку"))) {
     throw new Error("Missing 'не на зв'язку' status badge");
   }
+  if (!badges.some(b => b.includes("новий ключ"))) {
+    throw new Error("Missing 'новий ключ' status badge");
+  }
+
+  // Check pending key alarm banner in the device card
+  const cardsBefore = await page.$$(".admin-dev-card");
+  const alarmCardBannerTitle = await cardsBefore[3].$eval(".op-banner-title", el => el.textContent);
+  if (!alarmCardBannerTitle.includes("Пристрій змінив секретний ключ")) {
+    throw new Error(`Expected banner title, got: ${alarmCardBannerTitle}`);
+  }
+  const alarmCardBannerText = await cardsBefore[3].$eval(".op-banner-text", el => el.textContent);
+  if (!alarmCardBannerText.includes("Якщо ви не перепрошивали пристрій")) {
+    throw new Error(`Expected warning text, got: ${alarmCardBannerText}`);
+  }
+
+  // Select device with pending key and verify alarm status on the device panel
+  console.log("Testing pending key device view and accept key flow...");
+  await cardsBefore[3].click();
+  await page.waitForSelector(".admin-panel-container .op-banner");
+  const panelBannerTitle = await page.$eval(".admin-panel-container .op-banner-title", el => el.textContent);
+  if (!panelBannerTitle.includes("Пристрій змінив секретний ключ")) {
+    throw new Error(`Expected panel banner title, got: ${panelBannerTitle}`);
+  }
+
+  await page.screenshot({ path: path.join(OUT, "02-key-alarm.png") });
+
+  // Accept key via dialog
+  const acceptBtn = await page.waitForSelector(".admin-panel-container button:has-text('Прийняти ключ')");
+  await acceptBtn.click();
+  await page.waitForSelector(".op-dialog");
+  const acceptConfirmBtn = await page.waitForSelector(".op-dialog-actions button:has-text('Прийняти ключ')");
+  await acceptConfirmBtn.click();
+  await page.waitForSelector(".op-dialog", { state: "detached" });
+
+  // Key is accepted; pending_key is cleared
+  await page.waitForFunction(() => {
+    const card = document.querySelectorAll(".admin-dev-card")[3];
+    return card && !card.textContent.includes("новий ключ") && !card.textContent.includes("Пристрій змінив секретний ключ");
+  });
 
   await page.screenshot({ path: path.join(OUT, "03-devices-light-wide.png") });
 
@@ -439,9 +517,9 @@ async function run() {
   await confirmBtn.click();
   await page.waitForSelector(".op-dialog", { state: "detached" });
 
-  // Wait for dialog to close and list to have 2 devices
-  await page.waitForFunction(() => document.querySelectorAll(".admin-dev-card").length === 2, null, { timeout: 5000 });
-  await page.screenshot({ path: path.join(OUT, "14-two-devices-left.png") });
+  // Wait for dialog to close and list to have 3 devices
+  await page.waitForFunction(() => document.querySelectorAll(".admin-dev-card").length === 3, null, { timeout: 5000 });
+  await page.screenshot({ path: path.join(OUT, "14-three-devices-left.png") });
 
   console.log("16. Forgetting all remaining devices to show empty state...");
   while ((await page.$$(".admin-dev-card button:has-text('Забути')")).length > 0) {

@@ -94,6 +94,16 @@ impl Admin {
         self.close(id, Closing::Device).await
     }
 
+    /// Takes (`accept`) or drops the new secret a device came back with.
+    pub async fn settle_key(self, id: String, accept: bool) -> ActionResult {
+        let action = if accept { "accept-key" } else { "reject-key" };
+        if let Err(error) = self.act(&id, action, &[], true).await {
+            return ActionResult::Error(Some(error));
+        }
+        self.refresh().await;
+        ActionResult::Success
+    }
+
     /// Ends the session or forgets the device: its panel, if open, goes
     /// too, and the list is fetched again.
     async fn close(self, id: String, closing: Closing) -> ActionResult {

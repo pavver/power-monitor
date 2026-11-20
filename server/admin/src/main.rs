@@ -44,6 +44,17 @@ fn App() -> impl IntoView {
             )
         })
     });
+    let accept_message = Signal::derive(move || {
+        admin
+            .accept_target
+            .get()
+            .map_or_else(String::new, |target| {
+                format!(
+                    "Прийняти новий секретний ключ для «{}»? Старий ключ більше не діятиме.",
+                    target.display_name()
+                )
+            })
+    });
     let dark = admin.dark;
 
     view! {
@@ -72,6 +83,21 @@ fn App() -> impl IntoView {
                     on_confirm=AsyncAction::new(move |()| async move {
                         match admin.forget_target.get_untracked() {
                             Some(target) => admin.forget(target.id).await,
+                            None => ActionResult::Success,
+                        }
+                    })
+                />
+
+                <ConfirmDialog
+                    open=admin.accept_open
+                    title=Signal::stored("Прийняти новий ключ?".to_string())
+                    message=accept_message
+                    confirm_text=Signal::stored("Прийняти ключ".to_string())
+                    cancel_text=Signal::stored("Скасувати".to_string())
+                    destructive=false
+                    on_confirm=AsyncAction::new(move |()| async move {
+                        match admin.accept_target.get_untracked() {
+                            Some(target) => admin.settle_key(target.id, true).await,
                             None => ActionResult::Success,
                         }
                     })

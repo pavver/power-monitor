@@ -206,6 +206,13 @@ html, body {
   box-sizing: border-box;
 }
 
+.admin-key-area {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: var(--op-dim-pad-card);
+}
+
 .admin-workspace[data-narrow] .op-side-panel:not([data-collapsed]) {
   position: absolute;
   top: 0;

@@ -59,6 +59,10 @@ struct Device {
     waiting: bool,
     /// Open a session at the next check-in.
     want_session: bool,
+    #[serde(default)]
+    pending_secret_hash: Option<String>,
+    #[serde(default)]
+    pending_since: u64,
 }
 
 struct Inner {
@@ -134,17 +138,33 @@ impl App {
         let identity = remote::Identity::from_form(&identity).ok_or(StatusCode::FORBIDDEN)?;
         let hash = sha256(&identity.secret);
         let mut devices = self.0.devices.lock().unwrap();
-        let device = devices
-            .entry(identity.id.clone())
-            .or_insert_with(|| Device {
-                secret_hash: hash.clone(),
-                ..Device::default()
-            });
-        if !same(&device.secret_hash, &hash) {
-            return Err(StatusCode::FORBIDDEN);
+        if let Some(device) = devices.get_mut(&identity.id) {
+            if !same(&device.secret_hash, &hash) {
+                // Reflashed, wiped, or someone else: the admin decides. The
+                // board keeps retrying, so only a new key is written.
+                if device.pending_secret_hash.as_deref() != Some(hash.as_str()) {
+                    device.pending_secret_hash = Some(hash);
+                    device.pending_since = unix_now();
+                    drop(devices);
+                    self.save();
+                }
+                return Err(StatusCode::FORBIDDEN);
+            }
+            device.last_seen = unix_now();
+            Ok(identity.id)
+        } else {
+            devices.insert(
+                identity.id.clone(),
+                Device {
+                    secret_hash: hash,
+                    last_seen: unix_now(),
+                    ..Device::default()
+                },
+            );
+            drop(devices);
+            self.save();
+            Ok(identity.id)
         }
-        device.last_seen = unix_now();
-        Ok(identity.id)
     }
 
     /// The answer to an open login captcha, for tests and tooling.
