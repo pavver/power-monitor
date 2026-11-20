@@ -102,7 +102,7 @@ fn deliver_next(
         return Delivery::Done;
     };
     match telegram::send(&bot, &text) {
-        Ok(()) => {
+        Ok(_) => {
             outbox.delivered();
             status.set_pending(outbox.len());
             status.set_telegram("останнє повідомлення доставлено");

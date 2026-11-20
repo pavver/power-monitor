@@ -1,6 +1,6 @@
 //! Telegram Bot API: request shapes and response parsing.
 
-use std::fmt::{self, Write};
+use std::fmt;
 use std::io::Read;
 
 use serde::Serialize;
@@ -23,8 +23,27 @@ pub fn send_message_url(token: &BotToken) -> String {
     method_url(token, "sendMessage")
 }
 
+/// The URL for `editMessageText`.
+pub fn edit_message_url(token: &BotToken) -> String {
+    method_url(token, "editMessageText")
+}
+
+/// The URL for `deleteMessage`.
+pub fn delete_message_url(token: &BotToken) -> String {
+    method_url(token, "deleteMessage")
+}
+
 /// The `sendMessage` body as JSON: `{"chat_id":…,"message_thread_id":…,"text":"…"}`.
 pub fn write_send_message(to: Destination, text: &str, out: &mut impl fmt::Write) -> fmt::Result {
+    write_send_message_with(to, |w| w.write_str(text), out)
+}
+
+/// Streams a `sendMessage` body into `out`, writing the text via `write_text` through JSON escaping.
+pub fn write_send_message_with(
+    to: Destination,
+    write_text: impl FnOnce(&mut dyn fmt::Write) -> fmt::Result,
+    out: &mut impl fmt::Write,
+) -> fmt::Result {
     out.write_str("{\"chat_id\":")?;
     write!(out, "{}", to.chat_id)?;
     if let Some(thread_id) = to.thread_id {
@@ -32,8 +51,38 @@ pub fn write_send_message(to: Destination, text: &str, out: &mut impl fmt::Write
         write!(out, "{thread_id}")?;
     }
     out.write_str(",\"text\":\"")?;
-    crate::json::Escaped(out).write_str(text)?;
+    write_text(&mut crate::json::Escaped(out))?;
     out.write_str("\"}")
+}
+
+/// The `editMessageText` body as JSON: `{"chat_id":…,"message_id":…,"text":"…"}`.
+pub fn write_edit_message(to: Destination, message_id: i64, text: &str, out: &mut impl fmt::Write) -> fmt::Result {
+    write_edit_message_with(to, message_id, |w| w.write_str(text), out)
+}
+
+/// Streams an `editMessageText` body into `out`, writing the text via `write_text` through JSON escaping.
+pub fn write_edit_message_with(
+    to: Destination,
+    message_id: i64,
+    write_text: impl FnOnce(&mut dyn fmt::Write) -> fmt::Result,
+    out: &mut impl fmt::Write,
+) -> fmt::Result {
+    out.write_str("{\"chat_id\":")?;
+    write!(out, "{}", to.chat_id)?;
+    out.write_str(",\"message_id\":")?;
+    write!(out, "{message_id}")?;
+    out.write_str(",\"text\":\"")?;
+    write_text(&mut crate::json::Escaped(out))?;
+    out.write_str("\"}")
+}
+
+/// The `deleteMessage` body as JSON: `{"chat_id":…,"message_id":…}`.
+pub fn write_delete_message(to: Destination, message_id: i64, out: &mut impl fmt::Write) -> fmt::Result {
+    out.write_str("{\"chat_id\":")?;
+    write!(out, "{}", to.chat_id)?;
+    out.write_str(",\"message_id\":")?;
+    write!(out, "{message_id}")?;
+    out.write_str("}")
 }
 
 /// Checks the token and gives the bot's username.
@@ -50,14 +99,48 @@ fn method_url(token: &BotToken, method: &str) -> String {
     format!("https://api.telegram.org/bot{}/{method}", token.as_str())
 }
 
-/// Keys kept from a reply: what `getMe`, `getUpdates` and an error need.
+/// Keys kept from a reply: what `getMe`, `getUpdates`, `sendMessage` and an error need.
 /// Everything else — message texts, entities, photos — is skipped as it
 /// is read and never held in memory.
-const KEPT: [&str; 21] = [
+const KEPT: [&str; 22] = [
     "ok", "description", "result", "username", "message", "edited_message", "channel_post", "my_chat_member",
     "chat_member", "chat", "id", "title", "first_name", "last_name", "is_forum", "is_topic_message",
     "message_thread_id", "forum_topic_created", "forum_topic_edited", "name", "reply_to_message",
+    "message_id",
 ];
+
+/// The outcome of editing or deleting a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Done,
+    Gone,
+}
+
+/// Classifies the outcome of an `editMessageText` call.
+pub fn edit_outcome(result: Result<Value, String>) -> Result<Outcome, String> {
+    match result {
+        Ok(_) => Ok(Outcome::Done),
+        Err(err) if err.contains("message is not modified") => Ok(Outcome::Done),
+        Err(err) if is_gone(&err) => Ok(Outcome::Gone),
+        Err(err) => Err(err),
+    }
+}
+
+/// Classifies the outcome of a `deleteMessage` call.
+pub fn delete_outcome(result: Result<Value, String>) -> Result<Outcome, String> {
+    match result {
+        Ok(_) => Ok(Outcome::Done),
+        Err(err) if is_gone(&err) => Ok(Outcome::Gone),
+        Err(err) => Err(err),
+    }
+}
+
+fn is_gone(err: &str) -> bool {
+    err.contains("message to edit not found")
+        || err.contains("message to delete not found")
+        || err.contains("message can't be edited")
+        || err.contains("message can't be deleted")
+}
 
 /// Another program polls the same bot and takes its updates first, so the
 /// device never sees the messages written to the bot.
@@ -88,6 +171,14 @@ pub fn read_chats(status: u16, reader: &mut dyn Read) -> Result<Vec<Chat>, Strin
 /// The bot's `@username` from a `getMe` result.
 pub fn bot_username(me: &Value) -> Result<String, String> {
     me["username"].as_str().map(str::to_string).ok_or_else(|| "Telegram не повернув ім'я бота".to_string())
+}
+
+/// The `message_id` from a `sendMessage` result.
+pub fn message_id(result: &Value) -> Result<i64, String> {
+    result
+        .as_i64()
+        .or_else(|| result["message_id"].as_i64())
+        .ok_or_else(|| "Telegram не повернув id повідомлення".to_string())
 }
 
 fn kept(key: &str) -> bool {
@@ -226,6 +317,8 @@ mod tests {
     #[test]
     fn builds_requests() {
         assert_eq!(send_message_url(&token()), format!("https://api.telegram.org/bot{TOKEN}/sendMessage"));
+        assert_eq!(edit_message_url(&token()), format!("https://api.telegram.org/bot{TOKEN}/editMessageText"));
+        assert_eq!(delete_message_url(&token()), format!("https://api.telegram.org/bot{TOKEN}/deleteMessage"));
         assert_eq!(get_me(&token()), format!("https://api.telegram.org/bot{TOKEN}/getMe"));
         assert_eq!(get_updates(&token()), format!("https://api.telegram.org/bot{TOKEN}/getUpdates"));
 
@@ -241,6 +334,36 @@ mod tests {
         assert_eq!(parsed["chat_id"], -100);
         assert_eq!(parsed.get("message_thread_id"), None);
         assert_eq!(parsed["text"], text);
+    }
+
+    #[test]
+    fn builds_edit_and_delete_requests() {
+        let to = Destination { chat_id: -100, thread_id: Some(77) };
+        let mut out = String::new();
+        let mut count = crate::json::Count(0);
+        let text = "hi \"quoted\" \\ \n 🇺🇦";
+        write_edit_message(to, 42, text, &mut out).unwrap();
+        write_edit_message(to, 42, text, &mut count).unwrap();
+        assert_eq!(count.0, out.len());
+
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["chat_id"], -100);
+        assert_eq!(parsed["message_id"], 42);
+        assert_eq!(parsed["text"], text);
+        assert_eq!(parsed.get("message_thread_id"), None);
+        assert_eq!(out, "{\"chat_id\":-100,\"message_id\":42,\"text\":\"hi \\\"quoted\\\" \\\\ \\n 🇺🇦\"}");
+
+        let mut del_out = String::new();
+        let mut del_count = crate::json::Count(0);
+        write_delete_message(to, 42, &mut del_out).unwrap();
+        write_delete_message(to, 42, &mut del_count).unwrap();
+        assert_eq!(del_count.0, del_out.len());
+
+        let del_parsed: Value = serde_json::from_str(&del_out).unwrap();
+        assert_eq!(del_parsed["chat_id"], -100);
+        assert_eq!(del_parsed["message_id"], 42);
+        assert_eq!(del_parsed.get("message_thread_id"), None);
+        assert_eq!(del_out, "{\"chat_id\":-100,\"message_id\":42}");
     }
 
     #[test]
@@ -267,7 +390,59 @@ mod tests {
 
         // What is not kept is skipped, not read into memory.
         let sent = read_reply(200, &mut br#"{"ok":true,"result":{"message_id":42,"text":"ignored"}}"#.as_slice()).unwrap();
-        assert_eq!(sent, serde_json::json!({}));
+        assert_eq!(sent, serde_json::json!({"message_id": 42}));
+
+        let ignored = read_reply(200, &mut br#"{"ok":true,"result":{"other":42,"text":"ignored"}}"#.as_slice()).unwrap();
+        assert_eq!(ignored, serde_json::json!({}));
+    }
+
+    #[test]
+    fn reads_message_id_from_send_message_reply() {
+        let json = r#"{"ok":true,"result":{"message_id":123456,"from":{"id":99,"is_bot":true,"first_name":"Bot"},"chat":{"id":-100,"title":"Group","type":"supergroup"},"date":1700000000,"text":"Power on"}}"#;
+        let result = read_reply(200, &mut json.as_bytes()).unwrap();
+        assert_eq!(message_id(&result), Ok(123456));
+
+        let missing = serde_json::json!({"id": 1});
+        assert_eq!(message_id(&missing), Err("Telegram не повернув id повідомлення".to_string()));
+    }
+
+    #[test]
+    fn classifies_edit_and_delete_outcomes() {
+        // Edit success
+        let ok_edit = read_reply(200, &mut br#"{"ok":true,"result":{"message_id":42}}"#.as_slice());
+        assert_eq!(edit_outcome(ok_edit), Ok(Outcome::Done));
+
+        // Edit not modified is success
+        let not_modified = read_reply(400, &mut br#"{"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}"#.as_slice());
+        assert_eq!(edit_outcome(not_modified), Ok(Outcome::Done));
+
+        // Edit message to edit not found -> Gone
+        let edit_not_found = read_reply(400, &mut br#"{"ok":false,"error_code":400,"description":"Bad Request: message to edit not found"}"#.as_slice());
+        assert_eq!(edit_outcome(edit_not_found), Ok(Outcome::Gone));
+
+        // Edit can't be edited -> Gone
+        let cant_edit = read_reply(400, &mut br#"{"ok":false,"error_code":400,"description":"Bad Request: message can't be edited"}"#.as_slice());
+        assert_eq!(edit_outcome(cant_edit), Ok(Outcome::Gone));
+
+        // Edit other error -> Err
+        let edit_blocked = read_reply(403, &mut br#"{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}"#.as_slice());
+        assert_eq!(edit_outcome(edit_blocked), Err("Бот не може писати в цей чат: його заблоковано або видалено з групи".to_string()));
+
+        // Delete success
+        let ok_del = read_reply(200, &mut br#"{"ok":true,"result":true}"#.as_slice());
+        assert_eq!(delete_outcome(ok_del), Ok(Outcome::Done));
+
+        // Delete message to delete not found -> Gone
+        let del_not_found = read_reply(400, &mut br#"{"ok":false,"error_code":400,"description":"Bad Request: message to delete not found"}"#.as_slice());
+        assert_eq!(delete_outcome(del_not_found), Ok(Outcome::Gone));
+
+        // Delete can't be deleted -> Gone
+        let cant_delete = read_reply(400, &mut br#"{"ok":false,"error_code":400,"description":"Bad Request: message can't be deleted"}"#.as_slice());
+        assert_eq!(delete_outcome(cant_delete), Ok(Outcome::Gone));
+
+        // Delete other error -> Err
+        let del_unauthorized = read_reply(401, &mut br#"{"ok":false,"error_code":401,"description":"Unauthorized"}"#.as_slice());
+        assert_eq!(delete_outcome(del_unauthorized), Err("Telegram не приймає токен бота".to_string()));
     }
 
     #[test]

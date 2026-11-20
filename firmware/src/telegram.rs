@@ -12,19 +12,61 @@ use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
 use power_core::json::Count;
 use power_core::settings::{Bot, BotToken, Destination};
 use power_core::telegram::{self, Chat};
+pub use power_core::telegram::Outcome;
 
 /// Pieces a body is written and a reply is read in.
 const PIECE: usize = 256;
 
 type HttpClient = Client<EspHttpConnection>;
 
-pub fn send(bot: &Bot, text: &str) -> Result<(), String> {
+pub fn send(bot: &Bot, text: &str) -> Result<i64, String> {
     send_to(bot.token(), bot.destination(), text)
 }
 
-pub fn send_to(token: &BotToken, to: Destination, text: &str) -> Result<(), String> {
-    let body = |out: &mut dyn fmt::Write| telegram::write_send_message(to, text, &mut Dyn(out));
-    post(&telegram::send_message_url(token), body).map(|_| ())
+#[allow(dead_code)]
+pub fn send_with(bot: &Bot, write_text: impl Fn(&mut dyn fmt::Write) -> fmt::Result) -> Result<i64, String> {
+    send_to_with(bot.token(), bot.destination(), write_text)
+}
+
+pub fn send_to(token: &BotToken, to: Destination, text: &str) -> Result<i64, String> {
+    send_to_with(token, to, |out| out.write_str(text))
+}
+
+pub fn send_to_with(
+    token: &BotToken,
+    to: Destination,
+    write_text: impl Fn(&mut dyn fmt::Write) -> fmt::Result,
+) -> Result<i64, String> {
+    let body = |out: &mut dyn fmt::Write| telegram::write_send_message_with(to, &write_text, &mut Dyn(out));
+    let reply = post(&telegram::send_message_url(token), body)?;
+    telegram::message_id(&reply)
+}
+
+#[allow(dead_code)]
+pub fn edit(bot: &Bot, message_id: i64, text: &str) -> Result<Outcome, String> {
+    edit_with(bot, message_id, |out| out.write_str(text))
+}
+
+#[allow(dead_code)]
+pub fn edit_with(
+    bot: &Bot,
+    message_id: i64,
+    write_text: impl Fn(&mut dyn fmt::Write) -> fmt::Result,
+) -> Result<Outcome, String> {
+    let body = |out: &mut dyn fmt::Write| {
+        telegram::write_edit_message_with(bot.destination(), message_id, &write_text, &mut Dyn(out))
+    };
+    let reply = post(&telegram::edit_message_url(bot.token()), body);
+    telegram::edit_outcome(reply)
+}
+
+#[allow(dead_code)]
+pub fn delete(bot: &Bot, message_id: i64) -> Result<Outcome, String> {
+    let body = |out: &mut dyn fmt::Write| {
+        telegram::write_delete_message(bot.destination(), message_id, &mut Dyn(out))
+    };
+    let reply = post(&telegram::delete_message_url(bot.token()), body);
+    telegram::delete_outcome(reply)
 }
 
 /// The bot's `@username`, proving the token works.

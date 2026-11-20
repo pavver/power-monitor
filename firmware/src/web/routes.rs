@@ -49,7 +49,7 @@ impl Device {
             voltage_mv: self.voltmeter.battery_mv(),
             local: crate::clock::local(),
         };
-        telegram::send(bot, &self.settings.with_messages(|messages| test_text(messages, readings)))
+        telegram::send(bot, &self.settings.with_messages(|messages| test_text(messages, readings))).map(|_| ())
     }
 }
 
