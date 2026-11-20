@@ -21,5 +21,6 @@ pub mod jk;
 pub mod adc;
 pub mod remote;
 pub mod clock;
+pub mod texts;
 #[cfg(test)]
 mod jk_frames;
