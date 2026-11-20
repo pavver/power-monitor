@@ -15,4 +15,5 @@ operator-ui = { git = "https://github.com/pavver/operator-design-system", rev = 
     "action-button",
     "icon-button",
     "text-field",
+    "list-item",
 ] }

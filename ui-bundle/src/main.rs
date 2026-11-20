@@ -16,7 +16,7 @@ use operator_ui::tokens::{Icon as IconData, dim, icons, motion};
 /// Every component the page uses: its Cargo feature (in Cargo.toml) and a
 /// class only its markup has. A component the page does not use fails the
 /// build, so its CSS never reaches the flash.
-const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field")];
+const COMPONENTS: &[(&str, &str)] = &[("action-button", "op-btn"), ("icon-button", "op-icon-btn"), ("text-field", "op-field"), ("list-item", "op-list-row")];
 
 /// The icons the page draws, by the name its script uses.
 const ICONS: &[(&str, IconData)] = &[
@@ -41,6 +41,20 @@ fn templates() -> Vec<(&'static str, String)> {
             view! { <ActionButton text=Signal::stored("-".to_string()) on_click=no_op()/> }.to_html(),
         ),
         ("pending", view! { <PendingIndicator/> }.to_html()),
+        (
+            // Every slot filled: the page drops the ones a row does not have.
+            "list-item",
+            view! {
+                <ListItem
+                    title="-"
+                    subtitle=Signal::stored("-".to_string())
+                    leading=ViewFn::from(|| view! { <i></i> })
+                    trailing=ViewFn::from(|| view! { <i></i> })
+                    on_click=Callback::new(|()| ())
+                />
+            }
+            .to_html(),
+        ),
         (
             "text-field",
             view! { <TextField value=RwSignal::new(String::new()) placeholder="" password=true show_reveal=true/> }.to_html(),

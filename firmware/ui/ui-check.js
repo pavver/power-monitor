@@ -241,7 +241,7 @@ function route(page, dev) {
 
 const BMS_READING = {
   age_s: 1, cells_mv: [3327, 3329, 3331, 3330],
-  values: { bms_soc: "85", bms_voltage: "53.22", bms_current: "-1.5", bms_power: "-80", bms_remaining: "42.8",
+  values: { bms_soc: "85", bms_voltage: "53.22", bms_energy: "4.28", bms_current: "-1.5", bms_power: "-80", bms_remaining: "42.8",
     bms_capacity: "50.0", bms_cycles: "3", bms_cell_min: "3.327", bms_cell_max: "3.331", bms_cell_delta: "0.004",
     bms_temp1: "20.7", bms_temp2: "20.7", bms_mosfet: "23.4", bms_charging: "так", bms_discharging: "ні" },
 };
@@ -287,14 +287,14 @@ async function runBms() {
   // The button spins for the whole search, not just for the request.
   await page.waitForTimeout(1000);
   const scanButton = await page.$eval("#bms-scan-btn", n => n.dataset.state);
-  await page.waitForSelector("#bms-found .item button", { timeout: 6000 });
+  await page.waitForSelector("#bms-found .op-list-row button", { timeout: 6000 });
   await page.screenshot({ path: OUT + "/bms-0-found.png" });
-  await page.click("#bms-found .item button");
+  await page.click("#bms-found .op-list-row button");
   await page.waitForFunction(() => document.getElementById("bms-head").textContent.includes("85%"), null, { timeout: 6000 });
   const shown = await page.$eval("#bms-values", n => n.textContent);
-  await page.click("#bms-values .item >> nth=0");
+  await page.click("#bms-values .op-list-row >> nth=0");
   const copied = await page.evaluate(() => window.copied);
-  const copiedNote = await page.$eval("#bms-values .item", n => n.textContent);
+  const copiedNote = await page.$eval("#bms-values .op-list-row", n => n.textContent);
   const noise = await page.evaluate(() => [document.getElementById("divider-value").textContent.includes("шум"),
     !document.getElementById("divider-noise").classList.contains("hidden")]);
   await page.screenshot({ path: OUT + "/bms-1-live.png", fullPage: true });
@@ -328,6 +328,14 @@ async function runMessages() {
   await page.waitForFunction(() => document.getElementById("status-preview").textContent.length > 0, null, { timeout: 5000 });
   const statusPreview = await page.$eval("#status-preview", n => n.textContent);
   const statusEvery = await page.inputValue("#status-every");
+  // TextField: SAVE only while the value differs, and no empty trailing gap.
+  const saveHidden = !await page.isVisible("#device-save");
+  await page.fill("#m-device_name", "Дім 2");
+  const saveShown = await page.isVisible("#device-save");
+  const saveFlush = await page.$eval("#device-field", f => Math.abs(f.getBoundingClientRect().right - f.querySelector(".op-field-save-slot").getBoundingClientRect().right) < 1);
+  await page.fill("#m-device_name", "Дім");
+  const saveGone = !await page.isVisible("#device-save");
+  const fieldSave = {saveHidden, saveShown, saveFlush, saveGone};
   await page.fill("#status-every", "120");
   await page.click("#status-bottom"); // toggles to false
   await page.click("#status-save");
@@ -338,11 +346,11 @@ async function runMessages() {
   await page.waitForFunction(() => document.getElementById("status-test").dataset.state === "success", null, { timeout: 3000 });
 
   // 2. Templates list renders standard templates
-  await page.waitForSelector("#templates-list .item");
-  const templateRows = await page.$$eval("#templates-list .item", n => n.map(r => r.querySelector(".t").textContent));
+  await page.waitForSelector("#templates-list .op-list-row");
+  const templateRows = await page.$$eval("#templates-list .op-list-row", n => n.map(r => r.querySelector(".op-list-title").textContent));
 
   // 3. Open template editor for "svitlo"
-  await page.click('#templates-list .item:has-text("svitlo")');
+  await page.click('#templates-list .op-list-row:has-text("svitlo")');
   await page.waitForSelector("#s-text.on");
   const nameReadonly = await page.$eval("#t-name", n => n.readOnly);
 
@@ -379,7 +387,7 @@ async function runMessages() {
   await page.waitForSelector("#s-dashboard.on");
 
   // 7. Automations list renders and new automation saves
-  const autoRows = await page.$$eval("#automations-list .item", n => n.map(r => r.querySelector(".t").textContent));
+  const autoRows = await page.$$eval("#automations-list .op-list-row", n => n.map(r => r.querySelector(".op-list-title").textContent));
   // The important-sensor picker: current values at the row ends, and the
   // list scrolls under the finger instead of closing.
   await page.click("#imp-pick + .dd");
@@ -410,7 +418,7 @@ async function runMessages() {
   await page.click("#a-save");
   await page.waitForSelector("#s-dashboard.on");
   await page.waitForTimeout(500);
-  const autoRowsAfter = await page.$$eval("#automations-list .item", n => n.map(r => r.querySelector(".t").textContent));
+  const autoRowsAfter = await page.$$eval("#automations-list .op-list-row", n => n.map(r => r.querySelector(".op-list-title").textContent));
 
   // 8. Screenshots in both themes
   // Light theme
@@ -424,14 +432,14 @@ async function runMessages() {
   await page.screenshot({ path: OUT + "/messages-1-dark.png" });
 
   // Open template in dark theme
-  await page.click('#templates-list .item:has-text("svitlo")');
+  await page.click('#templates-list .op-list-row:has-text("svitlo")');
   await page.waitForSelector("#s-text.on");
   await page.screenshot({ path: OUT + "/messages-2-template-dark.png", fullPage: true });
 
   // Open automation in dark theme
   await page.click("#back");
   await page.waitForSelector("#s-dashboard.on");
-  await page.click("#automations-list .item >> nth=0");
+  await page.click("#automations-list .op-list-row >> nth=0");
   await page.waitForSelector("#s-automation.on");
   await page.screenshot({ path: OUT + "/messages-3-automation-dark.png", fullPage: true });
 
@@ -439,6 +447,7 @@ async function runMessages() {
 
   const ok = errors.length === 0
     && statusPreview.includes("Дім")
+    && Object.values(fieldSave).every(Boolean)
     && statusEvery === "300"
     && dev.statusSaved && dev.statusSaved.every === 120 && dev.statusSaved.bottom === false
     && dev.testSent === true
@@ -457,7 +466,7 @@ async function runMessages() {
 
   if (!ok) process.exitCode = 1;
   console.log((ok ? "PASS " : "FAIL ") + "messages", JSON.stringify({
-    statusPreview, devStatus: dev.statusSaved, testSent: dev.testSent,
+    statusPreview, fieldSave, devStatus: dev.statusSaved, testSent: dev.testSent,
     templateRows: templateRows.length, nameReadonly, litVars, litCond,
     badPreviewText, flagged, badSaveMsg, deleteInUseMsg,
     autoRows: autoRows.length, autoRowsAfter: autoRowsAfter.length,
@@ -520,10 +529,10 @@ async function runBot() {
   await page.goto("http://192.168.1.50/");
   await page.fill("#token", "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw");
   await page.click("#token-btn");
-  await page.waitForSelector("#chats .item");
-  const kinds = await page.$$eval("#chats .item .s", nodes => nodes.map(n => n.textContent));
+  await page.waitForSelector("#chats .op-list-row");
+  const kinds = await page.$$eval("#chats .op-list-row .op-list-subtitle", nodes => nodes.map(n => n.textContent));
   await page.screenshot({ path: OUT + "/topic-0-chats.png" });
-  await page.click("#chats .item >> nth=0 >> button");
+  await page.click("#chats .op-list-row >> nth=0 >> button");
   await page.waitForFunction(() => document.querySelector("section.on").id === "s-dashboard", null, { timeout: 5000 });
   await browser.close();
   const ok = errors.length === 0 && dev.saved && dev.saved.chat_id === "-500" && dev.saved.thread_id === "7"
@@ -541,8 +550,8 @@ async function run(scenario) {
   await route(page, dev);
   // Through the captive portal the page lives on the setup address.
   await page.goto(scenario.portal ? "http://192.168.71.1/" : "http://192.168.1.50/");
-  await page.waitForSelector("#networks button");
-  await page.click("#networks button >> nth=0");
+  await page.waitForSelector("#networks .op-list-row");
+  await page.click("#networks .op-list-row >> nth=0");
   await page.fill("#join-pass", scenario.password);
   await page.screenshot({ path: OUT + "/" + scenario.name + "-0-picked.png" });
   await page.click("#join-btn");
