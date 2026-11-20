@@ -8,7 +8,6 @@ use esp_idf_svc::http::server::EspHttpServer;
 use power_core::api::Link;
 use power_core::auth::{expired_cookie, NewPassword, PasswordHash};
 use power_core::form;
-use power_core::message::{preview, Readings};
 use power_core::remote::RemoteSettings;
 use power_core::settings::{Battery, Bot, Divider, WifiCredentials};
 
@@ -122,23 +121,6 @@ pub(super) fn bot(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> any
     post_text(server, auth, "/api/messages", move |query, text| {
         dev.settings.save_message_field(query, text).map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
         json(&"saved")
-    })?;
-
-    // `?field=<key>`: the standard wording and the values one text may use.
-    post_text(server, auth, "/api/messages/about", |query, _| {
-        json(&power_core::settings::about(query).ok_or("Невідомий текст.")?)
-    })?;
-
-    // The page asks while a text is edited, so the device's own rules fill it.
-    let dev = d.clone();
-    post_text(server, auth, "/api/messages/preview", move |query, template| {
-        let reading = dev.bms.last_reading();
-        let readings = Readings {
-            bms: reading.as_ref(),
-            voltage_mv: dev.voltmeter.battery_mv(),
-            local: crate::clock::local(),
-        };
-        json(&preview(query, template, readings)?)
     })?;
 
     let dev = d.clone();

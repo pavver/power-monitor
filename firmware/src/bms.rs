@@ -117,11 +117,6 @@ impl Bms {
         (at.elapsed() <= max_age).then(|| reading.clone())
     }
 
-    /// The last values read, however old; does not bring the link up.
-    pub fn last_reading(&self) -> Option<Reading> {
-        self.lock().reading.as_ref().map(|(_, reading)| reading.clone())
-    }
-
     /// The saved BMS changed: what was read belongs to the old one. The
     /// link shows what comes next, not what the old session still holds.
     pub fn forget(&self) {

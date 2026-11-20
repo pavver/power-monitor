@@ -2,9 +2,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use power_core::json::Count;
-use power_core::settings::{Destination, Messages, Text};
+use power_core::settings::Destination;
 use power_core::telegram::{read_chats, write_send_message};
-use power_core::template;
 
 struct TrackingAllocator;
 
@@ -138,13 +137,11 @@ fn memory_benchmarks() {
     eprintln!("write_send_message into String peak: {peak_str} B");
     assert_eq!(peak_str, 0, "write_send_message into String allocated {peak_str} B");
 
-    // 3. template::render_to of longest default template (StillOff)
-    let messages = Messages::default();
-    let template = messages.template(Text::StillOff);
+    // 3. autotext::template::render_to of default template ("status")
+    let template = power_core::texts::default_templates().into_iter().find(|(k, _)| *k == "status").unwrap().1;
     let values = [
         ("device", Some("Дім")),
-        ("duration", Some("2 год 15 хв")),
-        ("delay", Some("5 хв")),
+        ("mains", Some("on")),
         ("bms_soc", Some("84")),
         ("bms_voltage", Some("52.4")),
         ("bms_energy", Some("1.23")),
@@ -152,7 +149,7 @@ fn memory_benchmarks() {
     ];
     let mut rendered = String::with_capacity(1024);
     let (_, peak_render) = peak_during(|| {
-        template::render_to(template, &values, &mut rendered).unwrap();
+        autotext::template::render_to(template, &values, &mut rendered).unwrap();
     });
     eprintln!("template::render_to peak: {peak_render} B");
     assert_eq!(peak_render, 0, "template::render_to allocated {peak_render} B");

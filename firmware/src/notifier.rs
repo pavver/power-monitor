@@ -124,7 +124,6 @@ impl Notifier {
                 }
             }
             Notice::Address(ip) => self.ip = Some(ip),
-            Notice::StillOff(_) => {}
         }
     }
 

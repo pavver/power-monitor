@@ -6,10 +6,9 @@ use std::fmt;
 use serde::Serialize;
 
 use crate::form;
-use crate::template::TemplateError;
 
 mod messages;
-pub use messages::{about, About, Messages, Text};
+pub use messages::Messages;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsError {
@@ -19,8 +18,6 @@ pub enum SettingsError {
     ChatId,
     ThreadId,
     DeviceName,
-    StillOffEvery,
-    Text(Text, TemplateError),
     BmsAddress,
     Divider,
     UnknownField,
@@ -39,10 +36,6 @@ impl fmt::Display for SettingsError {
             SettingsError::ChatId => f.write_str("Chat ID має бути цілим числом."),
             SettingsError::ThreadId => f.write_str("Номер гілки форуму має бути додатним цілим числом."),
             SettingsError::DeviceName => f.write_str("Назва пристрою має бути від 1 до 32 символів."),
-            SettingsError::StillOffEvery => {
-                f.write_str("Нагадування «Світла все ще немає» — ціле число хвилин від 1 до 1440.")
-            }
-            SettingsError::Text(text, error) => write!(f, "{}: {error}.", text.label()),
             SettingsError::BmsAddress => f.write_str("Адреса BMS має вигляд AA:BB:CC:DD:EE:FF."),
             SettingsError::Divider => {
                 f.write_str("Опір резисторів — ціле число ом від 1 до 100 000 000, наприклад 330000 і 10000.")
@@ -414,7 +407,6 @@ mod tests {
             (SettingsError::ChatId, "Chat ID має бути цілим числом."),
             (SettingsError::ThreadId, "Номер гілки форуму має бути додатним цілим числом."),
             (SettingsError::DeviceName, "Назва пристрою має бути від 1 до 32 символів."),
-            (SettingsError::StillOffEvery, "Нагадування «Світла все ще немає» — ціле число хвилин від 1 до 1440."),
             (SettingsError::BmsAddress, "Адреса BMS має вигляд AA:BB:CC:DD:EE:FF."),
             (
                 SettingsError::Divider,

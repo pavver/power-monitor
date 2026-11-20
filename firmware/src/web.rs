@@ -14,7 +14,7 @@ use embedded_svc::io::{Read, Write};
 use esp_idf_svc::http::server::{Configuration, EspHttpConnection, EspHttpServer, Request};
 use power_core::auth::Sessions;
 use power_core::form;
-use power_core::template;
+use autotext::template;
 use power_core::portal::redirect_target;
 use power_core::settings::BotToken;
 use serde::Serialize;
