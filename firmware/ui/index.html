@@ -1880,7 +1880,8 @@ setInterval(() => { if (!joining) refreshState(); }, 3000);
 setInterval(refreshNetworks, 5000);
 setInterval(refreshChats, 4000);
 setInterval(refreshBms, 3000);
-setInterval(() => { if (!joining && view === "dashboard") { refreshTexts(); refreshClock(); } }, 5000);
+// Texts change only when saved here (each save reloads them); the clock shows minutes.
+setInterval(() => { if (!joining && view === "dashboard") refreshClock(); }, 60000);
 </script>
 </body>
 </html>
