@@ -101,6 +101,7 @@ pub fn start(
     routes::bot(&mut server, &auth, &device)?;
     routes::battery(&mut server, &auth, &device)?;
     routes::remote(&mut server, &auth, &device)?;
+    routes::clock(&mut server, &auth, &device)?;
     routes::access(&mut server, &auth, &device)?;
 
     // Connectivity probes (generate_204, hotspot-detect.html, …) land here.

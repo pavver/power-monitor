@@ -44,7 +44,11 @@ impl Device {
     /// Sends the test message to `bot`, with the battery as it is now.
     fn send_test(&self, bot: &Bot) -> Result<(), String> {
         let reading = self.bms.recent_reading(BMS_MAX_AGE);
-        let readings = Readings { bms: reading.as_ref(), voltage_mv: self.voltmeter.battery_mv() };
+        let readings = Readings {
+            bms: reading.as_ref(),
+            voltage_mv: self.voltmeter.battery_mv(),
+            local: crate::clock::local(),
+        };
         telegram::send(bot, &self.settings.with_messages(|messages| test_text(messages, readings)))
     }
 }
@@ -115,7 +119,12 @@ pub(super) fn bot(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> any
     let dev = d.clone();
     post_text(server, auth, "/api/messages/preview", move |query, template| {
         let reading = dev.bms.last_reading();
-        json(&preview(query, template, Readings { bms: reading.as_ref(), voltage_mv: dev.voltmeter.battery_mv() })?)
+        let readings = Readings {
+            bms: reading.as_ref(),
+            voltage_mv: dev.voltmeter.battery_mv(),
+            local: crate::clock::local(),
+        };
+        json(&preview(query, template, readings)?)
     })?;
 
     let dev = d.clone();
@@ -253,4 +262,35 @@ pub(super) fn access(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> 
         respond(req, reply)
     })?;
     Ok(())
+}
+
+/// Time zone and wall-clock time.
+pub(super) fn clock(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> anyhow::Result<()> {
+    let dev = d.clone();
+    get(server, auth, "/api/clock", move || {
+        let tz = dev.settings.time_zone();
+        let local = crate::clock::local();
+        let time = local.as_ref().map(power_core::clock::Local::time);
+        let date = local.as_ref().map(power_core::clock::Local::date);
+        json(&serde_json::json!({
+            "tz": tz.as_str(),
+            "time": time,
+            "date": date,
+        }))
+    })?;
+
+    let dev = d.clone();
+    post(server, auth, "/api/clock", move |body| {
+        let fields;
+        let text = if body.starts_with("tz=") {
+            fields = form::parse(body);
+            form::field(&fields, "tz")
+        } else {
+            body
+        };
+        let tz = power_core::clock::TimeZone::parse(text).map_err(|e| e.to_string())?;
+        dev.settings.save_time_zone(tz.clone()).map_err(|e| e.to_string())?;
+        crate::clock::apply(&tz);
+        json(&"saved")
+    })
 }

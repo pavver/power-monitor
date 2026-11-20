@@ -298,6 +298,7 @@ impl Radio {
         log::info!("wifi connected to {ssid}, ip {ip}");
         self.report_if_new(&ip);
         self.status.set_link(Link::Connected { ssid, ip });
+        crate::clock::start_sntp();
         Ok(())
     }
 

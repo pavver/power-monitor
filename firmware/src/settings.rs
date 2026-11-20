@@ -8,6 +8,7 @@ use std::sync::{Mutex, RwLock};
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
+use power_core::clock::TimeZone;
 use power_core::power::PowerState;
 use power_core::remote::{Identity, RemoteSettings};
 use power_core::settings::{Battery, Bot, Divider, Messages, SettingsError, WifiCredentials};
@@ -25,6 +26,7 @@ const BLUETOOTH_ONCE: &str = "bt_once";
 const RESUME_POWER: &str = "resume_power";
 const BATTERY: &str = "bms";
 const DIVIDER: &str = "divider";
+const TZ: &str = "tz";
 const REMOTE: &str = "remote";
 const IDENTITY: &str = "remote_id";
 /// `REMOTE_SERVER=https://… cargo build` makes new devices call that
@@ -44,6 +46,7 @@ pub struct Settings {
     last_ip: RwLock<Option<String>>,
     battery: RwLock<Option<Battery>>,
     divider: RwLock<Option<Divider>>,
+    time_zone: RwLock<TimeZone>,
     remote: RwLock<RemoteSettings>,
 }
 
@@ -60,6 +63,7 @@ impl Settings {
         let battery = read(&nvs, BATTERY, Battery::from_form);
         let stored = read(&nvs, DIVIDER, |s| Ok::<_, ()>(s.to_string()));
         let divider = Divider::from_stored(stored.as_deref(), built_in_divider());
+        let time_zone = read(&nvs, TZ, TimeZone::parse).unwrap_or_default();
         let remote = read(&nvs, REMOTE, RemoteSettings::from_form).unwrap_or_else(built_in_remote);
         Ok(Self {
             nvs: Mutex::new(nvs),
@@ -71,6 +75,7 @@ impl Settings {
             last_ip: RwLock::new(last_ip),
             battery: RwLock::new(battery),
             divider: RwLock::new(divider),
+            time_zone: RwLock::new(time_zone),
             remote: RwLock::new(remote),
         })
     }
@@ -177,6 +182,17 @@ impl Settings {
 
     pub fn remote(&self) -> RemoteSettings {
         self.remote.read().unwrap().clone()
+    }
+
+    pub fn time_zone(&self) -> TimeZone {
+        self.time_zone.read().unwrap().clone()
+    }
+
+    pub fn save_time_zone(&self, tz: TimeZone) -> anyhow::Result<()> {
+        self.write(TZ, tz.as_str())?;
+        crate::clock::apply(&tz);
+        *self.time_zone.write().unwrap() = tz;
+        Ok(())
     }
 
     pub fn save_remote(&self, remote: RemoteSettings) -> anyhow::Result<()> {

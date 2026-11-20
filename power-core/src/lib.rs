@@ -20,5 +20,6 @@ pub mod radio;
 pub mod jk;
 pub mod adc;
 pub mod remote;
+pub mod clock;
 #[cfg(test)]
 mod jk_frames;

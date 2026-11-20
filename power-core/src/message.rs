@@ -1,5 +1,6 @@
 //! Telegram message texts.
 
+use crate::clock;
 use crate::form;
 use crate::jk::{self, Reading};
 use crate::power::{Before, PowerEvent, PowerState};
@@ -37,10 +38,11 @@ pub struct Readings<'a> {
     pub bms: Option<&'a Reading>,
     /// Battery voltage through the divider.
     pub voltage_mv: Option<u32>,
+    pub local: Option<clock::Local>,
 }
 
 impl Readings<'_> {
-    pub const NONE: Self = Readings { bms: None, voltage_mv: None };
+    pub const NONE: Self = Readings { bms: None, voltage_mv: None, local: None };
 }
 
 /// The message for `event`, written at monotonic time `now_ms`.
@@ -86,8 +88,15 @@ pub fn preview(query: &str, template: &str, readings: Readings) -> Result<String
 /// `template` with every value put in; a `None` one was not measured.
 fn fill(template: &str, device: &str, own: &[(&str, Option<&str>)], readings: Readings) -> String {
     let voltage = readings.voltage_mv.map(|mv| format!("{:.2}", f64::from(mv) / 1e3));
+    let time = readings.local.map(|l| l.time());
+    let date = readings.local.map(|l| l.date());
     let battery = readings.bms.map(Reading::values);
-    let mut values = vec![("device", Some(device)), (template::BATTERY_VOLTAGE, voltage.as_deref())];
+    let mut values = vec![
+        ("device", Some(device)),
+        (clock::TIME, time.as_deref()),
+        (clock::DATE, date.as_deref()),
+        (template::BATTERY_VOLTAGE, voltage.as_deref()),
+    ];
     values.extend_from_slice(own);
     match &battery {
         Some(battery) => values.extend(battery.iter().map(|(name, value)| (*name, Some(value.as_str())))),
@@ -453,7 +462,7 @@ mod tests {
     #[test]
     fn default_texts_show_the_bms_or_else_the_divider() {
         let lost = event(Absent, Some(5 * MIN));
-        let both = Readings { bms: Some(&reading()), voltage_mv: Some(52_020) };
+        let both = Readings { bms: Some(&reading()), voltage_mv: Some(52_020), ..Readings::NONE };
         let divider = Readings { voltage_mv: Some(52_020), ..Readings::NONE };
         let text = |readings| event_text(&Messages::default(), &lost, 10 * SEC, readings);
         assert_eq!(text(both), "🔌 Дім: світло зникло.\nБуло 5 хв.\n🔋 84% · 13.28 В · 1.12 кВт·год");
@@ -498,5 +507,18 @@ mod tests {
     fn delivery_within_a_minute_is_not_late() {
         let text = event_text(&Messages::default(), &event(Present, None), 10 * SEC + LATE_AFTER_MS - 1, Readings::NONE);
         assert!(!text.contains("тому"), "{text}");
+    }
+
+    #[test]
+    fn time_and_date_are_rendered_or_shrugged_or_hidden() {
+        let template = "{device}: {time} {date}{time? (о {time})}{!time? (час невідомий)}";
+        let local = clock::Local::new(2026, 11, 20, 8, 5);
+        let known = Readings { local: Some(local), ..Readings::NONE };
+        let text_known = fill(template, "Дім", &[], known);
+        assert_eq!(text_known, "Дім: 08:05 20.11.2026 (о 08:05)");
+
+        let unknown = Readings::NONE;
+        let text_unknown = fill(template, "Дім", &[], unknown);
+        assert_eq!(text_unknown, "Дім: 🤷‍♂️ 🤷‍♂️ (час невідомий)");
     }
 }

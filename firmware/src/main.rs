@@ -5,6 +5,7 @@
 //! the same page is a dashboard.
 
 mod bms;
+mod clock;
 mod network;
 mod notifier;
 mod ota;
@@ -46,6 +47,7 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
     let settings = Arc::new(Settings::load(nvs.clone())?);
+    clock::apply(&settings.time_zone());
     count_quick_boot(&settings)?;
     let status = Arc::new(Status::new(ota::running()));
     status.set_telegram(if settings.bot().is_some() { "очікує подій" } else { "бот не налаштовано" });

@@ -23,7 +23,7 @@ pub const OWN: [&str; 3] = ["duration", "delay", "ip"];
 /// Checks a template for a text that has the `own` values of `OWN`.
 pub fn validate(template: &str, own: &[&str]) -> Result<(), TemplateError> {
     autotext::template::validate(template, &|name| match name {
-        "device" | BATTERY_VOLTAGE => None,
+        "device" | BATTERY_VOLTAGE | crate::clock::TIME | crate::clock::DATE => None,
         name if jk::VARIABLES.contains(&name) || own.contains(&name) => None,
         name => match OWN.into_iter().find(|&other| other == name) {
             Some(other) => Some(TemplateError::NotHere(other)),
@@ -62,7 +62,7 @@ mod tests {
     fn checks_names_of_negated_sections() {
         assert_eq!(validate("{!bms_soc?{battery_voltage} В}", &[]), Ok(()));
         assert_eq!(validate("{!duration?a}", &[]), Err(TemplateError::NotHere("duration")));
-        assert_eq!(validate("{!time?a}", CHANGE), Err(TemplateError::Unknown));
+        assert_eq!(validate("{!foo?a}", CHANGE), Err(TemplateError::Unknown));
         assert_eq!(validate("{!device?a", CHANGE), Err(TemplateError::Unclosed));
         assert!(uses_bms("{!bms_soc?нема BMS}"));
     }
@@ -72,8 +72,8 @@ mod tests {
         assert_eq!(validate("{duration?Не було {duration}.}", CHANGE), Ok(()));
         assert_eq!(validate("{bms_soc?{bms_soc}%}", &[]), Ok(()));
         assert_eq!(validate("{duration?a}", &[]), Err(TemplateError::NotHere("duration")));
-        assert_eq!(validate("{device?{time}}", CHANGE), Err(TemplateError::Unknown));
-        assert_eq!(validate("{time?a}", CHANGE), Err(TemplateError::Unknown));
+        assert_eq!(validate("{device?{foo}}", CHANGE), Err(TemplateError::Unknown));
+        assert_eq!(validate("{foo?a}", CHANGE), Err(TemplateError::Unknown));
     }
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn accepts_known_placeholders() {
-        assert_eq!(validate("⚡ {device}: світло є", &[]), Ok(()));
+        assert_eq!(validate("⚡ {device}: світло є о {time} {date}", &[]), Ok(()));
         assert_eq!(validate("Не було {duration} на {device}", CHANGE), Ok(()));
         assert_eq!(validate("{ просто дужки }", &[]), Ok(()));
     }
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_placeholders() {
-        assert_eq!(validate("{time}", CHANGE), Err(TemplateError::Unknown));
+        assert_eq!(validate("{foo}", CHANGE), Err(TemplateError::Unknown));
         assert_eq!(validate("{Device}", CHANGE), Err(TemplateError::Unknown));
     }
 }

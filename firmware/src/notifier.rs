@@ -89,7 +89,11 @@ fn deliver_next(
     } else {
         None
     };
-    let readings = Readings { bms: battery.as_ref(), voltage_mv: voltmeter.battery_mv() };
+    let readings = Readings {
+        bms: battery.as_ref(),
+        voltage_mv: voltmeter.battery_mv(),
+        local: crate::clock::local(),
+    };
     let Some(text) = settings.with_messages(|messages| notice_text(messages, notice, now_ms(), readings)) else {
         // Its text is empty: the user turned this message off.
         outbox.delivered();

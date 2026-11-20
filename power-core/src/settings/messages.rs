@@ -100,7 +100,7 @@ pub struct About {
 pub fn about(query: &str) -> Option<About> {
     let fields = form::parse(query);
     let text = Text::ALL.into_iter().find(|text| text.key() == form::field(&fields, "field"))?;
-    let mut variables = vec!["device"];
+    let mut variables = vec!["device", crate::clock::TIME, crate::clock::DATE];
     variables.extend_from_slice(text.own());
     variables.push(template::BATTERY_VOLTAGE);
     variables.extend(jk::VARIABLES);
@@ -253,6 +253,8 @@ mod tests {
             lost.variables,
             [
                 "device",
+                "time",
+                "date",
                 "duration",
                 "delay",
                 "battery_voltage",
@@ -263,8 +265,8 @@ mod tests {
                 "bms_power"
             ]
         );
-        assert_eq!(about("field=address").unwrap().variables[..2], ["device", "ip"]);
-        assert_eq!(about("field=test").unwrap().variables[..2], ["device", "battery_voltage"]);
+        assert_eq!(about("field=address").unwrap().variables[..4], ["device", "time", "date", "ip"]);
+        assert_eq!(about("field=test").unwrap().variables[..4], ["device", "time", "date", "battery_voltage"]);
         assert_eq!(about("field=device_name"), None);
     }
 
