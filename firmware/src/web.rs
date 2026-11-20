@@ -104,6 +104,16 @@ pub fn start(
     routes::remote(&mut server, &auth, &device)?;
     routes::clock(&mut server, &auth, &device)?;
     routes::access(&mut server, &auth, &device)?;
+    #[cfg(mock_mains)]
+    post(&mut server, &auth, "/api/mock/mains", |body| {
+        let present = match body.trim() {
+            "on" => true,
+            "off" => false,
+            _ => return Err("on або off".into()),
+        };
+        crate::sensor::mock::PRESENT.store(present, std::sync::atomic::Ordering::Relaxed);
+        json(&body.trim())
+    })?;
 
     // Connectivity probes (generate_204, hotspot-detect.html, …) land here.
     server.fn_handler::<anyhow::Error, _>("/*", Method::Get, |req| {

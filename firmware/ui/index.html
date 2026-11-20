@@ -32,7 +32,16 @@
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--background);color:var(--text);
   font:400 calc(var(--tu)*14)/calc(var(--tu)*18) "Operator Mono","Cascadia Code","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-button,input,textarea{font-family:inherit}
+button,input,textarea,select{font-family:inherit}
+.field select{flex:1;min-width:0;height:calc(var(--du)*10);border:0;background:none;color:var(--text);font-size:calc(var(--tu)*14);line-height:calc(var(--tu)*18);font-weight:500;padding:0 calc(var(--du)*3);outline:0;cursor:pointer}
+select option{background:var(--surface);color:var(--text)}
+.checkrow{display:flex;align-items:center;gap:calc(var(--du)*2);margin-top:calc(var(--du)*2);cursor:pointer}
+.checkrow input[type=checkbox]{accent-color:var(--accent);width:calc(var(--du)*4.5);height:calc(var(--du)*4.5);margin:0;cursor:pointer}
+.sec-head{display:flex;align-items:center;justify-content:space-between;margin-top:calc(var(--du)*4);margin-bottom:calc(var(--du)*1)}
+.sec-head h2{margin:0;font-size:calc(var(--tu)*16);line-height:calc(var(--tu)*20)}
+.cond-row{display:flex;align-items:center;gap:calc(var(--du)*2)}
+.cond-row .field{flex:1}
+.cond-row .btn{min-width:calc(var(--du)*10);padding:0 calc(var(--du)*2)}
 .ic{width:calc(var(--du)*4);height:calc(var(--du)*4);fill:currentColor;flex:none;display:block}
 
 /* OperatorHeader */
@@ -391,8 +400,47 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
     <div class="field" data-field id="device-field"><input id="m-device_name" maxlength="32" autocomplete="off">
       <button class="btn" type="button" id="device-save">Зберегти</button></div>
     <div class="msg" id="device-msg"></div>
-    <p class="small muted">Натисніть повідомлення, щоб змінити його текст. Порожній текст вимикає повідомлення.</p>
-    <div class="list" id="texts"></div>
+
+    <div class="sec-head"><h2>Статус</h2></div>
+    <p class="small muted">Живе повідомлення в Telegram, яке постійно оновлюється.</p>
+    <label class="cap">Вигляд статусу в Telegram</label>
+    <div class="preview" id="status-preview"></div>
+    <form id="status-form" style="margin-top:calc(var(--du)*2)">
+      <label class="cap" for="status-every">Період оновлення статусу, с (10..86400)<span id="status-every-hint" class="muted"></span></label>
+      <div class="field" data-field id="status-every-field">
+        <input id="status-every" type="number" min="10" max="86400" inputmode="numeric">
+      </div>
+      <label class="checkrow">
+        <input id="status-bottom" type="checkbox">
+        <span>Тримати внизу чату</span>
+      </label>
+      <label class="cap" style="margin-top:calc(var(--du)*3)">Важливі датчики (оновлюють статус одразу)</label>
+      <div id="status-important">
+        <label class="checkrow">
+          <input id="imp-mains" type="checkbox" value="mains">
+          <span>Мережа 220 В (mains)</span>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button" id="status-save">Зберегти налаштування</button>
+        <button class="btn" type="button" id="status-test">Надіслати тест</button>
+      </div>
+      <div class="msg" id="status-msg"></div>
+    </form>
+
+    <div class="sec-head">
+      <h2>Шаблони</h2>
+      <button class="btn" type="button" id="tmpl-add">+ Додати</button>
+    </div>
+    <p class="small muted">Текстові блоки, що використовуються в повідомленнях.</p>
+    <div class="list" id="templates-list"></div>
+
+    <div class="sec-head">
+      <h2>Автоматизації</h2>
+      <button class="btn" type="button" id="auto-add">+ Додати</button>
+    </div>
+    <p class="small muted">Реакції на події: надсилання повідомлень або оновлення статусу.</p>
+    <div class="list" id="automations-list"></div>
   </div>
   <div class="card" id="remote-card">
     <h2>Віддалена підтримка</h2>
@@ -427,6 +475,18 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
     </div>
     <div class="msg" id="pw-msg"></div>
   </div>
+  <div class="card" id="clock-card">
+    <h2>Час та часовий пояс</h2>
+    <div class="list" style="margin-bottom:calc(var(--du)*3)">
+      <div class="item"><span class="k">Поточний час</span><span class="v" id="clock-now">—</span></div>
+    </div>
+    <label class="cap" for="clock-tz">Рядок POSIX TZ (за замовчуванням Київ <code>EET-2EEST,M3.5.0/3,M10.5.0/4</code>)</label>
+    <div class="field" data-field id="clock-field">
+      <input id="clock-tz" placeholder="EET-2EEST,M3.5.0/3,M10.5.0/4" autocomplete="off" spellcheck="false">
+      <button class="btn" type="button" id="clock-save">Зберегти</button>
+    </div>
+    <div class="msg" id="clock-msg"></div>
+  </div>
   <div class="card" id="ota-card">
     <h2>Прошивка</h2>
     <div class="list" style="margin-bottom:calc(var(--du)*3)">
@@ -451,34 +511,122 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
   </div>
 </section>
 
-<!-- One message text: its preview, the template with its values, saved on its own -->
+<!-- One template editor -->
 <section id="s-text">
   <div class="card">
-    <h2 id="t-title"></h2>
-    <p class="small muted" id="t-when"></p>
+    <h2 id="t-title">Шаблон</h2>
+    <label class="cap" for="t-name">Назва шаблону (1–15 символів: a-z, 0-9, _)</label>
+    <div class="field" data-field id="t-name-field"><input id="t-name" maxlength="15" pattern="[a-z0-9_]{1,15}" autocomplete="off" spellcheck="false"></div>
     <label class="cap">Так виглядатиме в Telegram</label>
     <div class="preview" id="t-preview"></div>
     <label class="cap" for="t-area">Текст</label>
-    <div class="code" id="t-code"><pre class="hl" id="t-hl" aria-hidden="true"></pre><textarea id="t-area" maxlength="256" rows="3" spellcheck="false"></textarea></div>
+    <div class="code" id="t-code"><pre class="hl" id="t-hl" aria-hidden="true"></pre><textarea id="t-area" maxlength="256" rows="4" spellcheck="false"></textarea></div>
     <div class="count" id="t-count"></div>
-    <div class="hidden" id="t-every-row">
-      <label class="cap" for="t-every">Повторювати кожні, хв (1–1440)</label>
-      <div class="field" data-field id="t-every-field"><input id="t-every" type="number" min="1" max="1440" inputmode="numeric"></div>
-    </div>
     <div class="actions">
       <button class="btn" type="button" id="t-save">Зберегти</button>
-      <button class="btn" type="button" id="t-standard">Стандартний текст</button>
+      <button class="btn danger hidden" type="button" id="t-delete">Видалити</button>
     </div>
     <div class="msg" id="t-msg"></div>
   </div>
   <div class="card">
-    <h2>Змінні</h2>
-    <p class="small muted">Натисніть змінну, щоб вставити її в текст там, де стоїть курсор.</p>
+    <h2>Значення та шаблони для вставки</h2>
+    <p class="small muted">Торкніться значення або шаблону, щоб вставити його в текст.</p>
     <div class="list" id="t-vars"></div>
     <details class="help">
-      <summary>Як працюють умови</summary>
-      <div id="t-help"></div>
+      <summary>Синтаксис шаблонів</summary>
+      <div>
+        <p><code>{value}</code> — значення датчика або 🤷‍♂️, якщо невідоме.</p>
+        <p><code>{value?текст}</code> — показує текст лише тоді, коли значення відоме.</p>
+        <p><code>{!value?текст}</code> — показує текст, коли значення немає.</p>
+        <p><code>{value=on?текст}</code> або <code>{value!=on?текст}</code> — перевірка рівності.</p>
+        <p><code>{value&lt;20?текст}</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code> — порівняння чисел.</p>
+        <p><code>{@template}</code> — вставляє інший шаблон (наприклад <code>{@battery}</code>).</p>
+        <p><code>\n</code> або Enter — новий рядок.</p>
+      </div>
     </details>
+  </div>
+</section>
+
+<!-- Automation editor -->
+<section id="s-automation">
+  <div class="card">
+    <h2 id="a-title">Автоматизація</h2>
+
+    <label class="cap" for="a-on">Коли (тригер)</label>
+    <div class="field" data-field id="a-on-field">
+      <select id="a-on">
+        <option value="start">запуск</option>
+        <option value="change">будь-яка зміна</option>
+        <option value="becomes">зміна на значення</option>
+        <option value="step">крок</option>
+        <option value="below">нижче порога</option>
+        <option value="above">вище порога</option>
+        <option value="at">о часі</option>
+        <option value="every">кожні N секунд поки умови</option>
+      </select>
+    </div>
+
+    <div id="a-sensor-row">
+      <label class="cap" for="a-sensor">Датчик (значення)</label>
+      <div class="field" data-field id="a-sensor-field">
+        <select id="a-sensor"></select>
+      </div>
+    </div>
+
+    <div id="a-param-value" class="hidden">
+      <label class="cap" for="a-val">Значення (наприклад on або off)</label>
+      <div class="field" data-field><input id="a-val" autocomplete="off"></div>
+    </div>
+    <div id="a-param-step" class="hidden">
+      <label class="cap" for="a-step">Крок зміни (число)</label>
+      <div class="field" data-field><input id="a-step" type="number" step="any" inputmode="decimal"></div>
+    </div>
+    <div id="a-param-threshold" class="hidden">
+      <label class="cap" for="a-thresh">Поріг (число)</label>
+      <div class="field" data-field><input id="a-thresh" type="number" step="any" inputmode="decimal"></div>
+      <label class="cap" for="a-hyst">Гістерезис (число)</label>
+      <div class="field" data-field><input id="a-hyst" type="number" step="any" inputmode="decimal" value="0"></div>
+    </div>
+    <div id="a-param-at" class="hidden">
+      <label class="cap" for="a-at">Час (ГГ:ХХ)</label>
+      <div class="field" data-field><input id="a-at" placeholder="14:30" pattern="[0-2][0-9]:[0-5][0-9]"></div>
+    </div>
+    <div id="a-param-every" class="hidden">
+      <label class="cap" for="a-every">Інтервал, секунд</label>
+      <div class="field" data-field><input id="a-every" type="number" min="1" inputmode="numeric"></div>
+    </div>
+
+    <label class="cap">Якщо (умови)</label>
+    <div id="a-conditions" style="display:flex;flex-direction:column;gap:calc(var(--du)*2);margin-bottom:calc(var(--du)*2)"></div>
+    <button class="btn" type="button" id="a-cond-add">+ Додати умову</button>
+
+    <label class="cap" for="a-do" style="margin-top:calc(var(--du)*3)">Дія</label>
+    <div class="field" data-field id="a-do-field">
+      <select id="a-do">
+        <option value="send">Нове повідомлення</option>
+        <option value="status">Оновити статус</option>
+      </select>
+    </div>
+
+    <div id="a-text-section">
+      <label class="cap">Так виглядатиме в Telegram</label>
+      <div class="preview" id="a-preview"></div>
+      <label class="cap" for="a-area">Текст повідомлення</label>
+      <div class="code" id="a-code"><pre class="hl" id="a-hl" aria-hidden="true"></pre><textarea id="a-area" maxlength="256" rows="3" spellcheck="false"></textarea></div>
+      <div class="count" id="a-count"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" type="button" id="a-save">Зберегти</button>
+      <button class="btn danger hidden" type="button" id="a-delete">Видалити</button>
+    </div>
+    <div class="msg" id="a-msg"></div>
+  </div>
+
+  <div class="card" id="a-vars-card">
+    <h2>Значення та шаблони для вставки</h2>
+    <p class="small muted">Торкніться значення або шаблону, щоб вставити його в текст повідомлення.</p>
+    <div class="list" id="a-vars"></div>
   </div>
 </section>
 
@@ -536,26 +684,19 @@ dialog .actions{margin-top:calc(var(--du)*4);border-top:calc(var(--du)*.25) soli
 "use strict";
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-/* [key, title, when it is sent] */
-const TEXTS = [
-  ["start_present", "Запуск, світло є", "Коли пристрій увімкнувся, а світло є."],
-  ["start_absent", "Запуск, світла немає", "Коли пристрій увімкнувся, а світла немає."],
-  ["lost", "Світло зникло", "Щойно зникло світло."],
-  ["returned", "Світло з'явилось", "Щойно з'явилось світло."],
-  ["still_off", "Світла все ще немає", "Поки світла немає, через заданий проміжок часу."],
-  ["address", "Нова адреса панелі", "Коли роутер дав пристрою нову адресу."],
-  ["test", "Тестове повідомлення", "За кнопкою «Тестове повідомлення» і при виборі чату. Не вимикається: ним перевіряється бот."],
-];
 /* What each value is; the device says which a text may use. */
 const VARS = {
   device: "назва пристрою",
-  duration: "скільки тривав попередній стан (у «Світла все ще немає» — скільки вже немає світла); невідомо після ввімкнення",
-  delay: "на скільки запізнилось повідомлення; є лише коли понад хвилину",
-  ip: "нова адреса панелі",
+  mains: "мережа 220 В (on / off)",
+  ip: "IP-адреса панелі",
   battery_voltage: "напруга акумулятора через дільник, В",
   bms_soc: "заряд за BMS, %",
   bms_voltage: "напруга за BMS, В",
   bms_energy: "енергія в батареї за BMS, кВт·год",
+  bms_current: "струм за BMS, А",
+  bms_power: "потужність за BMS, Вт",
+  time: "поточний час (ГГ:ХХ)",
+  date: "поточна дата (ДД.ММ.РРРР)",
 };
 let state = null, view = null, picked = null, verifiedToken = null, messagesFilled = false, joining = false;
 
@@ -770,15 +911,16 @@ async function copyText(text) {
 $("back").append(icon("back"));
 function show(name) {
   view = name;
-  ["login", "wifi", "move", "bot", "dashboard", "bms", "text"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
-  const step = {login: 0, wifi: 1, move: 2, bot: 2, dashboard: 3, bms: 3, text: 3}[name];
+  ["login", "wifi", "move", "bot", "dashboard", "bms", "text", "automation"].forEach(s => $("s-" + s).classList.toggle("on", s === name));
+  const step = {login: 0, wifi: 1, move: 2, bot: 2, dashboard: 3, bms: 3, text: 3, automation: 3}[name];
   [...$("progress").children].forEach((bar, i) => bar.classList.toggle("lit", i < step));
   const configured = state && state.stage === "dashboard";
-  $("back").classList.toggle("hidden", !(configured && ["wifi", "bot", "bms", "text"].includes(name)));
+  $("back").classList.toggle("hidden", !(configured && ["wifi", "bot", "bms", "text", "automation"].includes(name)));
   window.scrollTo(0, 0);
   if (name === "wifi") refreshNetworks();
   if (name === "bot") refreshChats();
   if (name === "bms") refreshBms();
+  if (name === "dashboard") { refreshTexts(); refreshClock(); }
 }
 
 document.addEventListener("click", e => {
@@ -1052,122 +1194,221 @@ actionButton($("test-btn"), async () => {
   say("test-msg", "Тестове повідомлення надіслано.", "ok");
 }, {msg: "test-msg"});
 
-let savedMessages = {};
 function fillMessages(messages) {
   messagesFilled = true;
-  savedMessages = {device_name: String(messages.device_name), still_off_every: String(messages.still_off_every)};
-  for (const [key] of TEXTS) savedMessages[key] = String(messages[key] ?? "");
-  $("m-device_name").value = messages.device_name;
-  renderTexts();
+  $("m-device_name").value = messages.device_name || "";
+  refreshTexts();
+  refreshClock();
 }
 
-/* The list of texts, each with the start of its preview. */
-function renderTexts() {
-  $("texts").replaceChildren(...TEXTS.map(([key, title]) => {
-    const line = el("span", {class: "s"});
-    const off = !savedMessages[key].trim();
-    const row = el("button", {type: "button", class: "item two"},
-      el("span", {class: "txt"}, el("span", {class: "t"}, title), line),
-      off ? el("span", {class: "tag"}, "вимкнено") : el("span", {class: "trail"}, "›"));
-    row.onclick = () => openText(key);
-    ripple(row);
-    if (off) line.textContent = "не надсилається";
-    else previewInto(key, savedMessages[key], $("m-device_name").value, shown => { line.textContent = shown.split("\n")[0]; });
-    return row;
-  }));
-}
-
-/* The device renders a preview by its own rules with the values measured now.
-   Asked one at a time, so the list does not flood the device. */
-let previews = Promise.resolve();
-function previewInto(key, text, device, done, failed) {
-  previews = previews.then(() => api("/api/messages/preview?" + new URLSearchParams({device_name: device, text: key}), text)
-    .then(done, e => failed?.(e.message)));
-}
+actionButton($("status-test"), async () => {
+  say("status-msg", "");
+  await api("/api/test", {});
+  say("status-msg", "Тестове повідомлення надіслано.", "ok");
+}, {msg: "status-msg"});
 
 actionButton($("device-save"), async () => {
-  const name = $("m-device_name").value;
+  const name = $("m-device_name").value.trim();
   await api("/api/messages?" + new URLSearchParams({field: "device_name"}), name);
-  savedMessages.device_name = name.trim();
-  renderTexts();
+  state.messages.device_name = name;
+  renderHeader();
+  say("device-msg", "Збережено.", "ok");
 }, {msg: "device-msg", frame: fields["device-field"]});
 
-/* ---------- one text ---------- */
-let editing = null;
-const about = {};
-
-async function openText(key) {
-  editing = key;
-  const [, title, when] = TEXTS.find(([k]) => k === key);
-  $("t-title").textContent = title;
-  $("t-when").textContent = when;
-  $("t-area").value = savedMessages[key];
-  $("t-every-row").classList.toggle("hidden", key !== "still_off");
-  $("t-every").value = savedMessages.still_off_every;
-  say("t-msg", "");
-  show("text");
+let textsData = null;
+async function refreshTexts() {
   try {
-    about[key] ??= await api("/api/messages/about?" + new URLSearchParams({field: key}), "");
+    textsData = await api("/api/texts");
+    renderTexts();
   } catch (e) {
-    say("t-msg", e.message, "err");
-    return;
+    say("status-msg", e.message, "err");
   }
-  if (editing !== key) return;
-  renderVars(about[key].variables);
-  renderHelp(key, about[key].variables);
-  textChanged();
 }
 
-function renderVars(names) {
-  $("t-vars").replaceChildren(...names.map(name => {
+async function refreshClock() {
+  try {
+    const clk = await api("/api/clock");
+    renderClock(clk);
+  } catch (e) {
+    say("clock-msg", e.message, "err");
+  }
+}
+
+function renderClock(clk) {
+  $("clock-now").textContent = clk.time ? `${clk.time} · ${clk.date || ""}` : "не встановлено";
+  if (document.activeElement !== $("clock-tz")) $("clock-tz").value = clk.tz || "";
+}
+
+actionButton($("clock-save"), async () => {
+  say("clock-msg", "");
+  const tz = $("clock-tz").value.trim();
+  await api("/api/clock", {tz});
+  say("clock-msg", "Збережено.", "ok");
+  refreshClock();
+}, {msg: "clock-msg", frame: fields["clock-field"]});
+
+let previews = Promise.resolve();
+function previewInto(text, done, failed) {
+  previews = previews.then(() => api("/api/template/preview", text)
+    .then(r => done(r.text), e => (failed ? failed(e.message) : done(e.message))));
+}
+
+function updateStatusHint() {
+  const s = parseInt($("status-every").value, 10);
+  $("status-every-hint").textContent = s >= 10 ? " (" + (s < 60 ? s + " с" : s < 3600 ? Math.round(s / 60) + " хв" : (s / 3600).toFixed(1) + " год") + ")" : "";
+}
+$("status-every").addEventListener("input", updateStatusHint);
+
+function renderTexts() {
+  if (!textsData) return;
+  // Status
+  const st = textsData.status;
+  if (document.activeElement !== $("status-every")) $("status-every").value = st.every;
+  updateStatusHint();
+  $("status-bottom").checked = Boolean(st.bottom);
+  $("imp-mains").checked = (st.important || []).includes("mains");
+  const stTmpl = (textsData.templates || []).find(t => t.name === "status");
+  if (stTmpl) previewInto(stTmpl.text, shown => { $("status-preview").textContent = shown; });
+
+  // Templates
+  const tmpls = textsData.templates || [];
+  $("tmpl-add").disabled = tmpls.length >= (textsData.max_templates || 32);
+  $("templates-list").replaceChildren(...tmpls.map(t => {
+    const sub = el("span", {class: "s"}, "…");
+    previewInto(t.text, shown => { sub.textContent = shown.split("\n")[0]; });
     const row = el("button", {type: "button", class: "item two"},
-      el("span", {class: "txt"}, el("span", {class: "t"}, el("code", {}, "{" + name + "}")), el("span", {class: "s"}, VARS[name] || "")));
-    row.onclick = () => insert("{" + name + "}");
+      el("span", {class: "txt"}, el("span", {class: "t"}, t.name), sub),
+      el("span", {class: "trail"}, "›"));
+    row.onclick = () => openTemplate(t.name);
     ripple(row);
     return row;
   }));
+
+  // Automations
+  const autos = textsData.automations || [];
+  $("auto-add").disabled = autos.length >= (textsData.max_automations || 16);
+  $("automations-list").replaceChildren(...(autos.length ? autos.map((a, i) => {
+    const [title, subText] = automationSummary(a);
+    const row = el("button", {type: "button", class: "item two"},
+      el("span", {class: "txt"}, el("span", {class: "t"}, title), el("span", {class: "s"}, subText)),
+      el("span", {class: "trail"}, "›"));
+    row.onclick = () => openAutomation(i);
+    ripple(row);
+    return row;
+  }) : [el("div", {class: "empty"}, "Немає автоматизацій")]));
 }
 
-/* Examples with a value this text has: its own one, else the battery's. */
-function renderHelp(key, names) {
-  const own = names.find(n => ["duration", "delay", "ip"].includes(n)) || "bms_soc";
-  const ex = (...parts) => el("p", {}, ...parts.map(p => p.startsWith("{") || p === "\\n" ? el("code", {}, p) : p));
-  $("t-help").replaceChildren(
-    ex("Змінна в дужках, ", "{" + own + "}", ", замінюється значенням. Якщо значення невідоме, буде 🤷‍♂️."),
-    ex("Умова ", "{" + own + "?текст}", " показує текст лише тоді, коли значення відоме, — разом зі змінною всередині: ",
-      "{" + own + "?Було {" + own + "}.}"),
-    ex("З ", "!", " навпаки: ", "{!bms_soc?…}", " показується, коли значення немає. Так стандартні тексти показують напругу з дільника, якщо BMS не відповіла."),
-    ex("Новий рядок — це Enter або ", "\\n", ", наприклад ", "{" + own + "?\\nБуло {" + own + "}.}"),
-    ex(key === "test" ? "Тестове повідомлення не може бути порожнім." : "Порожній текст вимикає це повідомлення."));
+function automationSummary(a) {
+  const SENSORS = { mains: "мережа", battery_voltage: "напруга батареї", bms_soc: "заряд BMS", time: "час" };
+  const sName = s => SENSORS[s] || s;
+  let when = "Коли ";
+  switch (a.on) {
+    case "start": when += "пристрій запускається"; break;
+    case "change": when += "змінюється " + sName(a.sensor); break;
+    case "becomes": when += sName(a.sensor) + " стає " + a.value; break;
+    case "step": when += sName(a.sensor) + " змінюється на крок " + a.step; break;
+    case "below": when += sName(a.sensor) + " < " + a.threshold; break;
+    case "above": when += sName(a.sensor) + " > " + a.threshold; break;
+    case "at": when += "час " + a.at; break;
+    case "every": when += "кожні " + a.every + " с"; break;
+    default: when += a.on;
+  }
+  if (a.if && a.if.length) when += ", якщо " + a.if.join(", ");
+  const act = a.do === "status" ? "оновлення статусу" : "повідомлення: " + a.text.split("\n")[0];
+  return [when, act];
 }
 
-/* Puts `text` at the caret; through execCommand so Ctrl+Z undoes it. */
-function insert(text) {
-  const area = $("t-area");
+actionButton($("status-save"), async () => {
+  say("status-msg", "");
+  const every = parseInt($("status-every").value, 10);
+  if (isNaN(every) || every < 10 || every > 86400) throw new Error("Період оновлення — від 10 до 86400 с");
+  const bottom = $("status-bottom").checked ? "1" : "0";
+  const important = $("imp-mains").checked ? "mains" : "";
+  await api("/api/status", {every: String(every), bottom, important});
+  say("status-msg", "Збережено.", "ok");
+  await refreshTexts();
+}, {msg: "status-msg", frame: fields["status-every-field"]});
+
+/* ---------- template editor (s-text) ---------- */
+let editingTemplate = null;
+
+function openTemplate(name) {
+  editingTemplate = name;
+  say("t-msg", "");
+  const isNew = !name;
+  $("t-title").textContent = isNew ? "Новий шаблон" : "Шаблон · " + name;
+  $("t-name").value = name || "";
+  $("t-name").readOnly = !isNew;
+  $("t-name-field").classList.toggle("disabled", !isNew);
+  $("t-delete").classList.toggle("hidden", isNew);
+  const tmpl = isNew ? null : (textsData?.templates || []).find(t => t.name === name);
+  $("t-area").value = tmpl ? tmpl.text : "";
+  renderInsertList($("t-vars"), t => insertInto($("t-area"), t, templateChanged));
+  show("text");
+  templateChanged();
+}
+$("tmpl-add").onclick = () => openTemplate(null);
+
+function insertInto(area, text, cb) {
   area.focus();
   if (!document.execCommand("insertText", false, text)) area.setRangeText(text, area.selectionStart, area.selectionEnd, "end");
-  textChanged();
+  cb();
 }
 
-/* Variables, sections and line breaks in colour; a name this text does not
-   have is underlined as an error. */
-function highlight(text, names) {
+function renderInsertList(container, onInsert) {
+  const items = [];
+  const vals = textsData?.values || [];
+  vals.forEach(v => {
+    const row = el("button", {type: "button", class: "item two"},
+      el("span", {class: "txt"}, el("span", {class: "t"}, el("code", {}, "{" + v + "}")), el("span", {class: "s"}, VARS[v] || "")));
+    row.onclick = () => onInsert("{" + v + "}");
+    ripple(row);
+    items.push(row);
+  });
+  const tmpls = (textsData?.templates || []).map(t => t.name);
+  tmpls.forEach(t => {
+    const row = el("button", {type: "button", class: "item two"},
+      el("span", {class: "txt"}, el("span", {class: "t"}, el("code", {}, "{@" + t + "}")), el("span", {class: "s"}, "шаблон")));
+    row.onclick = () => onInsert("{@" + t + "}");
+    ripple(row);
+    items.push(row);
+  });
+  container.replaceChildren(...items);
+}
+
+function highlight(text, values = [], templates = []) {
   const out = [];
   let plain = "", depth = 0;
   const put = (cls, part) => { if (plain) out.push(plain); plain = ""; out.push(el("span", {class: cls}, part)); };
   for (let i = 0; i < text.length;) {
-    const m = /^\{(!?)([a-z_]+)([?}])/.exec(text.slice(i, i + 40));
-    if (m) {
-      put(names.includes(m[2]) ? (m[3] === "?" ? "c" : "v") : "x", m[0]);
-      if (m[3] === "?") depth++;
-      i += m[0].length;
+    if (text.startsWith("\\n", i)) {
+      put("e", "\\n"); i += 2;
     } else if (text[i] === "}" && depth) {
-      put("c", "}");
-      depth--;
-      i++;
-    } else if (text.startsWith("\\n", i)) {
-      put("e", "\\n");
-      i += 2;
+      put("c", "}"); depth--; i++;
+    } else if (text[i] === "{") {
+      const call = /^\{@([a-z0-9_]{1,15})\}/.exec(text.slice(i, i + 30));
+      if (call) {
+        put(templates.includes(call[1]) ? "v" : "x", call[0]);
+        i += call[0].length;
+        continue;
+      }
+      const cond = /^\{(!?)([a-z_]+)(?:(!=|<=|>=|[=<>])([^?}]+))?\?/.exec(text.slice(i, i + 60));
+      if (cond) {
+        const [, , vname, op, rhs] = cond;
+        let ok = values.includes(vname);
+        if (op && ["<", "<=", ">", ">="].includes(op) && isNaN(parseFloat(rhs))) ok = false;
+        put(ok ? "c" : "x", cond[0]);
+        depth++;
+        i += cond[0].length;
+        continue;
+      }
+      const val = /^\{([a-z_]+)\}/.exec(text.slice(i, i + 30));
+      if (val) {
+        put(values.includes(val[1]) ? "v" : "x", val[0]);
+        i += val[0].length;
+        continue;
+      }
+      plain += text[i++];
     } else plain += text[i++];
   }
   out.push(plain + "\n");
@@ -1176,53 +1417,174 @@ function highlight(text, names) {
 
 const PREVIEW_DELAY_MS = 300;
 let previewTimer, previewAsked = 0;
-function textChanged() {
-  const key = editing, area = $("t-area"), text = area.value;
-  $("t-hl").replaceChildren(...highlight(text, about[key]?.variables || []));
+function handleEditorInput(area, hl, countNode, previewNode) {
+  const text = area.value;
+  const vals = textsData?.values || [];
+  const tmpls = (textsData?.templates || []).map(t => t.name);
+  hl.replaceChildren(...highlight(text, vals, tmpls));
   area.style.height = "auto";
   area.style.height = area.scrollHeight + "px";
   const count = [...text].length;
-  $("t-count").textContent = count + " / 256";
-  $("t-count").className = "count" + (count >= 256 ? " full" : count >= 230 ? " warn" : "");
+  countNode.textContent = count + " / 256";
+  countNode.className = "count" + (count >= 256 ? " full" : count >= 230 ? " warn" : "");
   clearTimeout(previewTimer);
-  const node = $("t-preview"), mine = ++previewAsked;
+  const mine = ++previewAsked;
   if (!text.trim()) {
-    node.classList.remove("bad");
-    node.textContent = key === "test" ? "Тестове повідомлення не може бути порожнім." : "Порожній текст: це повідомлення не надсилатиметься.";
+    previewNode.classList.remove("bad");
+    previewNode.textContent = "(порожній текст)";
     return;
   }
-  previewTimer = setTimeout(() => previewInto(key, text, savedMessages.device_name, shown => {
-    if (mine !== previewAsked) return;
-    node.classList.remove("bad");
-    node.textContent = shown;
-  }, error => {
-    if (mine !== previewAsked) return;
-    node.classList.add("bad");
-    node.textContent = error;
-  }), PREVIEW_DELAY_MS);
+  previewTimer = setTimeout(() => {
+    api("/api/template/preview", text).then(res => {
+      if (mine !== previewAsked) return;
+      previewNode.classList.remove("bad");
+      previewNode.textContent = res.text;
+    }, err => {
+      if (mine !== previewAsked) return;
+      previewNode.classList.add("bad");
+      previewNode.textContent = err.message;
+    });
+  }, PREVIEW_DELAY_MS);
 }
-$("t-area").addEventListener("input", textChanged);
 
-actionButton($("t-standard"), async () => {
-  const area = $("t-area");
-  area.focus();
-  area.select();
-  insert(about[editing].standard);
-}, {ring: false});
+function templateChanged() {
+  handleEditorInput($("t-area"), $("t-hl"), $("t-count"), $("t-preview"));
+}
+$("t-area").addEventListener("input", templateChanged);
 
 actionButton($("t-save"), async () => {
-  const key = editing, text = $("t-area").value, every = $("t-every").value;
-  if (key === "still_off" && every !== savedMessages.still_off_every) {
-    await api("/api/messages?" + new URLSearchParams({field: "still_off_every"}), every);
-    savedMessages.still_off_every = every;
-  }
-  if (text !== savedMessages[key]) {
-    await api("/api/messages?" + new URLSearchParams({field: key}), text);
-    savedMessages[key] = text;
-  }
+  say("t-msg", "");
+  const name = $("t-name").value.trim();
+  if (!/^[a-z0-9_]{1,15}$/.test(name)) throw new Error("Назва шаблону — латинські літери a-z, 0-9 та _, до 15 символів");
+  const text = $("t-area").value;
+  await api("/api/template?" + new URLSearchParams({name}), text);
   say("t-msg", "Збережено.", "ok");
-  renderTexts();
-}, {msg: "t-msg"});
+  await refreshTexts();
+  openTemplate(name);
+}, {msg: "t-msg", frame: fields["t-name-field"]});
+
+actionButton($("t-delete"), async () => {
+  say("t-msg", "");
+  const name = $("t-name").value.trim();
+  await api("/api/template/delete?" + new URLSearchParams({name}), "");
+  await refreshTexts();
+  show("dashboard");
+}, {msg: "t-msg", danger: true});
+
+/* ---------- automation editor (s-automation) ---------- */
+let editingAutomation = null;
+
+function updateAutoParams() {
+  const on = $("a-on").value;
+  const needsSensor = ["change", "becomes", "step", "below", "above"].includes(on);
+  $("a-sensor-row").classList.toggle("hidden", !needsSensor);
+  $("a-param-value").classList.toggle("hidden", on !== "becomes");
+  $("a-param-step").classList.toggle("hidden", on !== "step");
+  $("a-param-threshold").classList.toggle("hidden", on !== "below" && on !== "above");
+  $("a-param-at").classList.toggle("hidden", on !== "at");
+  $("a-param-every").classList.toggle("hidden", on !== "every");
+  const isSend = $("a-do").value === "send";
+  $("a-text-section").classList.toggle("hidden", !isSend);
+  $("a-vars-card").classList.toggle("hidden", !isSend);
+}
+$("a-on").addEventListener("change", updateAutoParams);
+$("a-do").addEventListener("change", updateAutoParams);
+
+function addCondition(val = "") {
+  const row = el("div", {class: "cond-row"});
+  const f = el("div", {class: "field", "data-field": ""});
+  const input = el("input", {value: val, placeholder: "mains=off", spellcheck: "false"});
+  f.append(input);
+  textField(f);
+  const del = el("button", {type: "button", class: "btn"}, "✕");
+  del.onclick = () => row.remove();
+  row.append(f, del);
+  $("a-conditions").append(row);
+}
+$("a-cond-add").onclick = () => addCondition("");
+
+function autoChanged() {
+  handleEditorInput($("a-area"), $("a-hl"), $("a-count"), $("a-preview"));
+}
+$("a-area").addEventListener("input", autoChanged);
+
+function openAutomation(index) {
+  editingAutomation = index;
+  say("a-msg", "");
+  const isNew = index === null;
+  $("a-title").textContent = isNew ? "Нова автоматизація" : "Автоматизація #" + (index + 1);
+  $("a-delete").classList.toggle("hidden", isNew);
+  const vals = textsData?.values || [];
+  $("a-sensor").replaceChildren(...vals.map(v => el("option", {value: v}, (VARS[v] ? v + " — " + VARS[v] : v))));
+  $("a-conditions").replaceChildren();
+  if (!isNew) {
+    const a = textsData.automations[index];
+    $("a-on").value = a.on;
+    if (a.sensor) $("a-sensor").value = a.sensor;
+    $("a-val").value = a.value || "";
+    $("a-step").value = a.step != null ? a.step : "";
+    $("a-thresh").value = a.threshold != null ? a.threshold : "";
+    $("a-hyst").value = a.hysteresis != null ? a.hysteresis : "0";
+    $("a-at").value = a.at || "14:30";
+    $("a-every").value = a.every != null ? a.every : "60";
+    $("a-do").value = a.do || "send";
+    $("a-area").value = a.text || "";
+    (a.if || []).forEach(c => addCondition(c));
+  } else {
+    $("a-on").value = "change";
+    $("a-sensor").value = vals.includes("mains") ? "mains" : (vals[0] || "");
+    $("a-val").value = "off";
+    $("a-step").value = "5";
+    $("a-thresh").value = "20";
+    $("a-hyst").value = "2";
+    $("a-at").value = "14:30";
+    $("a-every").value = "60";
+    $("a-do").value = "send";
+    $("a-area").value = "";
+  }
+  updateAutoParams();
+  renderInsertList($("a-vars"), t => insertInto($("a-area"), t, autoChanged));
+  show("automation");
+  autoChanged();
+}
+$("auto-add").onclick = () => openAutomation(null);
+
+actionButton($("a-save"), async () => {
+  say("a-msg", "");
+  const on = $("a-on").value;
+  const params = new URLSearchParams();
+  params.set("on", on);
+  if (["change", "becomes", "step", "below", "above"].includes(on)) {
+    params.set("sensor", $("a-sensor").value);
+  }
+  if (on === "becomes") params.set("value", $("a-val").value);
+  if (on === "step") params.set("step", $("a-step").value);
+  if (on === "below" || on === "above") {
+    params.set("threshold", $("a-thresh").value);
+    params.set("hysteresis", $("a-hyst").value || "0");
+  }
+  if (on === "at") params.set("at", $("a-at").value);
+  if (on === "every") params.set("every", $("a-every").value);
+  const conds = [...$("a-conditions").querySelectorAll("input")].map(i => i.value.trim()).filter(Boolean);
+  conds.forEach(c => params.append("if", c));
+  const act = $("a-do").value;
+  params.set("do", act);
+  params.set("text", act === "send" ? $("a-area").value : "");
+  const path = "/api/automation" + (editingAutomation !== null ? "?index=" + editingAutomation : "");
+  await api(path, params.toString());
+  say("a-msg", "Збережено.", "ok");
+  await refreshTexts();
+  show("dashboard");
+}, {msg: "a-msg"});
+
+actionButton($("a-delete"), async () => {
+  say("a-msg", "");
+  if (editingAutomation !== null) {
+    await api("/api/automation/delete?index=" + editingAutomation, "");
+    await refreshTexts();
+    show("dashboard");
+  }
+}, {msg: "a-msg", danger: true});
 
 /* ---------- battery (JK BMS) ---------- */
 const BMS_VARS = [["bms_soc", "Заряд", "%"], ["bms_voltage", "Напруга", "В"], ["bms_energy", "Енергія в батареї", "кВт·год"]];
@@ -1518,6 +1880,7 @@ setInterval(() => { if (!joining) refreshState(); }, 3000);
 setInterval(refreshNetworks, 5000);
 setInterval(refreshChats, 4000);
 setInterval(refreshBms, 3000);
+setInterval(() => { if (!joining && view === "dashboard") { refreshTexts(); refreshClock(); } }, 5000);
 </script>
 </body>
 </html>

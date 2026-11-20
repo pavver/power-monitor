@@ -6,7 +6,7 @@ use std::sync::Arc;
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::gpio::{Input, InputPin, PinDriver, Pull};
 use power_core::message::Notice;
-use power_core::power::{classify_window, Detector, PowerState};
+use power_core::power::{Detector, PowerState};
 
 use crate::status::{now_ms, Status};
 
@@ -33,8 +33,7 @@ pub fn spawn(
     crate::tasks::spawn("sensor", 4096, move || {
         loop {
             let started_ms = now_ms();
-            let low_samples = count_low_samples(&input);
-            if let Some(event) = detector.observe(classify_window(low_samples), started_ms) {
+            if let Some(event) = detector.observe(window(&input), started_ms) {
                 log::info!("power {:?}", event.state);
                 status.set_power(event.state, event.began_ms());
                 // Nobody listens until the bot is configured; that is fine.
@@ -45,6 +44,31 @@ pub fn spawn(
     Ok(())
 }
 
+#[cfg(not(mock_mains))]
+fn window(input: &PinDriver<'_, Input>) -> PowerState {
+    power_core::power::classify_window(count_low_samples(input))
+}
+
+/// What a mock build's page set, held for one window's time.
+#[cfg(mock_mains)]
+fn window(_input: &PinDriver<'_, Input>) -> PowerState {
+    FreeRtos::delay_ms(WINDOW_SAMPLES);
+    if mock::PRESENT.load(std::sync::atomic::Ordering::Relaxed) {
+        PowerState::Present
+    } else {
+        PowerState::Absent
+    }
+}
+
+#[cfg(mock_mains)]
+pub mod mock {
+    use std::sync::atomic::AtomicBool;
+
+    /// The mains state a mock build pretends to see.
+    pub static PRESENT: AtomicBool = AtomicBool::new(true);
+}
+
+#[cfg_attr(mock_mains, allow(dead_code))]
 fn count_low_samples(input: &PinDriver<'_, Input>) -> u32 {
     (0..WINDOW_SAMPLES)
         .filter(|_| {

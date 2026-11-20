@@ -30,6 +30,17 @@ fn main() {
     gzip_page();
     stamp_version();
     check_built_in_divider();
+    mock_mains();
+}
+
+/// `MOCK_MAINS=1`: a bare board with no optocoupler; the page sets the
+/// mains state (POST /api/mock/mains) so messages can be tried out.
+fn mock_mains() {
+    println!("cargo::rustc-check-cfg=cfg(mock_mains)");
+    println!("cargo:rerun-if-env-changed=MOCK_MAINS");
+    if env::var("MOCK_MAINS").is_ok_and(|value| value == "1") {
+        println!("cargo::rustc-cfg=mock_mains");
+    }
 }
 
 /// A wrong built-in divider stops the build, not the device.
