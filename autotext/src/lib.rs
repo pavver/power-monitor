@@ -4,4 +4,5 @@
 //! minimal heap allocation, predictable memory, conditional sections (`{name?text}`,
 //! `{!name?text}`), and placeholders (`{name}`).
 
+pub mod status;
 pub mod template;
