@@ -30,7 +30,7 @@ pub fn spawn(
         }
         None => Detector::new(CONFIRM_WINDOWS),
     };
-    crate::tasks::spawn("sensor", 4096, move || {
+    crate::tasks::spawn("sensor", 3 * 1024, move || {
         loop {
             let started_ms = now_ms();
             if let Some(event) = detector.observe(window(&input), started_ms) {

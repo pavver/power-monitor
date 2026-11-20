@@ -40,7 +40,7 @@ pub fn spawn(
     kept: Option<PowerState>,
 ) -> anyhow::Result<()> {
     // TLS handshakes need a large stack.
-    crate::tasks::spawn("notifier", 12 * 1024, move || {
+    crate::tasks::spawn("notifier", 7 * 1024, move || {
         let mut notifier = Notifier::new(settings, status, bms, voltmeter, kept);
         loop {
             notifier.tick(&notices);

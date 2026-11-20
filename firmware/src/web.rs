@@ -28,7 +28,7 @@ use crate::status::Status;
 use crate::voltmeter::Voltmeter;
 
 /// The HTTP server task's stack, in bytes.
-pub const STACK: usize = 14 * 1024;
+pub const STACK: usize = 8 * 1024;
 
 /// ui/index.html, gzipped at build time (see build.rs).
 const PAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/index.html.gz"));
