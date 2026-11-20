@@ -8,12 +8,12 @@ use esp_idf_svc::http::server::EspHttpServer;
 use power_core::api::Link;
 use power_core::auth::{expired_cookie, NewPassword, PasswordHash};
 use power_core::form;
-use power_core::message::{preview, test_text, Readings};
+use power_core::message::{preview, Readings};
 use power_core::remote::RemoteSettings;
 use power_core::settings::{Battery, Bot, Divider, WifiCredentials};
 
 use super::{
-    deny, get, json, json_text, login, planned_restart, post, post_text, read_body, respond, restart_soon, system_view,
+    accept, deny, get, json, json_text, login, planned_restart, post, post_text, read_body, respond, restart_soon, system_view,
     token,
     Answer, Auth, MAX_FORM,
 };
@@ -41,15 +41,29 @@ pub(super) struct Device {
 }
 
 impl Device {
-    /// Sends the test message to `bot`, with the battery as it is now.
+    /// Sends the test message to `bot`, with the battery and status as it is now.
     fn send_test(&self, bot: &Bot) -> Result<(), String> {
-        let reading = self.bms.recent_reading(BMS_MAX_AGE);
-        let readings = Readings {
-            bms: reading.as_ref(),
+        let status_tpl = self.settings.template("status").unwrap_or_default();
+        let device_name = self.settings.with_messages(|m| m.device_name().to_string());
+        let last_ip = self.settings.last_ip();
+        let bms_reading = if self.settings.battery().is_some() {
+            self.bms.recent_reading(BMS_MAX_AGE)
+        } else {
+            None
+        };
+        let snap = power_core::texts::Snapshot {
+            device: &device_name,
+            mains: self.status.power(),
+            ip: last_ip.as_deref(),
             voltage_mv: self.voltmeter.battery_mv(),
+            bms: bms_reading.as_ref(),
             local: crate::clock::local(),
         };
-        telegram::send(bot, &self.settings.with_messages(|messages| test_text(messages, readings))).map(|_| ())
+        let v = power_core::texts::values(&snap);
+        let mut status_rendered = String::new();
+        let _ = autotext::template::render_with(&status_tpl, &v.as_slice(), &*self.settings, &mut status_rendered);
+        let text = format!("🔔 Тестове повідомлення\n\n{status_rendered}");
+        telegram::send(bot, &text).map(|_| ())
     }
 }
 
@@ -133,6 +147,187 @@ pub(super) fn bot(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> any
         dev.send_test(&bot)?;
         json(&"sent")
     })
+}
+
+fn automation_view(a: &autotext::automation::Automation) -> serde_json::Value {
+    use autotext::automation::{Action, Trigger};
+    let form = power_core::texts::automation_to_form(a);
+    let mut obj = serde_json::Map::new();
+    obj.insert("form".to_string(), serde_json::Value::String(form));
+    match &a.trigger {
+        Trigger::StartUp => {
+            obj.insert("on".to_string(), serde_json::Value::String("start".to_string()));
+        }
+        Trigger::Change { sensor } => {
+            obj.insert("on".to_string(), serde_json::Value::String("change".to_string()));
+            obj.insert("sensor".to_string(), serde_json::Value::String(sensor.clone()));
+        }
+        Trigger::Becomes { sensor, value } => {
+            obj.insert("on".to_string(), serde_json::Value::String("becomes".to_string()));
+            obj.insert("sensor".to_string(), serde_json::Value::String(sensor.clone()));
+            obj.insert("value".to_string(), serde_json::Value::String(value.clone()));
+        }
+        Trigger::Step { sensor, step } => {
+            obj.insert("on".to_string(), serde_json::Value::String("step".to_string()));
+            obj.insert("sensor".to_string(), serde_json::Value::String(sensor.clone()));
+            obj.insert("step".to_string(), serde_json::json!(step));
+        }
+        Trigger::Below { sensor, threshold, hysteresis } => {
+            obj.insert("on".to_string(), serde_json::Value::String("below".to_string()));
+            obj.insert("sensor".to_string(), serde_json::Value::String(sensor.clone()));
+            obj.insert("threshold".to_string(), serde_json::json!(threshold));
+            obj.insert("hysteresis".to_string(), serde_json::json!(hysteresis));
+        }
+        Trigger::Above { sensor, threshold, hysteresis } => {
+            obj.insert("on".to_string(), serde_json::Value::String("above".to_string()));
+            obj.insert("sensor".to_string(), serde_json::Value::String(sensor.clone()));
+            obj.insert("threshold".to_string(), serde_json::json!(threshold));
+            obj.insert("hysteresis".to_string(), serde_json::json!(hysteresis));
+        }
+        Trigger::At { minute } => {
+            obj.insert("on".to_string(), serde_json::Value::String("at".to_string()));
+            obj.insert("at".to_string(), serde_json::Value::String(format!("{:02}:{:02}", minute / 60, minute % 60)));
+        }
+        Trigger::Every { seconds } => {
+            obj.insert("on".to_string(), serde_json::Value::String("every".to_string()));
+            obj.insert("every".to_string(), serde_json::json!(seconds));
+        }
+    }
+    obj.insert("if".to_string(), serde_json::json!(a.conditions));
+    let do_str = match a.action {
+        Action::Send => "send",
+        Action::UpdateStatus => "status",
+    };
+    obj.insert("do".to_string(), serde_json::Value::String(do_str.to_string()));
+    obj.insert("text".to_string(), serde_json::Value::String(a.text.clone()));
+    serde_json::Value::Object(obj)
+}
+
+/// Templates, automations, and live status policy.
+pub(super) fn texts(server: &mut Server, auth: &Arc<Auth>, d: &Arc<Device>) -> anyhow::Result<()> {
+    let dev = d.clone();
+    get(server, auth, "/api/texts", move || {
+        let tmpl_names = dev.settings.templates();
+        let mut templates = Vec::with_capacity(tmpl_names.len());
+        for name in &tmpl_names {
+            let text = dev.settings.template(name).unwrap_or_default();
+            templates.push(serde_json::json!({ "name": name, "text": text }));
+        }
+
+        let autos = dev.settings.automations();
+        let automations: Vec<serde_json::Value> = autos.iter().map(automation_view).collect();
+
+        let cfg = dev.settings.status_config();
+        let status = serde_json::json!({
+            "every": cfg.every_ms / 1000,
+            "important": cfg.important,
+            "bottom": cfg.keep_at_bottom,
+        });
+
+        json(&serde_json::json!({
+            "values": power_core::texts::NAMES,
+            "templates": templates,
+            "automations": automations,
+            "status": status,
+            "max_templates": power_core::texts::MAX_TEMPLATES,
+            "max_automations": autotext::automation::MAX_AUTOMATIONS,
+        }))
+    })?;
+
+    let dev = d.clone();
+    accept(server, auth, "/api/template", autotext::template::MAX_BYTES, Box::new(move |query, body| {
+        let pairs = form::parse(query);
+        let name = form::field(&pairs, "name");
+        if name.is_empty() {
+            return Err("Вкажіть назву шаблону.".to_string());
+        }
+        dev.settings.save_template(name, body)
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        json(&"saved")
+    }))?;
+
+    let dev = d.clone();
+    accept(server, auth, "/api/template/delete", autotext::template::MAX_BYTES, Box::new(move |query, _| {
+        let pairs = form::parse(query);
+        let name = form::field(&pairs, "name");
+        if name.is_empty() {
+            return Err("Вкажіть назву шаблону.".to_string());
+        }
+        dev.settings.delete_template(name)
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        json(&"deleted")
+    }))?;
+
+    let dev = d.clone();
+    accept(server, auth, "/api/template/preview", autotext::template::MAX_BYTES, Box::new(move |_, body| {
+        autotext::template::validate(
+            body,
+            &|var| if power_core::texts::known(var) { None } else { Some(autotext::template::TemplateError::Unknown) },
+            &|tmpl| dev.settings.has_template(tmpl),
+        ).map_err(|e| power_core::texts::TextsError::Template(e).to_string())?;
+
+        autotext::library::check_calls("", body, &*dev.settings)
+            .map_err(|e| power_core::texts::TextsError::Call(e).to_string())?;
+
+        let device_name = dev.settings.with_messages(|m| m.device_name().to_string());
+        let last_ip = dev.settings.last_ip();
+        let bms_reading = if dev.settings.battery().is_some() {
+            dev.bms.recent_reading(BMS_MAX_AGE)
+        } else {
+            None
+        };
+        let snap = power_core::texts::Snapshot {
+            device: &device_name,
+            mains: dev.status.power(),
+            ip: last_ip.as_deref(),
+            voltage_mv: dev.voltmeter.battery_mv(),
+            bms: bms_reading.as_ref(),
+            local: crate::clock::local(),
+        };
+        let v = power_core::texts::values(&snap);
+        let mut out = String::new();
+        autotext::template::render_with(body, &v.as_slice(), &*dev.settings, &mut out)
+            .map_err(|e| e.to_string())?;
+        json(&serde_json::json!({ "text": out }))
+    }))?;
+
+    let dev = d.clone();
+    accept(server, auth, "/api/automation", MAX_FORM, Box::new(move |query, body| {
+        let pairs = form::parse(query);
+        let index_str = form::field(&pairs, "index");
+        let index = if index_str.is_empty() {
+            None
+        } else {
+            Some(index_str.parse::<usize>().map_err(|_| "Некоректний індекс.".to_string())?)
+        };
+        dev.settings.save_automation(index, body)
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        json(&"saved")
+    }))?;
+
+    let dev = d.clone();
+    accept(server, auth, "/api/automation/delete", MAX_FORM, Box::new(move |query, _| {
+        let pairs = form::parse(query);
+        let index_str = form::field(&pairs, "index");
+        let index = index_str.parse::<usize>().map_err(|_| "Некоректний індекс.".to_string())?;
+        dev.settings.delete_automation(index)
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        json(&"deleted")
+    }))?;
+
+    let dev = d.clone();
+    post(server, auth, "/api/status", move |body| {
+        dev.settings.save_status_config(body)
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        json(&"saved")
+    })?;
+
+    Ok(())
 }
 
 /// The BMS and the voltage divider.

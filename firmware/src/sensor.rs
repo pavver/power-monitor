@@ -1,5 +1,4 @@
-//! Samples the optocoupler once per millisecond and feeds the detector;
-//! while the power stays off, reminds of it.
+//! Samples the optocoupler once per millisecond and feeds the detector.
 
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -8,9 +7,7 @@ use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::hal::gpio::{Input, InputPin, PinDriver, Pull};
 use power_core::message::Notice;
 use power_core::power::{classify_window, Detector, PowerState};
-use power_core::reminder::Reminder;
 
-use crate::settings::Settings;
 use crate::status::{now_ms, Status};
 
 /// Samples per window, one per FreeRTOS tick (1 ms, see sdkconfig.defaults).
@@ -22,7 +19,6 @@ pub fn spawn(
     pin: impl InputPin + 'static,
     notices: Sender<Notice>,
     status: Arc<Status>,
-    settings: Arc<Settings>,
     kept: Option<PowerState>,
 ) -> anyhow::Result<()> {
     let input = PinDriver::input(pin, Pull::Up)?;
@@ -34,7 +30,6 @@ pub fn spawn(
         }
         None => Detector::new(CONFIRM_WINDOWS),
     };
-    let mut reminder = Reminder::resume(kept, now_ms());
     crate::tasks::spawn("sensor", 4096, move || {
         loop {
             let started_ms = now_ms();
@@ -42,12 +37,8 @@ pub fn spawn(
             if let Some(event) = detector.observe(classify_window(low_samples), started_ms) {
                 log::info!("power {:?}", event.state);
                 status.set_power(event.state, event.began_ms());
-                reminder.changed(&event);
                 // Nobody listens until the bot is configured; that is fine.
                 let _ = notices.send(Notice::Power(event));
-            }
-            if let Some(off) = reminder.due(now_ms(), settings.still_off_every_ms()) {
-                let _ = notices.send(Notice::StillOff(off));
             }
         }
     })?;

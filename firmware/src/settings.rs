@@ -3,8 +3,13 @@
 //! password, BMS, divider, remote support: the web server; the remote
 //! identity: the remote thread, once.
 
+mod texts;
+
+use std::sync::atomic::AtomicU32;
 use std::sync::{Mutex, RwLock};
 
+use autotext::automation::Automation;
+use autotext::status::StatusConfig;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use power_core::api::{self, Stage};
 use power_core::auth::PasswordHash;
@@ -12,6 +17,7 @@ use power_core::clock::TimeZone;
 use power_core::power::PowerState;
 use power_core::remote::{Identity, RemoteSettings};
 use power_core::settings::{Battery, Bot, Divider, Messages, SettingsError, WifiCredentials};
+use power_core::texts::Templates;
 
 const NAMESPACE: &str = "monitor";
 /// One key per `Messages::fields`, each text in its own value: NVS caps one
@@ -37,8 +43,10 @@ const BUILT_IN_SERVER: Option<&str> = option_env!("REMOTE_SERVER");
 const BUILT_IN_DIVIDER: [Option<&str>; 2] = [option_env!("DIVIDER_TOP_OHM"), option_env!("DIVIDER_BOTTOM_OHM")];
 
 pub struct Settings {
-    nvs: Mutex<EspNvs<NvsDefault>>,
-    texts: Mutex<EspNvs<NvsDefault>>,
+    pub(super) nvs: Mutex<EspNvs<NvsDefault>>,
+    pub(super) texts: Mutex<EspNvs<NvsDefault>>,
+    pub(super) tpl: Mutex<EspNvs<NvsDefault>>,
+    pub(super) auto: Mutex<EspNvs<NvsDefault>>,
     wifi: RwLock<Option<WifiCredentials>>,
     bot: RwLock<Option<Bot>>,
     messages: RwLock<Messages>,
@@ -48,13 +56,20 @@ pub struct Settings {
     divider: RwLock<Option<Divider>>,
     time_zone: RwLock<TimeZone>,
     remote: RwLock<RemoteSettings>,
+    pub(super) templates: RwLock<Templates>,
+    pub(super) automations: RwLock<Vec<Automation>>,
+    pub(super) auto_generation: AtomicU32,
+    pub(super) status_config: RwLock<StatusConfig>,
 }
 
 impl Settings {
     /// Loads what is stored; a part that is missing or no longer valid counts as unset.
     pub fn load(partition: EspDefaultNvsPartition) -> anyhow::Result<Self> {
         let nvs = EspNvs::new(partition.clone(), NAMESPACE, true)?;
-        let texts = EspNvs::new(partition, TEXTS_NAMESPACE, true)?;
+        let texts = EspNvs::new(partition.clone(), TEXTS_NAMESPACE, true)?;
+        let tpl = EspNvs::new(partition.clone(), "tpl", true)?;
+        let auto = EspNvs::new(partition, "auto", true)?;
+        let (templates, automations, status_config) = Self::load_texts(&tpl, &auto, &nvs)?;
         let wifi = read(&nvs, WIFI, WifiCredentials::from_form);
         let bot = read(&nvs, BOT, Bot::from_form);
         let messages = Messages::from_stored(|key| read(&texts, key, |s| Ok::<_, ()>(s.to_string())));
@@ -68,6 +83,8 @@ impl Settings {
         Ok(Self {
             nvs: Mutex::new(nvs),
             texts: Mutex::new(texts),
+            tpl: Mutex::new(tpl),
+            auto: Mutex::new(auto),
             wifi: RwLock::new(wifi),
             bot: RwLock::new(bot),
             messages: RwLock::new(messages),
@@ -77,6 +94,10 @@ impl Settings {
             divider: RwLock::new(divider),
             time_zone: RwLock::new(time_zone),
             remote: RwLock::new(remote),
+            templates: RwLock::new(templates),
+            automations: RwLock::new(automations),
+            auto_generation: AtomicU32::new(0),
+            status_config: RwLock::new(status_config),
         })
     }
 
@@ -96,10 +117,6 @@ impl Settings {
     /// Runs `use_them` on the texts as they are, without copying them all.
     pub fn with_messages<T>(&self, use_them: impl FnOnce(&Messages) -> T) -> T {
         use_them(&self.messages.read().unwrap())
-    }
-
-    pub fn still_off_every_ms(&self) -> u64 {
-        self.messages.read().unwrap().still_off_every_ms()
     }
 
     pub fn save_wifi(&self, wifi: WifiCredentials) -> anyhow::Result<()> {
@@ -259,16 +276,18 @@ impl Settings {
     pub fn factory_reset(&self) -> anyhow::Result<()> {
         self.nvs.lock().unwrap().erase_all()?;
         self.texts.lock().unwrap().erase_all()?;
+        self.tpl.lock().unwrap().erase_all()?;
+        self.auto.lock().unwrap().erase_all()?;
         Ok(())
     }
 
-    fn write(&self, key: &str, value: &str) -> anyhow::Result<()> {
+    pub(super) fn write(&self, key: &str, value: &str) -> anyhow::Result<()> {
         self.nvs.lock().unwrap().set_str(key, value)?;
         Ok(())
     }
 }
 
-fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, E>) -> Option<T> {
+pub(super) fn read<T, E>(nvs: &EspNvs<NvsDefault>, key: &str, parse: fn(&str) -> Result<T, E>) -> Option<T> {
     // Exactly as big as the value, with its terminating zero.
     let mut buf = vec![0u8; nvs.str_len(key).ok().flatten()?];
     let stored = nvs.get_str(key, &mut buf).ok().flatten()?;

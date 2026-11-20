@@ -1088,6 +1088,7 @@ name = "power-monitor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "autotext",
  "embedded-svc",
  "embuild",
  "esp-idf-svc",

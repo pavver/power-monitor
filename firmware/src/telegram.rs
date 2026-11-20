@@ -4,6 +4,7 @@
 
 use std::fmt;
 use std::io::BufReader;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use embedded_svc::http::client::{Client, Response};
@@ -18,6 +19,14 @@ pub use power_core::telegram::Outcome;
 const PIECE: usize = 256;
 
 type HttpClient = Client<EspHttpConnection>;
+
+/// Messages sent so far, by anyone: the notifier sees from it that a test
+/// message from the page pushed the live status up.
+static SENT: AtomicU32 = AtomicU32::new(0);
+
+pub fn sent_count() -> u32 {
+    SENT.load(Ordering::Relaxed)
+}
 
 pub fn send(bot: &Bot, text: &str) -> Result<i64, String> {
     send_to(bot.token(), bot.destination(), text)
@@ -39,6 +48,7 @@ pub fn send_to_with(
 ) -> Result<i64, String> {
     let body = |out: &mut dyn fmt::Write| telegram::write_send_message_with(to, &write_text, &mut Dyn(out));
     let reply = post(&telegram::send_message_url(token), body)?;
+    SENT.fetch_add(1, Ordering::Relaxed);
     telegram::message_id(&reply)
 }
 

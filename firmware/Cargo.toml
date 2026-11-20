@@ -25,6 +25,7 @@ embedded-svc = "0.29"
 serde = "1"
 serde_json = "1"
 esp-idf-svc = "0.53"
+autotext = { path = "../autotext" }
 power-core = { path = "../power-core" }
 esp32-nimble = "0.13"
 

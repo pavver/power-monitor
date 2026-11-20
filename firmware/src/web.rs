@@ -41,15 +41,15 @@ const FAILED_LOGIN_DELAY: Duration = Duration::from_secs(1);
 type Req<'a, 'b> = Request<&'a mut EspHttpConnection<'b>>;
 
 /// A JSON body, optionally with a cookie to set.
-struct Answer {
+pub(super) struct Answer {
     body: String,
     cookie: Option<String>,
 }
 
 /// An answer, or a message for the user shown with status 400.
-type Reply = Result<Answer, String>;
+pub(super) type Reply = Result<Answer, String>;
 
-struct Auth {
+pub(super) struct Auth {
     settings: Arc<Settings>,
     sessions: Mutex<Sessions>,
 }
@@ -77,7 +77,7 @@ pub fn start(
         uri_match_wildcard: true,
         // Bot setup runs TLS handshakes inside handlers.
         stack_size: 14 * 1024,
-        max_uri_handlers: 30,
+        max_uri_handlers: 48,
         // Phones open several connections at once while probing the portal.
         max_open_sockets: 7,
         ..Default::default()
@@ -99,6 +99,7 @@ pub fn start(
     let device = Arc::new(routes::Device { settings, status, network, bms, voltmeter, remote });
     routes::setup(&mut server, &auth, &device)?;
     routes::bot(&mut server, &auth, &device)?;
+    routes::texts(&mut server, &auth, &device)?;
     routes::battery(&mut server, &auth, &device)?;
     routes::remote(&mut server, &auth, &device)?;
     routes::clock(&mut server, &auth, &device)?;
@@ -180,7 +181,7 @@ where
     accept(server, auth, uri, template::MAX_BYTES, Box::new(handler))
 }
 
-fn accept(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, limit: usize, handler: Handler) -> anyhow::Result<()> {
+pub(super) fn accept(server: &mut EspHttpServer<'static>, auth: &Arc<Auth>, uri: &str, limit: usize, handler: Handler) -> anyhow::Result<()> {
     let auth = auth.clone();
     server.fn_handler::<anyhow::Error, _>(uri, Method::Post, move |mut req| {
         if !auth.allows(req.header("Cookie")) {
