@@ -665,6 +665,10 @@ const VARS = {
   time: "поточний час (ГГ:ХХ)",
   date: "поточна дата (ДД.ММ.РРРР)",
 };
+// The unit of each measured value, as the pages show it next to the number.
+const UNITS = {battery_voltage: "В", bms_soc: "%", bms_voltage: "В", bms_energy: "кВт·год", bms_current: "А", bms_power: "Вт"};
+// Only a number gets one: "шум" or "—" stay as they are.
+const withUnit = (name, value) => value + (UNITS[name] && isFinite(parseFloat(value)) ? " " + UNITS[name] : "");
 let state = null, view = null, picked = null, verifiedToken = null, messagesFilled = false, joining = false;
 
 function el(tag, attrs, ...children) {
@@ -1644,7 +1648,7 @@ function renderImportant() {
   }));
   // The clock and the name change on their own or never: not sensors.
   const rest = (textsData?.values || []).filter(n => !important.includes(n) && !["device", "time", "date"].includes(n));
-  $("imp-pick").replaceChildren(new Option("Додати датчик…", ""), ...rest.map(name => new Option(sensorLabel(name), name)));
+  $("imp-pick").replaceChildren(new Option("Додати датчик…", ""), ...rest.map(name => new Option(name, name)));
 }
 /* Pickers of values show what each value is now. */
 async function showCurrentValues(select) {
@@ -1653,7 +1657,7 @@ async function showCurrentValues(select) {
   [...select.options].forEach(option => {
     if (!option.value) return;
     const value = now[option.value];
-    option.dataset.detail = value == null ? "немає" : value;
+    option.dataset.detail = value == null ? "немає" : withUnit(option.value, value);
   });
 }
 ["imp-pick", "a-sensor"].forEach(id => $(id).addEventListener("dropdown-open", () => showCurrentValues($(id))));
@@ -1867,7 +1871,7 @@ function openAutomation(index) {
   $("a-title").textContent = isNew ? "Нова автоматизація" : "Автоматизація #" + (index + 1);
   $("a-delete").classList.toggle("hidden", isNew);
   const vals = textsData?.values || [];
-  $("a-sensor").replaceChildren(...vals.map(v => el("option", {value: v}, (VARS[v] ? v + " — " + VARS[v] : v))));
+  $("a-sensor").replaceChildren(...vals.map(v => el("option", {value: v}, v)));
   $("a-conditions").replaceChildren();
   if (!isNew) {
     const a = textsData.automations[index];
@@ -1941,7 +1945,7 @@ actionButton($("a-delete"), async () => {
 }, {msg: "a-msg", danger: true});
 
 /* ---------- battery (JK BMS) ---------- */
-const BMS_VARS = [["bms_soc", "Заряд", "%"], ["bms_voltage", "Напруга", "В"], ["bms_energy", "Енергія в батареї", "кВт·год"]];
+const BMS_VARS = [["bms_soc", "Заряд"], ["bms_voltage", "Напруга"], ["bms_energy", "Енергія в батареї"]];
 
 /* Only this screen asks for the values: each request keeps the link up a little longer. */
 let bms = null, divider = null;
@@ -1974,7 +1978,7 @@ function renderBms() {
     $("bms-badge").className = "badge big " + ({connected: "online", failed: "error"}[bms.link] || "pending");
     $("bms-head").textContent = r ? r.values.bms_soc + "% · " + r.values.bms_voltage + " В" : "—";
     $("bms-sub").textContent = bmsLinkText();
-    $("bms-values").replaceChildren(...(r ? BMS_VARS.map(([name, label, unit]) => bmsValueRow(name, label, unit, r.values[name])) : []));
+    $("bms-values").replaceChildren(...(r ? BMS_VARS.map(([name, label]) => bmsValueRow(name, label, r.values[name])) : []));
     const d = bms.device;
     $("bms-device").textContent = d ? d.model + " · hardware " + d.hardware + " · software " + d.software : "";
   }
@@ -2002,7 +2006,7 @@ function renderDivider() {
   const on = divider && divider.divider;
   $("divider-value").classList.toggle("hidden", !on);
   $("divider-noise").classList.toggle("hidden", !(on && divider.noisy));
-  if (on) $("divider-value").replaceChildren(bmsValueRow("battery_voltage", "Напруга акумулятора", "В",
+  if (on) $("divider-value").replaceChildren(bmsValueRow("battery_voltage", "Напруга акумулятора",
     divider.noisy ? "шум" : divider.voltage_mv == null ? "—" : volts(divider.voltage_mv)));
 }
 
@@ -2016,7 +2020,7 @@ actionButton($("divider-btn"), async () => {
 
 /* A tap copies the row's template variable. */
 let copiedVar = null;
-function bmsValueRow(name, label, unit, value) {
+function bmsValueRow(name, label, value) {
   const variable = "{" + name + "}";
   const copied = copiedVar === variable;
   const note = copied ? el("span", {class: "op-c-success copied"}, opIcon("check", 3.5), variable + " скопійовано") : variable;
@@ -2026,7 +2030,7 @@ function bmsValueRow(name, label, unit, value) {
     renderBms();
     setTimeout(() => { if (copiedVar === variable) { copiedVar = null; renderBms(); } }, 1500);
   };
-  return opListItem({title: label, subtitle: note, trailing: value == null ? "—" : value + (unit ? " " + unit : ""), onClick: copy, attrs: {title: "Скопіювати " + variable}});
+  return opListItem({title: label, subtitle: note, trailing: value == null ? "—" : withUnit(name, value), onClick: copy, attrs: {title: "Скопіювати " + variable}});
 }
 
 let choosingBms = false;

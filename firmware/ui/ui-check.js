@@ -136,7 +136,7 @@ function route(page, dev) {
     }
     if (url.pathname === "/api/texts") return json(dev.texts);
     if (url.pathname === "/api/values") {
-      return json(Object.fromEntries(dev.texts.values.map(n => [n, n === "mains" ? "on" : n === "bms_soc" ? "85" : null])));
+      return json(Object.fromEntries(dev.texts.values.map(n => [n, n === "mains" ? "on" : n === "bms_soc" ? "85" : n === "bms_energy" ? "4.28" : null])));
     }
     if (url.pathname === "/api/template") {
       const name = url.searchParams.get("name");
@@ -399,7 +399,7 @@ async function runMessages() {
   await page.click("#imp-pick + .op-dropdown-anchor .op-dropdown-trigger");
   await page.waitForFunction(() => [...document.querySelectorAll(".op-dropdown-item")].some(i => i.textContent.endsWith(")")));
   const details = await page.$$eval(".op-dropdown-item", items => items.map(i => i.textContent));
-  if (!details.some(d => d.includes("bms_soc") && d.endsWith("(85)"))) throw new Error("no current value in the picker: " + details);
+  if (!details.includes("bms_soc (85 %)") || !details.includes("bms_energy (4.28 кВт·год)")) throw new Error("no current value in the picker: " + details);
   const scroller = ".op-dropdown-menu .op-scroll-contain";
   const listBox = await page.$eval(scroller, n => { const r = n.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2, scrollable: n.scrollHeight > n.clientHeight}; });
   await page.mouse.move(listBox.x, listBox.y);
