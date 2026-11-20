@@ -70,11 +70,11 @@ fn parse_number(s: &str) -> Result<f64, TemplateError> {
     }
 }
 
-fn parse_finite(s: &str) -> Option<f64> {
+pub(crate) fn parse_finite(s: &str) -> Option<f64> {
     s.parse::<f64>().ok().filter(|n| n.is_finite())
 }
 
-fn eq_values(val: &str, rhs: &str) -> bool {
+pub(crate) fn eq_values(val: &str, rhs: &str) -> bool {
     match (parse_finite(val), parse_finite(rhs)) {
         (Some(a), Some(b)) => a == b,
         _ => val == rhs,
